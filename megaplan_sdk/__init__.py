@@ -10,6 +10,14 @@ from megaplan_sdk.exceptions import (
     ServerError,
     ValidationError,
 )
+from megaplan_sdk.helpers import (
+    make_contractor_entity,
+    make_deal_entity,
+    make_employee_entity,
+    make_entity,
+    make_project_entity,
+    make_task_entity,
+)
 from megaplan_sdk.logging_config import setup_logging
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.common import DateTime
@@ -47,6 +55,13 @@ __all__ = [
     "DateTime",
     # Utils
     "setup_logging",
+    # Helpers
+    "make_entity",
+    "make_employee_entity",
+    "make_project_entity",
+    "make_task_entity",
+    "make_deal_entity",
+    "make_contractor_entity",
 ]
 
 __version__ = "0.1.0"

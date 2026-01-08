@@ -1380,37 +1380,6 @@ async def test_employees(client: MegaplanClient):
             input("\nНажмите Enter...")
 
 
-async def test_files(client: MegaplanClient):
-    """Test Files resource."""
-    while True:
-        print_menu(
-            "Files (Файлы)",
-            [
-                ("1", "Загрузить файл"),
-            ],
-        )
-
-        choice = input("Выберите действие: ").strip()
-
-        if choice == "0":
-            break
-        elif choice == "1":
-            file_path = input("Путь к файлу: ").strip()
-            if file_path and Path(file_path).exists():
-                try:
-                    print(f"\n⏳ Загрузка файла {file_path}...")
-                    uploaded_file = await client.files.upload(file_path)
-                    print("\n✅ Файл загружен!")
-                    print(f"  ID: {uploaded_file.id}")
-                    print(f"  Имя: {uploaded_file.name}")
-                    print(f"  Размер: {uploaded_file.size} bytes")
-                except Exception as e:
-                    print(f"\n❌ Ошибка: {e}")
-            else:
-                print("\n❌ Файл не найден")
-            input("\nНажмите Enter...")
-
-
 async def main_menu(client: MegaplanClient):
     """Main menu."""
     while True:
@@ -1424,7 +1393,6 @@ async def main_menu(client: MegaplanClient):
                 ("4", "Comments (Комментарии)"),
                 ("5", "Contractors (Контрагенты)"),
                 ("6", "Employees (Сотрудники)"),
-                ("7", "Files (Файлы)"),
             ],
         )
         print("  [c] 📊 Статистика кэша пользователей")
@@ -1466,8 +1434,6 @@ async def main_menu(client: MegaplanClient):
             await test_contractors(client)
         elif choice == "6":
             await test_employees(client)
-        elif choice == "7":
-            await test_files(client)
         else:
             print("\n❌ Неверный выбор")
             input("Нажмите Enter...")

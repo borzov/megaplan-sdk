@@ -64,15 +64,37 @@ class TasksResource(BaseResource, FullDetailsMixin):
             default_history_limit=default_history_limit,
         )
 
-    async def create(self, task_data: dict[str, Any]) -> Task:
+    async def create(
+        self, task_data: dict[str, Any], auto_fill_required: bool = True
+    ) -> Task:
         """Create a new task.
 
         Args:
             task_data: Task data dictionary.
+            auto_fill_required: Automatically fill required fields if not provided.
+                Default: True. Sets isUrgent=False and isTemplate=False if not specified.
 
         Returns:
             Created task.
+
+        Examples:
+            >>> # Minimal task creation (auto-fills required fields)
+            >>> task = await client.tasks.create({"name": "New task"})
+            >>>
+            >>> # With explicit required fields
+            >>> task = await client.tasks.create({
+            ...     "name": "New task",
+            ...     "isUrgent": True,
+            ...     "isTemplate": False
+            ... })
         """
+        # Auto-fill required fields if not provided
+        if auto_fill_required:
+            if "isUrgent" not in task_data:
+                task_data["isUrgent"] = False
+            if "isTemplate" not in task_data:
+                task_data["isTemplate"] = False
+
         return await self._create_entity("task", task_data, Task)
 
     @overload
@@ -451,7 +473,12 @@ class TasksResource(BaseResource, FullDetailsMixin):
         """
         extra_fields = {}
         if work is not None:
-            extra_fields["work"] = work
+            # API expects workTime as DateInterval with seconds
+            # Convert hours to seconds
+            extra_fields["workTime"] = {
+                "contentType": "DateInterval",
+                "seconds": int(work * 3600),  # Convert hours to seconds
+            }
 
         return await self._create_entity_comment(
             "task",
@@ -460,6 +487,123 @@ class TasksResource(BaseResource, FullDetailsMixin):
             attaches,
             **extra_fields,
         )
+
+    async def create_simple(
+        self,
+        name: str,
+        responsible_id: int | None = None,
+        subject: str | None = None,
+        employees_resource: Any | None = None,
+    ) -> Task:
+        """Create a task with minimal required parameters.
+
+        Automatically fills required fields (isUrgent, isTemplate) and optionally
+        determines responsible from current user if not provided.
+
+        Args:
+            name: Task name (required).
+            responsible_id: Responsible employee ID. If None and employees_resource
+                is provided, uses current user.
+            subject: Task description/subject.
+            employees_resource: EmployeesResource instance for auto-detecting current user.
+                If provided and responsible_id is None, will use current user as responsible.
+
+        Returns:
+            Created task.
+
+        Examples:
+            >>> # Simple task with current user as responsible
+            >>> task = await client.tasks.create_simple(
+            ...     "New task",
+            ...     employees_resource=client.employees
+            ... )
+            >>>
+            >>> # Simple task with specific responsible
+            >>> task = await client.tasks.create_simple(
+            ...     "New task",
+            ...     responsible_id=123
+            ... )
+        """
+        task_data: dict[str, Any] = {
+            "name": name,
+            "isUrgent": False,
+            "isTemplate": False,
+        }
+
+        if subject:
+            task_data["subject"] = subject
+
+        # Auto-determine responsible from current user if not provided
+        if responsible_id is None and employees_resource:
+            try:
+                current_user = await employees_resource.get_current()
+                responsible_id = current_user.id
+            except Exception:
+                # If we can't get current user, skip responsible
+                # API will return error if required
+                pass
+
+        if responsible_id:
+            task_data["responsible"] = {"contentType": "Employee", "id": responsible_id}
+
+        return await self.create(task_data, auto_fill_required=False)
+
+    async def create_in_project(
+        self,
+        name: str,
+        project_id: int,
+        responsible_id: int | None = None,
+        subject: str | None = None,
+        employees_resource: Any | None = None,
+    ) -> Task:
+        """Create a task inside a project.
+
+        Automatically sets parent relationship to project and updates task after creation
+        to establish the link (as required by Megaplan API).
+
+        Args:
+            name: Task name (required).
+            project_id: Project ID to create task in.
+            responsible_id: Responsible employee ID. If None and employees_resource
+                is provided, uses current user.
+            subject: Task description/subject.
+            employees_resource: EmployeesResource instance for auto-detecting current user.
+                If provided and responsible_id is None, will use current user as responsible.
+
+        Returns:
+            Created task (linked to project).
+
+        Examples:
+            >>> # Create task in project with current user as responsible
+            >>> task = await client.tasks.create_in_project(
+            ...     "Task in project",
+            ...     project_id=456,
+            ...     employees_resource=client.employees
+            ... )
+            >>>
+            >>> # Create task in project with specific responsible
+            >>> task = await client.tasks.create_in_project(
+            ...     "Task in project",
+            ...     project_id=456,
+            ...     responsible_id=123
+            ... )
+        """
+        # Create task first
+        task = await self.create_simple(
+            name=name,
+            responsible_id=responsible_id,
+            subject=subject,
+            employees_resource=employees_resource,
+        )
+
+        # Update task to set parent relationship (required by API)
+        # Note: parent must be set via update, not create
+        update_data = {
+            "parent": {"contentType": "Project", "id": project_id},
+        }
+        task = await self.update(task.id, update_data)
+
+        return task
 
     async def get_auditors(
         self,

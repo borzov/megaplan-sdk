@@ -12,7 +12,6 @@ from megaplan_sdk.resources.contractors import ContractorsResource
 from megaplan_sdk.resources.deals import DealsResource
 from megaplan_sdk.resources.departments import DepartmentsResource
 from megaplan_sdk.resources.employees import EmployeesResource
-from megaplan_sdk.resources.files import FileResource
 from megaplan_sdk.resources.projects import ProjectsResource
 from megaplan_sdk.resources.tasks import TasksResource
 
@@ -110,7 +109,6 @@ class MegaplanClient:
             default_comments_limit=default_comments_limit,
             default_history_limit=default_history_limit,
         )
-        self.files = FileResource(self._http, cache=self._cache)
         self.comments = CommentsResource(self._http, cache=self._cache)
         self.contractors = ContractorsResource(self._http, cache=self._cache)
         self.employees = EmployeesResource(self._http, cache=self._cache)

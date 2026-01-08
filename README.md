@@ -70,6 +70,13 @@ async def main():
         task = await client.tasks.get(task_id=42)
         print(f"Детали задачи: {task.name}, Статус: {task.status}")
 
+        # Упрощенное создание задачи
+        new_task = await client.tasks.create_simple(
+            "Новая задача",
+            employees_resource=client.employees
+        )
+        print(f"Создана задача: {new_task.name}")
+
         # Получение задачи со всеми связанными данными за один вызов
         details = await client.tasks.get_full_details(
             task_id=42,
@@ -101,6 +108,27 @@ client = MegaplanClient(
     base_url="https://my.megaplan.ru",
     access_token="your_access_token"
 )
+```
+
+## Helper-функции
+
+SDK предоставляет удобные функции для создания BaseEntity объектов:
+
+```python
+from megaplan_sdk import (
+    make_employee_entity,
+    make_project_entity,
+    make_task_entity,
+    make_deal_entity,
+    make_contractor_entity,
+)
+
+# Вместо ручного создания {"contentType": "Employee", "id": 123}
+employee_ref = make_employee_entity(123)
+project_ref = make_project_entity(456)
+task_ref = make_task_entity(789)
+deal_ref = make_deal_entity(101)
+contractor_ref = make_contractor_entity(202)
 ```
 
 ## Работа с задачами
@@ -174,32 +202,58 @@ task = await client.tasks.get(task_id=42)
 
 ### Создание задачи
 
+#### Упрощенное создание (рекомендуется)
+
 ```python
-task = await client.tasks.create(task_data={
+# Простое создание задачи с автоматическим заполнением обязательных полей
+# Автоматически устанавливает isUrgent=False, isTemplate=False
+task = await client.tasks.create({"name": "Новая задача"})
+
+# Создание задачи с текущим пользователем как ответственным
+task = await client.tasks.create_simple(
+    "Новая задача",
+    employees_resource=client.employees  # Автоматически определит текущего пользователя
+)
+
+# Создание задачи с указанным ответственным
+from megaplan_sdk import make_employee_entity
+task = await client.tasks.create_simple(
+    "Новая задача",
+    responsible_id=123
+)
+
+# Создание задачи внутри проекта (автоматически устанавливает связь)
+task = await client.tasks.create_in_project(
+    "Задача в проекте",
+    project_id=456,
+    employees_resource=client.employees
+)
+```
+
+#### Полное создание (для продвинутых случаев)
+
+```python
+# Использование helper-функций для создания BaseEntity объектов
+from megaplan_sdk import make_employee_entity, make_project_entity, make_task_entity
+
+task = await client.tasks.create({
     "name": "Новая задача",                    # str: Название задачи (обязательно)
-    "responsible": {                          # BaseEntity: Ответственный
-        "contentType": "Employee",
-        "id": 1
-    },
+    "responsible": make_employee_entity(1),   # BaseEntity: Ответственный (helper)
     "deadline": "2024-12-31",                 # str: Срок выполнения
-    "description": "Описание задачи",         # str: Описание
-    "parent": {                               # BaseEntity: Родительская задача/проект
-        "contentType": "Task",
-        "id": 10
-    },
-    "project": {                              # BaseEntity: Проект
-        "contentType": "Project",
-        "id": 5
-    },
+    "subject": "Описание задачи",             # str: Описание
+    "parent": make_project_entity(5),        # BaseEntity: Родительский проект (helper)
     "priority": "high",                        # str: Приоритет
-    "tags": [                                 # list[BaseEntity]: Теги
-        {"contentType": "Tag", "id": 1}
-    ],
-    "attaches": [                             # list[BaseEntity]: Вложения
-        {"contentType": "File", "id": 100}
-    ]
+    "isUrgent": False,                         # bool: Горящая (обязательно, но можно не указывать)
+    "isTemplate": False,                       # bool: Шаблон (обязательно, но можно не указывать)
 })
 # Возвращает: Task - созданная задача
+
+# Или вручную создавать BaseEntity
+task = await client.tasks.create({
+    "name": "Новая задача",
+    "responsible": {"contentType": "Employee", "id": 1},
+    "parent": {"contentType": "Project", "id": 5},
+})
 ```
 
 ### Обновление задачи
@@ -395,19 +449,40 @@ project = await client.projects.get(project_id=5)
 
 ### Создание проекта
 
+#### Упрощенное создание (рекомендуется)
+
 ```python
-project = await client.projects.create(project_data={
+# Простое создание проекта с автоматическим заполнением обязательных полей
+# Автоматически устанавливает isTemplate=False
+project = await client.projects.create({"name": "Новый проект"})
+
+# Создание проекта с текущим пользователем как владельцем и ответственным
+project = await client.projects.create_simple(
+    "Новый проект",
+    employees_resource=client.employees  # Автоматически определит текущего пользователя
+)
+
+# Создание проекта с указанными владельцем и ответственным
+project = await client.projects.create_simple(
+    "Новый проект",
+    owner_id=123,
+    responsible_id=123
+)
+```
+
+#### Полное создание (для продвинутых случаев)
+
+```python
+# Использование helper-функций
+from megaplan_sdk import make_employee_entity
+
+project = await client.projects.create({
     "name": "Новый проект",                   # str: Название проекта (обязательно)
-    "owner": {                                # BaseEntity: Владелец
-        "contentType": "Employee",
-        "id": 1
-    },
-    "responsible": {                          # BaseEntity: Ответственный
-        "contentType": "Employee",
-        "id": 2
-    },
+    "owner": make_employee_entity(1),        # BaseEntity: Владелец (helper)
+    "responsible": make_employee_entity(2),   # BaseEntity: Ответственный (helper)
     "deadline": "2024-12-31",                 # str: Срок выполнения
-    "description": "Описание проекта"         # str: Описание
+    "description": "Описание проекта",        # str: Описание
+    "isTemplate": False,                       # bool: Шаблон (обязательно, но можно не указывать)
 })
 # Возвращает: Project - созданный проект
 ```
@@ -800,40 +875,6 @@ details = await client.deals.get_full_details(
     include_contractor_details=True
 )
 ```
-
-## Работа с файлами
-
-### Загрузка файла
-
-```python
-# Из файла на диске
-file = await client.files.upload(
-    file_path="/path/to/document.pdf",        # str | Path: Путь к файлу
-    filename=None                             # str: Имя файла (опционально, по умолчанию берется из пути)
-)
-# Возвращает: File - объект файла с id и contentType
-
-# Из байтов
-file = await client.files.upload_bytes(
-    file_bytes=b"...",                        # bytes: Содержимое файла
-    filename="document.pdf"                  # str: Имя файла
-)
-# Возвращает: File - объект файла
-
-# Использование файла в задаче или другой сущности
-task = await client.tasks.create({
-    "name": "Задача с файлом",
-    "attaches": [{"contentType": "File", "id": file.id}]
-})
-```
-
-**Поля объекта File:**
-- `id: int` - Идентификатор файла
-- `content_type: str` - Тип контента (обычно "File")
-- `path: str` - Путь к файлу
-- `mime_type: str` - MIME-тип файла
-- `name: str` - Имя файла
-- `size: int` - Размер файла в байтах
 
 ## Обработка ошибок
 

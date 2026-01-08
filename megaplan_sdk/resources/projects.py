@@ -66,16 +66,103 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             default_history_limit=default_history_limit,
         )
 
-    async def create(self, project_data: dict[str, Any]) -> Project:
+    async def create(
+        self, project_data: dict[str, Any], auto_fill_required: bool = True
+    ) -> Project:
         """Create a new project.
 
         Args:
             project_data: Project data dictionary.
+            auto_fill_required: Automatically fill required fields if not provided.
+                Default: True. Sets isTemplate=False if not specified.
 
         Returns:
             Created project.
+
+        Examples:
+            >>> # Minimal project creation (auto-fills required fields)
+            >>> project = await client.projects.create({"name": "New project"})
+            >>>
+            >>> # With explicit required fields
+            >>> project = await client.projects.create({
+            ...     "name": "New project",
+            ...     "isTemplate": False
+            ... })
         """
+        # Auto-fill required fields if not provided
+        if auto_fill_required:
+            if "isTemplate" not in project_data:
+                project_data["isTemplate"] = False
+
         return await self._create_entity("project", project_data, Project)
+
+    async def create_simple(
+        self,
+        name: str,
+        owner_id: int | None = None,
+        responsible_id: int | None = None,
+        description: str | None = None,
+        employees_resource: Any | None = None,
+    ) -> Project:
+        """Create a project with minimal required parameters.
+
+        Automatically fills required fields (isTemplate) and optionally
+        determines owner/responsible from current user if not provided.
+
+        Args:
+            name: Project name (required).
+            owner_id: Owner employee ID. If None and employees_resource
+                is provided, uses current user.
+            responsible_id: Responsible employee ID. If None and employees_resource
+                is provided, uses current user.
+            description: Project description.
+            employees_resource: EmployeesResource instance for auto-detecting current user.
+                If provided and owner_id/responsible_id are None, will use current user.
+
+        Returns:
+            Created project.
+
+        Examples:
+            >>> # Simple project with current user as owner/responsible
+            >>> project = await client.projects.create_simple(
+            ...     "New project",
+            ...     employees_resource=client.employees
+            ... )
+            >>>
+            >>> # Simple project with specific owner
+            >>> project = await client.projects.create_simple(
+            ...     "New project",
+            ...     owner_id=123,
+            ...     responsible_id=123
+            ... )
+        """
+        project_data: dict[str, Any] = {
+            "name": name,
+            "isTemplate": False,
+        }
+
+        if description:
+            project_data["description"] = description
+
+        # Auto-determine owner/responsible from current user if not provided
+        if employees_resource and (owner_id is None or responsible_id is None):
+            try:
+                current_user = await employees_resource.get_current()
+                if owner_id is None:
+                    owner_id = current_user.id
+                if responsible_id is None:
+                    responsible_id = current_user.id
+            except Exception:
+                # If we can't get current user, skip owner/responsible
+                # API will return error if required
+                pass
+
+        if owner_id:
+            project_data["owner"] = {"contentType": "Employee", "id": owner_id}
+        if responsible_id:
+            project_data["responsible"] = {"contentType": "Employee", "id": responsible_id}
+
+        return await self.create(project_data, auto_fill_required=False)
 
     @overload
     async def list(

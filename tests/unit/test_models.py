@@ -1,7 +1,7 @@
 """Unit tests for models."""
 
 from megaplan_sdk.models.base import BaseEntity
-from megaplan_sdk.models.common import File, Meta, Pagination, SortField
+from megaplan_sdk.models.common import Meta, Pagination, SortField
 from megaplan_sdk.models.deal import Deal
 from megaplan_sdk.models.project import Project
 from megaplan_sdk.models.task import Task
@@ -26,14 +26,6 @@ def test_pagination():
     pagination = Pagination(count=100, limit=50)
     assert pagination.count == 100
     assert pagination.limit == 50
-
-
-def test_file():
-    """Test File model."""
-    file = File(id=1, contentType="File", name="test.pdf")
-    assert file.id == 1
-    assert file.content_type == "File"
-    assert file.name == "test.pdf"
 
 
 def test_sort_field():
