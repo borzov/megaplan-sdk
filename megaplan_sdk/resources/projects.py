@@ -1,0 +1,751 @@
+"""Projects resource for Megaplan API."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from typing import Any, overload
+
+from megaplan_sdk.constants import ContentType
+from megaplan_sdk.models.comment import Comment
+from megaplan_sdk.models.deal import Deal
+from megaplan_sdk.models.project import Project, ProjectFullDetails
+from megaplan_sdk.models.task import Task
+from megaplan_sdk.resources.base import BaseResource
+
+
+class ProjectsResource(BaseResource):
+    """Resource for working with projects."""
+
+    async def create(self, project_data: dict[str, Any]) -> Project:
+        """Create a new project.
+
+        Args:
+            project_data: Project data dictionary.
+
+        Returns:
+            Created project.
+        """
+        return await self._create_entity("project", project_data, Project)
+
+    @overload
+    async def list(
+        self,
+        *,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+        expand: None = None,
+    ) -> list[Project]: ...
+
+    @overload
+    async def list(
+        self,
+        *,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+        expand: list[str],
+    ) -> list[ProjectFullDetails]: ...
+
+    async def list(
+        self,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+        expand: list[str] | None = None,
+    ) -> list[Project] | list[ProjectFullDetails]:
+        """Get list of projects.
+
+        Args:
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+            expand: List of fields to expand (e.g., ["responsible", "owner"]).
+                Supported values: "responsible", "owner".
+                If provided, returns list[ProjectFullDetails] instead of list[Project].
+
+        Returns:
+            List of projects (list[Project] if expand is None, list[ProjectFullDetails] otherwise).
+
+        Examples:
+            >>> # Get projects without expansion
+            >>> projects = await client.projects.list(limit=10)
+            >>>
+            >>> # Get projects with expanded responsible and owner
+            >>> projects_full = await client.projects.list(
+            ...     limit=10, expand=["responsible", "owner"]
+            ... )
+            >>> for project_full in projects_full:
+            ...     if project_full.responsible_details:
+            ...         print(project_full.responsible_details.display_name())
+        """
+        path = self._build_path("api", "v3", "project")
+
+        # Use base method to build params (DRY)
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+
+        # 1. Fetch projects
+        projects = await self._get_list(path, Project, params)
+
+        # 2. If no expand, return as is
+        if not expand or not projects:
+            return projects
+
+        # 3. Batch load related entities
+        from megaplan_sdk.models.employee import Employee
+
+        expand_config: dict[str, tuple[str, type, str]] = {
+            "responsible": ("employee", Employee, ContentType.EMPLOYEE),
+            "owner": ("employee", Employee, ContentType.EMPLOYEE),
+        }
+
+        expanded = await self._expand_list_entities(projects, expand, expand_config)
+        responsible_map = expanded.get("responsible", {})
+        owner_map = expanded.get("owner", {})
+
+        # 4. Build ProjectFullDetails objects
+        results = []
+        for project in projects:
+            resp_details = None
+            owner_details = None
+
+            if project.responsible and project.responsible.id in responsible_map:
+                resp_details = responsible_map[project.responsible.id]
+
+            if project.owner and project.owner.id in owner_map:
+                owner_details = owner_map[project.owner.id]
+
+            results.append(
+                ProjectFullDetails(
+                    project=project,
+                    responsible_details=resp_details,
+                    owner_details=owner_details,
+                )
+            )
+
+        return results
+
+    async def get(self, project_id: int) -> Project:
+        """Get project by ID.
+
+        Args:
+            project_id: Project identifier.
+
+        Returns:
+            Project details.
+        """
+        return await self._get_entity("project", project_id, Project)
+
+    async def update(self, project_id: int, project_data: dict[str, Any]) -> Project:
+        """Update project.
+
+        Args:
+            project_id: Project identifier.
+            project_data: Updated project data.
+
+        Returns:
+            Updated project.
+        """
+        return await self._update_entity("project", project_id, project_data, Project)
+
+    async def delete(self, project_id: int) -> None:
+        """Delete project.
+
+        Args:
+            project_id: Project identifier.
+        """
+        await self._delete_entity("project", project_id)
+
+    async def get_deals(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Deal]:
+        """Get deals associated with project.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of deals.
+        """
+        path = self._build_path("api", "v3", "project", str(project_id), "deals")
+
+        # Use base method to build params (DRY)
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+
+        return await self._get_list(path, Deal, params)
+
+    async def get_issues(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Task]:
+        """Get tasks (issues) associated with project.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of tasks.
+        """
+        path = self._build_path("api", "v3", "project", str(project_id), "issues")
+
+        # Use base method to build params (DRY)
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+
+        return await self._get_list(path, Task, params)
+
+    async def get_actual_issues(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Task]:
+        """Get actual tasks (issues) associated with project.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of actual tasks.
+        """
+        path = self._build_path("api", "v3", "project", str(project_id), "actualIssues")
+
+        # Use base method to build params (DRY)
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+
+        return await self._get_list(path, Task, params)
+
+    async def iterate(
+        self,
+        limit: int = 100,
+        **kwargs: Any,
+    ) -> AsyncIterator[Project]:
+        """Iterate over all projects with automatic pagination.
+
+        Args:
+            limit: Number of items per page.
+            **kwargs: Additional parameters to pass to list().
+
+        Yields:
+            Project objects.
+        """
+        project: Project
+        async for project in self._iterate_generic(  # type: ignore[valid-type]
+            ContentType.PROJECT,
+            self.list,
+            limit,
+            **kwargs,
+        ):
+            yield project
+
+    async def get_comments(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Comment]:
+        """Get comments for a project.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of comments.
+
+        Examples:
+            >>> comments = await client.projects.get_comments(project_id=123)
+        """
+        return await self._get_entity_comments(
+            "project",
+            project_id,
+            limit,
+            page_after,
+            page_before,
+            page_with,
+        )
+
+    async def create_comment(
+        self,
+        project_id: int,
+        text: str,
+        attaches: list[dict[str, Any]] | None = None,
+    ) -> Comment:
+        """Create a comment for a project.
+
+        Args:
+            project_id: Project identifier.
+            text: Comment text.
+            attaches: List of file attachments.
+
+        Returns:
+            Created comment.
+
+        Examples:
+            >>> comment = await client.projects.create_comment(
+            ...     project_id=123,
+            ...     text="Project update"
+            ... )
+        """
+        return await self._create_entity_comment(
+            "project",
+            project_id,
+            text,
+            attaches,
+        )
+
+    async def get_auditors(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Any]:
+        """Get auditors for a project.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of auditors (Employees).
+
+        Examples:
+            >>> auditors = await client.projects.get_auditors(project_id=123)
+        """
+        return await self._get_entity_related_list(
+            "project", project_id, "auditors", limit, page_after, page_before, page_with
+        )
+
+    async def add_auditor(
+        self,
+        project_id: int,
+        auditor_id: int,
+        auditor_content_type: str = ContentType.EMPLOYEE,
+    ) -> Any:
+        """Add auditor to the project.
+
+        Args:
+            project_id: Project identifier.
+            auditor_id: Auditor ID (usually Employee ID).
+            auditor_content_type: Content type (usually "Employee").
+
+        Returns:
+            Added auditor.
+
+        Examples:
+            >>> auditor = await client.projects.add_auditor(
+            ...     project_id=123,
+            ...     auditor_id=456
+            ... )
+        """
+        return await self._add_entity_related(
+            "project", project_id, "auditors", auditor_id, auditor_content_type
+        )
+
+    async def remove_auditor(
+        self,
+        project_id: int,
+        auditor_id: int,
+        auditor_content_type: str = ContentType.EMPLOYEE,
+    ) -> None:
+        """Remove auditor from the project.
+
+        Args:
+            project_id: Project identifier.
+            auditor_id: Auditor ID.
+            auditor_content_type: Content type (usually "Employee").
+
+        Examples:
+            >>> await client.projects.remove_auditor(project_id=123, auditor_id=456)
+        """
+        await self._remove_entity_related(
+            "project", project_id, "auditors", auditor_id, auditor_content_type
+        )
+
+    async def get_executors(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Any]:
+        """Get executors (co-performers) for a project.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of executors (Employees).
+
+        Examples:
+            >>> executors = await client.projects.get_executors(project_id=123)
+        """
+        return await self._get_entity_related_list(
+            "project", project_id, "executors", limit, page_after, page_before, page_with
+        )
+
+    async def add_executor(
+        self,
+        project_id: int,
+        executor_id: int,
+        executor_content_type: str = ContentType.EMPLOYEE,
+    ) -> Any:
+        """Add executor (co-performer) to the project.
+
+        Args:
+            project_id: Project identifier.
+            executor_id: Executor ID (usually Employee ID).
+            executor_content_type: Content type (usually "Employee").
+
+        Returns:
+            Added executor.
+
+        Examples:
+            >>> executor = await client.projects.add_executor(
+            ...     project_id=123,
+            ...     executor_id=456
+            ... )
+        """
+        return await self._add_entity_related(
+            "project", project_id, "executors", executor_id, executor_content_type
+        )
+
+    async def remove_executor(
+        self,
+        project_id: int,
+        executor_id: int,
+        executor_content_type: str = ContentType.EMPLOYEE,
+    ) -> None:
+        """Remove executor from the project.
+
+        Args:
+            project_id: Project identifier.
+            executor_id: Executor ID.
+            executor_content_type: Content type (usually "Employee").
+
+        Examples:
+            >>> await client.projects.remove_executor(project_id=123, executor_id=456)
+        """
+        await self._remove_entity_related(
+            "project", project_id, "executors", executor_id, executor_content_type
+        )
+
+    async def get_milestones(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Any]:
+        """Get milestones for a project.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of milestones.
+
+        Examples:
+            >>> milestones = await client.projects.get_milestones(project_id=123)
+        """
+        return await self._get_entity_related_list(
+            "project", project_id, "milestones", limit, page_after, page_before, page_with
+        )
+
+    async def add_milestone(
+        self,
+        project_id: int,
+        milestone_data: dict[str, Any],
+    ) -> Any:
+        """Add milestone to the project.
+
+        Args:
+            project_id: Project identifier.
+            milestone_data: Milestone data (name, date, etc.).
+
+        Returns:
+            Added milestone.
+
+        Examples:
+            >>> milestone = await client.projects.add_milestone(
+            ...     project_id=123,
+            ...     milestone_data={"name": "Phase 1", "date": "2026-03-15"}
+            ... )
+        """
+        return await self._add_entity_related(
+            "project", project_id, "milestones", 0, "Milestone", data_override=milestone_data
+        )
+
+    async def get_history(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get history log for a project.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of history entries.
+
+        Examples:
+            >>> history = await client.projects.get_history(project_id=123, limit=10)
+        """
+        return await self._get_entity_history(
+            "project", project_id, limit, page_after, page_before, page_with
+        )
+
+    async def search_history(
+        self,
+        project_id: int,
+        query: str,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search in project history log.
+
+        Args:
+            project_id: Project identifier.
+            query: Search query.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of matching history entries.
+
+        Examples:
+            >>> results = await client.projects.search_history(project_id=123, query="milestone")
+        """
+        return await self._search_entity_history(
+            "project", project_id, query, limit, page_after, page_before, page_with
+        )
+
+    async def get_full_details(
+        self,
+        project_id: int,
+        include_deals: bool = False,
+        include_issues: bool = False,
+        include_actual_issues: bool = False,
+        include_comments: bool = False,
+        include_history: bool = False,
+        include_auditors: bool = False,
+        include_executors: bool = False,
+        include_milestones: bool = False,
+        include_responsible_details: bool = False,
+        include_owner_details: bool = False,
+        comments_limit: int | None = None,
+        history_limit: int | None = None,
+    ) -> ProjectFullDetails:
+        """Get full project details with related entities.
+
+        This method fetches the project and optionally loads related data in parallel
+        for better performance.
+
+        Args:
+            project_id: Project identifier.
+            include_deals: Load associated deals.
+            include_issues: Load tasks/issues.
+            include_actual_issues: Load actual tasks/issues.
+            include_comments: Load project comments.
+            include_history: Load change history.
+            include_auditors: Load auditors list.
+            include_executors: Load executors/co-performers list.
+            include_milestones: Load milestones list.
+            include_responsible_details: Load full responsible (Employee) details.
+            include_owner_details: Load full owner (Employee) details.
+            comments_limit: Limit for comments (if included).
+            history_limit: Limit for history (if included).
+
+        Returns:
+            ProjectFullDetails object with all requested data.
+
+        Examples:
+            >>> # Get project with deals and tasks
+            >>> details = await client.projects.get_full_details(
+            ...     project_id=123,
+            ...     include_deals=True,
+            ...     include_issues=True,
+            ...     include_responsible_details=True
+            ... )
+            >>> print(details.project.name)
+            >>> print(len(details.deals))
+        """
+        # Always fetch the main project entity
+        project = await self.get(project_id)
+
+        # Prepare parallel tasks
+        tasks: dict[str, Any] = {}
+
+        if include_deals:
+            tasks["deals"] = self.get_deals(project_id)
+
+        if include_issues:
+            tasks["issues"] = self.get_issues(project_id)
+
+        if include_actual_issues:
+            tasks["actual_issues"] = self.get_actual_issues(project_id)
+
+        if include_comments:
+            tasks["comments"] = self.get_comments(project_id, limit=comments_limit)
+
+        if include_history:
+            tasks["history"] = self.get_history(project_id, limit=history_limit)
+
+        if include_auditors:
+            tasks["auditors"] = self.get_auditors(project_id)
+
+        if include_executors:
+            tasks["executors"] = self.get_executors(project_id)
+
+        if include_milestones:
+            tasks["milestones"] = self.get_milestones(project_id)
+
+        if include_responsible_details and project.responsible:
+            from megaplan_sdk.models.employee import Employee
+
+            tasks["responsible_details"] = self._get_entity_cached(
+                "employee", project.responsible.id, Employee
+            )
+
+        if include_owner_details and project.owner:
+            from megaplan_sdk.models.employee import Employee
+
+            tasks["owner_details"] = self._get_entity_cached("employee", project.owner.id, Employee)
+
+        # Execute all tasks in parallel
+        task_results = await self._fetch_details_parallel(tasks)
+
+        # Build ProjectFullDetails object
+        return ProjectFullDetails(
+            project=project,
+            deals=task_results.get("deals"),
+            issues=task_results.get("issues"),
+            actual_issues=task_results.get("actual_issues"),
+            comments=task_results.get("comments"),
+            history=task_results.get("history"),
+            auditors=task_results.get("auditors"),
+            executors=task_results.get("executors"),
+            milestones=task_results.get("milestones"),
+            responsible_details=task_results.get("responsible_details"),
+            owner_details=task_results.get("owner_details"),
+        )

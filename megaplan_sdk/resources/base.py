@@ -1,0 +1,782 @@
+"""Base resource class for Megaplan API resources."""
+
+import asyncio
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any, TypeVar
+
+from megaplan_sdk.constants import ContentType
+from megaplan_sdk.http_client import HTTPClient
+from megaplan_sdk.logging_config import logger
+
+if TYPE_CHECKING:
+    from megaplan_sdk.cache import EntityCache
+    from megaplan_sdk.models.comment import Comment
+    from megaplan_sdk.models.contractor import Contractor
+
+T = TypeVar("T")
+
+
+class BaseResource:
+    """Base class for all API resources.
+
+    Provides common functionality for making API requests.
+    """
+
+    def __init__(self, http_client: HTTPClient, cache: "EntityCache | None" = None) -> None:
+        """Initialize base resource.
+
+        Args:
+            http_client: HTTP client for making requests.
+            cache: Optional entity cache for caching related entities.
+        """
+        self._http = http_client
+        self._cache = cache
+
+    def _build_path(self, *parts: str) -> str:
+        """Build API path from parts.
+
+        Args:
+            *parts: Path parts.
+
+        Returns:
+            Combined path.
+        """
+        return "/" + "/".join(str(part).strip("/") for part in parts if part)
+
+    def _prepare_params(self, **kwargs: Any) -> dict[str, Any] | None:
+        """Prepare query parameters, removing None values.
+
+        Args:
+            **kwargs: Parameters to include.
+
+        Returns:
+            Dictionary with non-None parameters.
+        """
+        params = {k: v for k, v in kwargs.items() if v is not None}
+        return params if params else None
+
+    def _build_list_params(
+        self,
+        filter: Any | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+        **extra_params: Any,
+    ) -> dict[str, Any]:
+        """Build standard list parameters for pagination and filtering.
+
+        Args:
+            filter: Filter ID or configuration.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+            **extra_params: Additional parameters (e.g., statuses, status, q).
+
+        Returns:
+            Dictionary with non-None parameters.
+        """
+        params: dict[str, Any] = {}
+
+        if filter is not None:
+            params["filter"] = filter
+        if limit is not None:
+            params["limit"] = limit
+        if page_after:
+            params["pageAfter"] = page_after
+        if page_before:
+            params["pageBefore"] = page_before
+        if page_with:
+            params["pageWith"] = page_with
+        if fields is not None:
+            params["fields"] = fields
+        if sort_by:
+            params["sortBy"] = sort_by
+        if only_requested_fields is not None:
+            params["onlyRequestedFields"] = only_requested_fields
+
+        # Add extra params (like statuses, status, q, baseOn, etc.)
+        params.update(extra_params)
+
+        return params if params else {}
+
+    async def _iterate_generic(
+        self,
+        content_type: str,
+        list_method: Any,  # Method bound to instance, not a standalone Callable
+        limit: int = 100,
+        **kwargs: Any,
+    ) -> AsyncIterator[T]:
+        """Generic iterator for paginating through resources.
+
+        Args:
+            content_type: Entity type for pageAfter (e.g. "Task", "Deal").
+            list_method: The list() method to call for pagination.
+            limit: Items per page.
+            **kwargs: Additional parameters to pass to list_method.
+
+        Yields:
+            Individual items from the paginated results.
+        """
+        page_after = None
+
+        while True:
+            items: list[T] = await list_method(limit=limit, page_after=page_after, **kwargs)
+            if not items:
+                break
+
+            for item in items:
+                yield item
+
+            if len(items) < limit:
+                break
+
+            last_item = items[-1]
+            # TypeVar T doesn't guarantee .id attribute, but all our entities have it
+            item_id: int = getattr(last_item, "id", 0)
+            page_after = {"contentType": content_type, "id": item_id}
+
+    async def _get_entity_comments(
+        self,
+        entity_type: str,
+        entity_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list["Comment"]:
+        """Generic method to get comments for any entity.
+
+        Args:
+            entity_type: API path segment (e.g. "todo" for tasks, "project", "deal", "contractor").
+            entity_id: Entity identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of comments.
+        """
+        from megaplan_sdk.models.comment import Comment
+
+        path = self._build_path("api", "v3", entity_type, str(entity_id), "comments")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+        )
+
+        response = await self._http.get(path, params=params if params else None)
+        data = self._parse_list_response(response)
+
+        return [Comment(**item) if isinstance(item, dict) else item for item in data]
+
+    async def _create_entity_comment(
+        self,
+        entity_type: str,
+        entity_id: int,
+        text: str,
+        attaches: "list[dict[str, Any]] | None" = None,
+        **extra_fields: Any,
+    ) -> "Comment":
+        """Generic method to create comment for any entity.
+
+        Args:
+            entity_type: API path segment.
+            entity_id: Entity identifier.
+            text: Comment text.
+            attaches: File attachments.
+            **extra_fields: Additional fields (e.g. work for tasks).
+
+        Returns:
+            Created comment.
+        """
+        from megaplan_sdk.models.comment import Comment
+
+        path = self._build_path("api", "v3", entity_type, str(entity_id), "comments")
+
+        comment_data: dict[str, Any] = {"text": text}
+        if attaches:
+            comment_data["attaches"] = attaches
+        comment_data.update(extra_fields)
+
+        response = await self._http.post(path, json_data=comment_data)
+        return Comment(**response["data"])
+
+    async def _get_list(
+        self,
+        path: str,
+        model_class: type[T],
+        params: dict[str, Any] | None = None,
+    ) -> list[T]:
+        """Generic method to fetch and parse list response.
+
+        Args:
+            path: API endpoint path.
+            model_class: Pydantic model class for items.
+            params: Query parameters.
+
+        Returns:
+            List of model instances.
+        """
+        response = await self._http.get(path, params=params)
+        data = self._parse_list_response(response)
+
+        return [model_class(**item) if isinstance(item, dict) else item for item in data]
+
+    async def _create_entity(
+        self,
+        entity_type: str,
+        data: dict[str, Any],
+        model_class: type[T],
+    ) -> T:
+        """Generic create method.
+
+        Args:
+            entity_type: API resource type (e.g. "task", "project").
+            data: Entity data.
+            model_class: Pydantic model class.
+
+        Returns:
+            Created entity instance.
+        """
+        path = self._build_path("api", "v3", entity_type)
+        response = await self._http.post(path, json_data=data)
+        return model_class(**response["data"])
+
+    async def _get_entity(
+        self,
+        entity_type: str,
+        entity_id: int,
+        model_class: type[T],
+    ) -> T:
+        """Generic get method.
+
+        Args:
+            entity_type: API resource type.
+            entity_id: Entity identifier.
+            model_class: Pydantic model class.
+
+        Returns:
+            Entity instance.
+        """
+        path = self._build_path("api", "v3", entity_type, str(entity_id))
+        response = await self._http.get(path)
+        return model_class(**response["data"])
+
+    async def _update_entity(
+        self,
+        entity_type: str,
+        entity_id: int,
+        data: dict[str, Any],
+        model_class: type[T],
+    ) -> T:
+        """Generic update method.
+
+        Args:
+            entity_type: API resource type.
+            entity_id: Entity identifier.
+            data: Updated entity data.
+            model_class: Pydantic model class.
+
+        Returns:
+            Updated entity instance.
+        """
+        path = self._build_path("api", "v3", entity_type, str(entity_id))
+        response = await self._http.post(path, json_data=data)
+        return model_class(**response["data"])
+
+    async def _delete_entity(
+        self,
+        entity_type: str,
+        entity_id: int,
+    ) -> None:
+        """Generic delete method.
+
+        Args:
+            entity_type: API resource type.
+            entity_id: Entity identifier.
+        """
+        path = self._build_path("api", "v3", entity_type, str(entity_id))
+        await self._http.delete(path)
+
+    async def _get_entity_cached(
+        self,
+        entity_type: str,
+        entity_id: int,
+        model_class: type[T],
+        use_cache: bool = True,
+    ) -> T:
+        """Get entity with optional caching.
+
+        Fetches entity from cache if available and not expired,
+        otherwise fetches from API and caches result.
+
+        Args:
+            entity_type: API resource type (e.g., "employee", "task").
+            entity_id: Entity identifier.
+            model_class: Pydantic model class for parsing.
+            use_cache: Whether to use cache (default: True).
+
+        Returns:
+            Entity instance.
+
+        Examples:
+            >>> employee = await resource._get_entity_cached(
+            ...     "employee", 123, Employee
+            ... )
+        """
+        # Determine contentType from entity_type
+        content_type = self._entity_type_to_content_type(entity_type)
+
+        # Try cache first
+        if use_cache and self._cache:
+            cached = self._cache.get(content_type, entity_id)
+            if cached is not None:
+                # Cache stores dict, convert to model
+                return model_class(**cached) if isinstance(cached, dict) else cached
+
+        # Fetch from API
+        entity = await self._get_entity(entity_type, entity_id, model_class)
+
+        # Store in cache
+        if use_cache and self._cache:
+            # Store as dict for consistency
+            # TypeVar T doesn't guarantee .model_dump, but all Pydantic models have it
+            entity_dict = entity.model_dump(by_alias=True)  # type: ignore[attr-defined]
+            self._cache.set(content_type, entity_id, entity_dict)
+
+        return entity
+
+    async def _load_related_entities(
+        self,
+        entities: list[Any],
+        entity_type: str,
+        model_class: type[T],
+    ) -> dict[int, T]:
+        """Batch load related entities with caching.
+
+        Collects unique entity IDs, checks cache for each,
+        then fetches missing ones in parallel.
+
+        Args:
+            entities: List of BaseEntity references to load (can contain None).
+            entity_type: API resource type (e.g., "employee", "contractor").
+            model_class: Pydantic model class.
+
+        Returns:
+            Dict mapping entity ID to loaded entity.
+
+        Examples:
+            >>> # Load all unique responsible employees from tasks
+            >>> responsible_refs = [task.responsible for task in tasks]
+            >>> employees = await resource._load_related_entities(
+            ...     responsible_refs, "employee", Employee
+            ... )
+            >>> # employees = {123: Employee(...), 456: Employee(...)}
+        """
+        # Collect unique IDs (filter out None and extract id attribute)
+        unique_ids: set[int] = set()
+        for entity in entities:
+            if entity is not None and hasattr(entity, "id"):
+                unique_ids.add(entity.id)
+
+        if not unique_ids:
+            return {}
+
+        content_type = self._entity_type_to_content_type(entity_type)
+        result: dict[int, T] = {}
+        ids_to_fetch: set[int] = set()
+
+        # Check cache for each ID
+        if self._cache:
+            for entity_id in unique_ids:
+                cached = self._cache.get(content_type, entity_id)
+                if cached is not None:
+                    result[entity_id] = (
+                        model_class(**cached) if isinstance(cached, dict) else cached
+                    )
+                else:
+                    ids_to_fetch.add(entity_id)
+        else:
+            ids_to_fetch = unique_ids
+
+        # Fetch missing entities in parallel
+        if ids_to_fetch:
+            fetch_tasks = [
+                self._get_entity_cached(entity_type, entity_id, model_class, use_cache=True)
+                for entity_id in ids_to_fetch
+            ]
+            fetched = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+
+            for entity_id, entity in zip(ids_to_fetch, fetched, strict=True):
+                if not isinstance(entity, Exception):
+                    result[entity_id] = entity  # type: ignore[assignment]
+                # Ignore exceptions during batch loading
+
+        return result
+
+    @staticmethod
+    def _entity_type_to_content_type(entity_type: str) -> str:
+        """Convert API entity type to contentType.
+
+        Uses explicit mapping to avoid issues with capitalize() on CamelCase names.
+        For example, "contractorCompany" would become "Contractorcompany" with capitalize(),
+        but API expects "ContractorCompany".
+
+        Args:
+            entity_type: API resource type (e.g., "employee", "task", "todo", "contractorCompany").
+
+        Returns:
+            ContentType string (e.g., "Employee", "Task", "ContractorCompany").
+
+        Examples:
+            >>> BaseResource._entity_type_to_content_type("employee")
+            'Employee'
+            >>> BaseResource._entity_type_to_content_type("task")
+            'Task'
+            >>> BaseResource._entity_type_to_content_type("todo")
+            'Task'
+            >>> BaseResource._entity_type_to_content_type("contractorCompany")
+            'ContractorCompany'
+        """
+        # Map API path segments to ContentTypes
+        # This avoids issues with capitalize() on CamelCase names
+        mapping = {
+            "todo": ContentType.TASK,
+            "task": ContentType.TASK,
+            "project": ContentType.PROJECT,
+            "deal": ContentType.DEAL,
+            "employee": ContentType.EMPLOYEE,
+            "contractor": ContentType.CONTRACTOR,
+            "department": ContentType.DEPARTMENT,
+            "contractorCompany": ContentType.CONTRACTOR_COMPANY,
+            "contractorHuman": ContentType.CONTRACTOR_HUMAN,
+            "comment": ContentType.COMMENT,
+        }
+
+        result = mapping.get(entity_type)
+        if result:
+            return result
+
+        # Fallback: capitalize first letter for unknown types
+        # Log warning in production if this path is hit frequently
+        return entity_type.capitalize()
+
+    @staticmethod
+    def _parse_contractor_response(data: dict[str, Any]) -> "Contractor":
+        """Parse contractor response and return appropriate type.
+
+        Args:
+            data: Contractor data dictionary.
+
+        Returns:
+            Contractor, ContractorCompany, or ContractorHuman instance.
+        """
+        from megaplan_sdk.models.contractor import Contractor, ContractorCompany, ContractorHuman
+
+        content_type = data.get("contentType", ContentType.CONTRACTOR)
+        if content_type == ContentType.CONTRACTOR_COMPANY:
+            return ContractorCompany(**data)
+        elif content_type == ContentType.CONTRACTOR_HUMAN:
+            return ContractorHuman(**data)
+        return Contractor(**data)
+
+    async def _get_entity_related_list(
+        self,
+        entity_type: str,
+        entity_id: int,
+        related_type: str,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Any]:
+        """Generic method to get related list (auditors, executors, milestones).
+
+        Args:
+            entity_type: API resource type (e.g., "task", "project").
+            entity_id: Entity identifier.
+            related_type: Related resource type (e.g., "auditors", "executors", "milestones").
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of related entities.
+        """
+        path = self._build_path("api", "v3", entity_type, str(entity_id), related_type)
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+        )
+
+        response = await self._http.get(path, params=params if params else None)
+        return self._parse_list_response(response)
+
+    async def _add_entity_related(
+        self,
+        entity_type: str,
+        entity_id: int,
+        related_type: str,
+        related_id: int,
+        related_content_type: str = ContentType.EMPLOYEE,
+        data_override: dict[str, Any] | None = None,
+    ) -> Any:
+        """Generic method to add related entity (auditor, executor, milestone).
+
+        Args:
+            entity_type: API resource type (e.g., "task", "project").
+            entity_id: Entity identifier.
+            related_type: Related resource type (e.g., "auditors", "executors", "milestones").
+            related_id: Related entity ID.
+            related_content_type: Content type of related entity (usually "Employee").
+            data_override: Optional data override (for milestones with custom data).
+
+        Returns:
+            Added related entity.
+        """
+        path = self._build_path("api", "v3", entity_type, str(entity_id), related_type)
+
+        if data_override:
+            related_data = data_override
+        else:
+            related_data = {"id": related_id, "contentType": related_content_type}
+
+        response = await self._http.post(path, json_data=related_data)
+        return self._parse_single_response(response)
+
+    async def _remove_entity_related(
+        self,
+        entity_type: str,
+        entity_id: int,
+        related_type: str,
+        related_id: int,
+        related_content_type: str = ContentType.EMPLOYEE,
+    ) -> None:
+        """Generic method to remove related entity (auditor, executor, milestone).
+
+        Args:
+            entity_type: API resource type (e.g., "task", "project").
+            entity_id: Entity identifier.
+            related_type: Related resource type (e.g., "auditors", "executors", "milestones").
+            related_id: Related entity ID.
+            related_content_type: Content type of related entity (usually "Employee").
+        """
+        path = self._build_path(
+            "api",
+            "v3",
+            entity_type,
+            str(entity_id),
+            related_type,
+            related_content_type,
+            str(related_id),
+        )
+        await self._http.delete(path)
+
+    async def _get_entity_history(
+        self,
+        entity_type: str,
+        entity_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Generic method to get history log for any entity.
+
+        Args:
+            entity_type: API resource type (e.g., "task", "project", "deal").
+            entity_id: Entity identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of history entries.
+        """
+        path = self._build_path("api", "v3", entity_type, str(entity_id), "history")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+        )
+
+        response = await self._http.get(path, params=params if params else None)
+        return self._parse_list_response(response)
+
+    async def _search_entity_history(
+        self,
+        entity_type: str,
+        entity_id: int,
+        query: str,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Generic method to search in entity history log.
+
+        Args:
+            entity_type: API resource type (e.g., "task", "project", "deal").
+            entity_id: Entity identifier.
+            query: Search query.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of matching history entries.
+        """
+        path = self._build_path("api", "v3", entity_type, str(entity_id), "history", "search")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+        )
+        params_dict: dict[str, Any] = params if params is not None else {}
+        params_dict["q"] = query
+
+        response = await self._http.get(path, params=params_dict)
+        return self._parse_list_response(response)
+
+    async def _fetch_details_parallel(
+        self,
+        fetch_map: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Execute fetch tasks in parallel safely.
+
+        Uses return_exceptions=True to prevent one failed fetch
+        from breaking the entire request. Errors are logged but
+        don't stop execution.
+
+        Args:
+            fetch_map: Dictionary of task_name -> coroutine.
+
+        Returns:
+            Dictionary of task_name -> result (None on error).
+        """
+        if not fetch_map:
+            return {}
+
+        results = await asyncio.gather(*fetch_map.values(), return_exceptions=True)
+
+        final_data: dict[str, Any] = {}
+        for key, result in zip(fetch_map.keys(), results, strict=True):
+            if isinstance(result, Exception):
+                logger.warning(f"Failed to fetch {key}: {result}")
+                final_data[key] = None
+            else:
+                final_data[key] = result
+
+        return final_data
+
+    def _parse_list_response(self, response: dict[str, Any]) -> list[Any]:
+        """Parse list response from API.
+
+        Args:
+            response: API response dictionary.
+
+        Returns:
+            List of items from response data.
+        """
+        data = response.get("data", [])
+        return data if isinstance(data, list) else []
+
+    def _parse_single_response(self, response: dict[str, Any]) -> dict[str, Any]:
+        """Parse single entity response from API.
+
+        Args:
+            response: API response dictionary.
+
+        Returns:
+            Entity data dictionary.
+        """
+        data = response.get("data", {})
+        return data if isinstance(data, dict) else {}
+
+    async def _expand_list_entities(
+        self,
+        entities: list[T],
+        expand: list[str] | None,
+        expand_config: dict[str, tuple[str, type, str]],
+    ) -> dict[str, dict[int, Any]]:
+        """Expand related entities for list of entities.
+
+        Unified method to handle expand logic in list() methods.
+        Returns empty dict if expand is None or empty, or if entities list is empty.
+
+        Args:
+            entities: List of entities to expand.
+            expand: List of field names to expand (None or empty means no expansion).
+            expand_config: Configuration mapping field_name -> (entity_type, model_class, content_type).
+
+        Returns:
+            Dictionary mapping field_name -> {entity_id -> loaded_entity}.
+        """
+        if not expand or not entities:
+            return {}
+
+        return await self._expand_entities(entities, expand, expand_config)
+
+    async def _expand_entities(
+        self,
+        entities: list[T],
+        expand: list[str],
+        expand_config: dict[str, tuple[str, type, str]],
+    ) -> dict[str, dict[int, Any]]:
+        """Generic method to expand related entities.
+
+        Args:
+            entities: List of entities to expand.
+            expand: List of field names to expand.
+            expand_config: Configuration mapping field_name -> (entity_type, model_class, content_type).
+
+        Returns:
+            Dictionary mapping field_name -> {entity_id -> loaded_entity}.
+        """
+        if not expand or not entities:
+            return {}
+
+        result: dict[str, dict[int, Any]] = {}
+
+        for field_name in expand:
+            if field_name not in expand_config:
+                continue
+
+            entity_type, model_class, _ = expand_config[field_name]
+
+            # Collect references for this field
+            refs = []
+            for entity in entities:
+                field_value = getattr(entity, field_name, None)
+                if field_value is not None and hasattr(field_value, "id"):
+                    refs.append(field_value)
+
+            if refs:
+                loaded: dict[int, T] = await self._load_related_entities(
+                    refs, entity_type, model_class
+                )
+                result[field_name] = loaded
+
+        return result

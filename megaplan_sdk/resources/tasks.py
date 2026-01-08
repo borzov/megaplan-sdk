@@ -1,0 +1,770 @@
+"""Tasks resource for Megaplan API."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from typing import Any, overload
+
+from megaplan_sdk.constants import ContentType
+from megaplan_sdk.models.comment import Comment
+from megaplan_sdk.models.task import Task, TaskFullDetails
+from megaplan_sdk.resources.base import BaseResource
+from megaplan_sdk.types import FilterType
+
+
+class TasksResource(BaseResource):
+    """Resource for working with tasks."""
+
+    async def create(self, task_data: dict[str, Any]) -> Task:
+        """Create a new task.
+
+        Args:
+            task_data: Task data dictionary.
+
+        Returns:
+            Created task.
+        """
+        return await self._create_entity("task", task_data, Task)
+
+    @overload
+    async def list(
+        self,
+        *,
+        filter: FilterType | None = None,
+        statuses: list[str] | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+        expand: None = None,
+    ) -> list[Task]: ...
+
+    @overload
+    async def list(
+        self,
+        *,
+        filter: FilterType | None = None,
+        statuses: list[str] | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+        expand: list[str],
+    ) -> list[TaskFullDetails]: ...
+
+    async def list(
+        self,
+        filter: FilterType | None = None,
+        statuses: list[str] | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+        expand: list[str] | None = None,
+    ) -> list[Task] | list[TaskFullDetails]:
+        """Get list of tasks.
+
+        Args:
+            filter: Task filter (ID or config).
+            statuses: List of statuses to filter by.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+            expand: List of fields to expand (e.g., ["responsible", "owner"]).
+                Supported values: "responsible", "owner".
+                If provided, returns list[TaskFullDetails] instead of list[Task].
+
+        Returns:
+            List of tasks (list[Task] if expand is None, list[TaskFullDetails] otherwise).
+
+        Examples:
+            >>> # Get tasks without expansion
+            >>> tasks = await client.tasks.list(limit=10)
+            >>>
+            >>> # Get tasks with expanded responsible and owner
+            >>> tasks_full = await client.tasks.list(
+            ...     limit=10, expand=["responsible", "owner"]
+            ... )
+            >>> for task_full in tasks_full:
+            ...     if task_full.responsible_details:
+            ...         print(task_full.responsible_details.display_name())
+        """
+        path = self._build_path("api", "v3", "task")
+
+        # Use base method to build params (DRY)
+        params = self._build_list_params(
+            filter=filter,
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+            statuses=statuses,  # Extra param specific to tasks
+        )
+
+        # 1. Fetch tasks
+        tasks = await self._get_list(path, Task, params)
+
+        # 2. If no expand, return as is
+        if not expand or not tasks:
+            return tasks
+
+        # 3. Batch load related entities
+        from megaplan_sdk.models.employee import Employee
+
+        expand_config: dict[str, tuple[str, type, str]] = {
+            "responsible": ("employee", Employee, ContentType.EMPLOYEE),
+            "owner": ("employee", Employee, ContentType.EMPLOYEE),
+        }
+
+        expanded = await self._expand_list_entities(tasks, expand, expand_config)
+        responsible_map = expanded.get("responsible", {})
+        owner_map = expanded.get("owner", {})
+
+        # 4. Build TaskFullDetails objects
+        results = []
+        for task in tasks:
+            resp_details = None
+            owner_details = None
+
+            if task.responsible and task.responsible.id in responsible_map:
+                resp_details = responsible_map[task.responsible.id]
+
+            if task.owner and task.owner.id in owner_map:
+                owner_details = owner_map[task.owner.id]
+
+            results.append(
+                TaskFullDetails(
+                    task=task,
+                    responsible_details=resp_details,
+                    owner_details=owner_details,
+                )
+            )
+
+        return results
+
+    async def get(self, task_id: int) -> Task:
+        """Get task by ID.
+
+        Args:
+            task_id: Task identifier.
+
+        Returns:
+            Task details.
+        """
+        return await self._get_entity("task", task_id, Task)
+
+    async def update(self, task_id: int, task_data: dict[str, Any]) -> Task:
+        """Update task.
+
+        Args:
+            task_id: Task identifier.
+            task_data: Updated task data.
+
+        Returns:
+            Updated task.
+        """
+        return await self._update_entity("task", task_id, task_data, Task)
+
+    async def delete(self, task_id: int) -> None:
+        """Delete task.
+
+        Args:
+            task_id: Task identifier.
+        """
+        await self._delete_entity("task", task_id)
+
+    async def get_sub_tasks(
+        self,
+        task_id: int,
+        filters: list[dict[str, Any]] | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Task]:
+        """Get subtasks of a task.
+
+        Args:
+            task_id: Task identifier.
+            filters: Task result type filters.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of subtasks.
+        """
+        path = self._build_path("api", "v3", "task", str(task_id), "subTasks")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+            filters=filters,
+        )
+
+        return await self._get_list(path, Task, params)
+
+    async def get_actual_sub_tasks(
+        self,
+        task_id: int,
+        filters: list[dict[str, Any]] | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Task]:
+        """Get actual subtasks of a task.
+
+        Args:
+            task_id: Task identifier.
+            filters: Task result type filters.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of actual subtasks.
+        """
+        path = self._build_path("api", "v3", "task", str(task_id), "actualSubTasks")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+            filters=filters,
+        )
+
+        return await self._get_list(path, Task, params)
+
+    async def tree_level(
+        self,
+        filter: FilterType | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Task]:
+        """Get filtered list of projects or tasks at current tree level.
+
+        Args:
+            filter: Task filter (ID or config).
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of tasks/projects at current tree level.
+        """
+        path = self._build_path("api", "v3", "task", "treeLevel")
+
+        # Use base method to build params (DRY)
+        params = self._build_list_params(
+            filter=filter,
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+
+        return await self._get_list(path, Task, params)
+
+    async def iterate(
+        self,
+        filter: FilterType | None = None,
+        statuses: list[str] | None = None,
+        limit: int = 100,
+    ) -> AsyncIterator[Task]:
+        """Iterate over all tasks with automatic pagination.
+
+        Args:
+            filter: Task filter (ID or config).
+            statuses: List of statuses to filter by.
+            limit: Number of items per page.
+
+        Yields:
+            Task objects.
+        """
+        task: Task
+        async for task in self._iterate_generic(  # type: ignore[valid-type]
+            ContentType.TASK,
+            self.list,
+            limit,
+            filter=filter,
+            statuses=statuses,
+        ):
+            yield task
+
+    async def get_comments(
+        self,
+        task_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Comment]:
+        """Get comments for a task.
+
+        Args:
+            task_id: Task identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of comments.
+
+        Examples:
+            >>> comments = await client.tasks.get_comments(task_id=123)
+        """
+        return await self._get_entity_comments(
+            "task",
+            task_id,
+            limit,
+            page_after,
+            page_before,
+            page_with,
+        )
+
+    async def create_comment(
+        self,
+        task_id: int,
+        text: str,
+        work: float | None = None,
+        attaches: list[dict[str, Any]] | None = None,
+    ) -> Comment:
+        """Create a comment for a task.
+
+        Args:
+            task_id: Task identifier.
+            text: Comment text.
+            work: Hours worked (for time tracking).
+            attaches: List of file attachments.
+
+        Returns:
+            Created comment.
+
+        Examples:
+            >>> comment = await client.tasks.create_comment(
+            ...     task_id=123,
+            ...     text="Work completed",
+            ...     work=2.5
+            ... )
+        """
+        extra_fields = {}
+        if work is not None:
+            extra_fields["work"] = work
+
+        return await self._create_entity_comment(
+            "task",
+            task_id,
+            text,
+            attaches,
+            **extra_fields,
+        )
+
+    async def get_auditors(
+        self,
+        task_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Any]:
+        """Get auditors for a task.
+
+        Args:
+            task_id: Task identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of auditors (Employees).
+
+        Examples:
+            >>> auditors = await client.tasks.get_auditors(task_id=123)
+        """
+        return await self._get_entity_related_list(
+            "task", task_id, "auditors", limit, page_after, page_before, page_with
+        )
+
+    async def add_auditor(
+        self,
+        task_id: int,
+        auditor_id: int,
+        auditor_content_type: str = ContentType.EMPLOYEE,
+    ) -> Any:
+        """Add auditor to the task.
+
+        Args:
+            task_id: Task identifier.
+            auditor_id: Auditor ID (usually Employee ID).
+            auditor_content_type: Content type (usually "Employee").
+
+        Returns:
+            Added auditor.
+
+        Examples:
+            >>> auditor = await client.tasks.add_auditor(
+            ...     task_id=123,
+            ...     auditor_id=456
+            ... )
+        """
+        return await self._add_entity_related(
+            "task", task_id, "auditors", auditor_id, auditor_content_type
+        )
+
+    async def remove_auditor(
+        self,
+        task_id: int,
+        auditor_id: int,
+        auditor_content_type: str = ContentType.EMPLOYEE,
+    ) -> None:
+        """Remove auditor from the task.
+
+        Args:
+            task_id: Task identifier.
+            auditor_id: Auditor ID.
+            auditor_content_type: Content type (usually "Employee").
+
+        Examples:
+            >>> await client.tasks.remove_auditor(task_id=123, auditor_id=456)
+        """
+        await self._remove_entity_related(
+            "task", task_id, "auditors", auditor_id, auditor_content_type
+        )
+
+    async def get_executors(
+        self,
+        task_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Any]:
+        """Get executors (co-performers) for a task.
+
+        Args:
+            task_id: Task identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of executors (Employees).
+
+        Examples:
+            >>> executors = await client.tasks.get_executors(task_id=123)
+        """
+        return await self._get_entity_related_list(
+            "task", task_id, "executors", limit, page_after, page_before, page_with
+        )
+
+    async def add_executor(
+        self,
+        task_id: int,
+        executor_id: int,
+        executor_content_type: str = ContentType.EMPLOYEE,
+    ) -> Any:
+        """Add executor (co-performer) to the task.
+
+        Args:
+            task_id: Task identifier.
+            executor_id: Executor ID (usually Employee ID).
+            executor_content_type: Content type (usually "Employee").
+
+        Returns:
+            Added executor.
+
+        Examples:
+            >>> executor = await client.tasks.add_executor(
+            ...     task_id=123,
+            ...     executor_id=456
+            ... )
+        """
+        return await self._add_entity_related(
+            "task", task_id, "executors", executor_id, executor_content_type
+        )
+
+    async def remove_executor(
+        self,
+        task_id: int,
+        executor_id: int,
+        executor_content_type: str = ContentType.EMPLOYEE,
+    ) -> None:
+        """Remove executor from the task.
+
+        Args:
+            task_id: Task identifier.
+            executor_id: Executor ID.
+            executor_content_type: Content type (usually "Employee").
+
+        Examples:
+            >>> await client.tasks.remove_executor(task_id=123, executor_id=456)
+        """
+        await self._remove_entity_related(
+            "task", task_id, "executors", executor_id, executor_content_type
+        )
+
+    async def get_milestones(
+        self,
+        task_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Any]:
+        """Get milestones for a task.
+
+        Args:
+            task_id: Task identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of milestones.
+
+        Examples:
+            >>> milestones = await client.tasks.get_milestones(task_id=123)
+        """
+        return await self._get_entity_related_list(
+            "task", task_id, "milestones", limit, page_after, page_before, page_with
+        )
+
+    async def add_milestone(
+        self,
+        task_id: int,
+        milestone_data: dict[str, Any],
+    ) -> Any:
+        """Add milestone to the task.
+
+        Args:
+            task_id: Task identifier.
+            milestone_data: Milestone data (name, date, etc.).
+
+        Returns:
+            Added milestone.
+
+        Examples:
+            >>> milestone = await client.tasks.add_milestone(
+            ...     task_id=123,
+            ...     milestone_data={"name": "Release 1.0", "date": "2026-02-01"}
+            ... )
+        """
+        return await self._add_entity_related(
+            "task", task_id, "milestones", 0, "Milestone", data_override=milestone_data
+        )
+
+    async def get_history(
+        self,
+        task_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get history log for a task.
+
+        Args:
+            task_id: Task identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of history entries.
+
+        Examples:
+            >>> history = await client.tasks.get_history(task_id=123, limit=10)
+        """
+        return await self._get_entity_history(
+            "task", task_id, limit, page_after, page_before, page_with
+        )
+
+    async def search_history(
+        self,
+        task_id: int,
+        query: str,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search in task history log.
+
+        Args:
+            task_id: Task identifier.
+            query: Search query.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of matching history entries.
+
+        Examples:
+            >>> results = await client.tasks.search_history(task_id=123, query="status")
+        """
+        return await self._search_entity_history(
+            "task", task_id, query, limit, page_after, page_before, page_with
+        )
+
+    async def get_full_details(
+        self,
+        task_id: int,
+        include_sub_tasks: bool = False,
+        include_actual_sub_tasks: bool = False,
+        include_comments: bool = False,
+        include_history: bool = False,
+        include_auditors: bool = False,
+        include_executors: bool = False,
+        include_milestones: bool = False,
+        include_responsible_details: bool = False,
+        include_owner_details: bool = False,
+        comments_limit: int | None = None,
+        history_limit: int | None = None,
+    ) -> TaskFullDetails:
+        """Get full task details with related entities.
+
+        This method fetches the task and optionally loads related data in parallel
+        for better performance.
+
+        Args:
+            task_id: Task identifier.
+            include_sub_tasks: Load subtasks.
+            include_actual_sub_tasks: Load actual subtasks.
+            include_comments: Load task comments.
+            include_history: Load change history.
+            include_auditors: Load auditors list.
+            include_executors: Load executors/co-performers list.
+            include_milestones: Load milestones list.
+            include_responsible_details: Load full responsible (Employee) details.
+            include_owner_details: Load full owner (Employee) details.
+            comments_limit: Limit for comments (if included).
+            history_limit: Limit for history (if included).
+
+        Returns:
+            TaskFullDetails object with all requested data.
+
+        Examples:
+            >>> # Get task with subtasks and comments
+            >>> details = await client.tasks.get_full_details(
+            ...     task_id=123,
+            ...     include_sub_tasks=True,
+            ...     include_comments=True,
+            ...     include_responsible_details=True
+            ... )
+            >>> print(details.task.name)
+            >>> print(details.responsible_details.first_name)
+        """
+        # Always fetch the main task entity
+        task = await self.get(task_id)
+
+        # Prepare parallel tasks
+        tasks: dict[str, Any] = {}
+
+        if include_sub_tasks:
+            tasks["sub_tasks"] = self.get_sub_tasks(task_id)
+
+        if include_actual_sub_tasks:
+            tasks["actual_sub_tasks"] = self.get_actual_sub_tasks(task_id)
+
+        if include_comments:
+            tasks["comments"] = self.get_comments(task_id, limit=comments_limit)
+
+        if include_history:
+            tasks["history"] = self.get_history(task_id, limit=history_limit)
+
+        if include_auditors:
+            tasks["auditors"] = self.get_auditors(task_id)
+
+        if include_executors:
+            tasks["executors"] = self.get_executors(task_id)
+
+        if include_milestones:
+            tasks["milestones"] = self.get_milestones(task_id)
+
+        if include_responsible_details and task.responsible:
+            from megaplan_sdk.models.employee import Employee
+
+            tasks["responsible_details"] = self._get_entity_cached(
+                "employee", task.responsible.id, Employee
+            )
+
+        if include_owner_details and task.owner:
+            from megaplan_sdk.models.employee import Employee
+
+            tasks["owner_details"] = self._get_entity_cached("employee", task.owner.id, Employee)
+
+        # Execute all tasks in parallel
+        task_results = await self._fetch_details_parallel(tasks)
+
+        # Build TaskFullDetails object
+        return TaskFullDetails(
+            task=task,
+            sub_tasks=task_results.get("sub_tasks"),
+            actual_sub_tasks=task_results.get("actual_sub_tasks"),
+            comments=task_results.get("comments"),
+            history=task_results.get("history"),
+            auditors=task_results.get("auditors"),
+            executors=task_results.get("executors"),
+            milestones=task_results.get("milestones"),
+            responsible_details=task_results.get("responsible_details"),
+            owner_details=task_results.get("owner_details"),
+        )

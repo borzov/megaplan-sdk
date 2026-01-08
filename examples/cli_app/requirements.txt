@@ -1,0 +1,5 @@
+# Install SDK from parent directory
+../../
+
+# Or install from PyPI (when published):
+# megaplan-sdk>=0.2.0
