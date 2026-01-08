@@ -148,8 +148,10 @@ async def test_get_full_details():
         )
     )
 
-    # Mock related tasks
-    respx.get("https://example.com/api/v3/task").mock(
+    # Mock related tasks - TasksResource.list() adds statuses parameter
+    respx.get(
+        url__regex=r"https://example\.com/api/v3/task\?.*",
+    ).mock(
         return_value=Response(
             200,
             json={
@@ -179,7 +181,7 @@ async def test_get_full_details():
         # Check related data
         assert full_details.comments is not None
         assert len(full_details.comments) == 1
-        assert full_details.comments[0].text == "Test comment"
+        assert full_details.comments[0].content == "Test comment"
 
         assert full_details.history is not None
         assert len(full_details.history) == 1
@@ -199,3 +201,67 @@ async def test_get_full_details():
         assert full_details.related_tasks is not None
         assert len(full_details.related_tasks) == 1
         assert full_details.related_tasks[0].name == "Related Task"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_check_exists_true():
+    """Test check_exists() returns True."""
+    respx.post("https://example.com/api/v3/deal/checkDealExist").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {"exists": True},
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = DealsResource(http_client)
+        exists = await resource.check_exists({"name": "Test Deal"})
+
+        assert exists is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_check_exists_false():
+    """Test check_exists() returns False."""
+    respx.post("https://example.com/api/v3/deal/checkDealExist").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {"exists": False},
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = DealsResource(http_client)
+        exists = await resource.check_exists({"name": "Non-existent Deal"})
+
+        assert exists is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_apply_trigger():
+    """Test applying trigger to deal."""
+    respx.post("https://example.com/api/v3/deal/1/applyTrigger").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {"id": 1, "contentType": "Deal", "name": "Test Deal"},
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = DealsResource(http_client)
+        deal = await resource.apply_trigger(1, 10)
+
+        assert deal.id == 1
+        assert deal.name == "Test Deal"

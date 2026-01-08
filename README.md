@@ -1,6 +1,10 @@
 # Megaplan Python SDK
 
+[![Python versions](https://img.shields.io/pypi/pyversions/megaplan-sdk)](https://pypi.org/project/megaplan-sdk/)
+[![PyPI version](https://badge.fury.io/py/megaplan-sdk.svg)](https://pypi.org/project/megaplan-sdk/)
 [![Tests](https://github.com/borzov/megaplan-sdk/actions/workflows/tests.yml/badge.svg)](https://github.com/borzov/megaplan-sdk/actions/workflows/tests.yml)
+[![Coverage](https://codecov.io/gh/borzov/megaplan-sdk/graph/badge.svg)](https://codecov.io/gh/borzov/megaplan-sdk)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliermarsh/ruff/main/assets/badge/v2.json)](https://github.com/charliermarsh/ruff)
 
 Профессиональная Python-библиотека для работы с API Мегаплана версии 3.
 

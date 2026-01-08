@@ -60,7 +60,8 @@ class DealsResource(BaseResource, FullDetailsMixin):
         filter_config = json.dumps(
             {"baseOn": {"contentType": ContentType.DEAL, "id": deal_id}}
         )
-        return tasks_resource.list(filter=filter_config)
+        # await the coroutine to return actual result, not coroutine
+        return await tasks_resource.list(filter=filter_config)
 
     async def create(self, deal_data: dict[str, Any]) -> Deal:
         """Create a new deal.
