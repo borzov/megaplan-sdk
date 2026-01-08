@@ -42,3 +42,28 @@ async def test_client_context_manager():
     """Test client as context manager."""
     async with MegaplanClient(base_url="https://example.com", access_token="token") as client:
         assert client._http._client is not None
+
+
+@pytest.mark.asyncio
+async def test_client_passes_default_limits_to_resources():
+    """Test that MegaplanClient passes default limits to resources."""
+    client = MegaplanClient(
+        base_url="https://example.megaplan.ru",
+        access_token="test_token",
+        default_comments_limit=30,
+        default_history_limit=60,
+    )
+
+    # Verify resources received the defaults
+    assert client.tasks._default_comments_limit == 30
+    assert client.tasks._default_history_limit == 60
+    assert client.projects._default_comments_limit == 30
+    assert client.projects._default_history_limit == 60
+    assert client.deals._default_comments_limit == 30
+    assert client.deals._default_history_limit == 60
+
+    # Other resources should have None (not affected)
+    assert client.employees._default_comments_limit is None
+    assert client.contractors._default_comments_limit is None
+
+    await client.close()

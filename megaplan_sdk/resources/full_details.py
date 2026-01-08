@@ -71,6 +71,16 @@ class FullDetailsMixin:
         getter = getattr(self, entity_getter)
         main_entity = await getter(entity_id)
 
+        # Apply global defaults for limit parameters if not explicitly provided
+        # Note: parameters are always in kwargs (even if None), so check value instead of presence
+        if hasattr(self, "_default_comments_limit") and kwargs.get("comments_limit") is None:
+            if self._default_comments_limit is not None:
+                kwargs["comments_limit"] = self._default_comments_limit
+
+        if hasattr(self, "_default_history_limit") and kwargs.get("history_limit") is None:
+            if self._default_history_limit is not None:
+                kwargs["history_limit"] = self._default_history_limit
+
         # Prepare parallel tasks
         tasks: dict[str, Any] = {}
 
@@ -82,9 +92,7 @@ class FullDetailsMixin:
             # Handle custom fetcher
             if item_config.custom_fetcher:
                 # custom_fetcher is a bound method, call it with entity_id and kwargs
-                tasks[item_config.field_name] = item_config.custom_fetcher(
-                    entity_id, **kwargs
-                )
+                tasks[item_config.field_name] = item_config.custom_fetcher(entity_id, **kwargs)
                 continue
 
             # Handle entity loading (responsible, owner, contractor)
@@ -130,8 +138,6 @@ class FullDetailsMixin:
         # Build FullDetails object
         details_kwargs: dict[str, Any] = {main_entity_field: main_entity}
         for item_config in config:
-            details_kwargs[item_config.field_name] = task_results.get(
-                item_config.field_name
-            )
+            details_kwargs[item_config.field_name] = task_results.get(item_config.field_name)
 
         return full_details_class(**details_kwargs)

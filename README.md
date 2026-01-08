@@ -936,10 +936,127 @@ if client._cache:
 
 ### Особенности кэширования
 
-- **LRU (Least Recently Used)**: При достижении `cache_max_size` удаляются наименее используемые сущности
-- **TTL (Time To Live)**: Сущности автоматически удаляются из кэша через `cache_ttl` секунд
-- **Прозрачность**: Кэш работает автоматически, не требуя изменений в коде
-- **Батчевая загрузка**: При использовании `expand` уникальные сущности загружаются параллельно
+- При достижении `cache_max_size` удаляются наименее используемые сущности
+- Сущности автоматически удаляются из кэша через `cache_ttl` секунд
+- Кэш работает автоматически, не требуя изменений в коде
+- При использовании `expand` уникальные сущности загружаются параллельно
+
+## Глобальные дефолтные лимиты
+
+SDK позволяет задать глобальные дефолтные значения для параметров `comments_limit` и `history_limit` на уровне клиента. Эти значения будут применяться ко всем вызовам `get_full_details()` для задач, проектов и сделок, если не переопределены явно.
+
+### Установка глобальных дефолтов
+
+```python
+async with MegaplanClient(
+    base_url="https://my.megaplan.ru",
+    username="user@example.com",
+    password="password",
+    default_comments_limit=50,     # Дефолт для комментариев
+    default_history_limit=100,     # Дефолт для истории
+) as client:
+    # Использует дефолты (50 комментариев, 100 записей истории)
+    details = await client.tasks.get_full_details(
+        task_id=123,
+        include_comments=True,
+        include_history=True,
+    )
+
+    # Явный параметр переопределяет глобальный дефолт
+    details = await client.tasks.get_full_details(
+        task_id=456,
+        include_comments=True,
+        comments_limit=10,  # Используется 10, а не дефолт 50
+    )
+
+    # Без указания лимита API использует свой дефолт
+    details = await client.projects.get_full_details(
+        project_id=5,
+        include_comments=True,
+        # comments_limit не указан, используется глобальный дефолт 50
+    )
+```
+
+### Приоритет значений
+
+Система применяет лимиты в следующем порядке (от высшего к низшему приоритету):
+
+1. **Явно указанный параметр** в методе `get_full_details()` - всегда имеет наивысший приоритет
+2. **Глобальный дефолт** из `MegaplanClient` - применяется если параметр не указан явно
+3. **API default** (`None`) - API использует свои дефолты (обычно без ограничения) если не установлен глобальный дефолт
+
+```python
+# Пример приоритетов
+client = MegaplanClient(
+    base_url="https://my.megaplan.ru",
+    access_token="token",
+    default_comments_limit=50,  # Глобальный дефолт
+)
+
+# Приоритет 1: Явный параметр (загрузит 100)
+details = await client.tasks.get_full_details(
+    task_id=1,
+    include_comments=True,
+    comments_limit=100,  # Явно указано
+)
+
+# Приоритет 2: Глобальный дефолт (загрузит 50)
+details = await client.tasks.get_full_details(
+    task_id=2,
+    include_comments=True,
+    # comments_limit не указан, используется дефолт 50
+)
+
+# Приоритет 3: API default без глобального дефолта
+client_no_defaults = MegaplanClient(
+    base_url="https://my.megaplan.ru",
+    access_token="token",
+    # default_comments_limit не установлен
+)
+details = await client_no_defaults.tasks.get_full_details(
+    task_id=3,
+    include_comments=True,
+    # API использует свой дефолт (обычно без ограничения)
+)
+```
+
+### Когда использовать глобальные дефолты
+
+Глобальные дефолты полезны в следующих случаях:
+
+- Ограничение объема загружаемых данных для ускорения запросов
+- Уменьшение размера ответов API для экономии трафика
+- Применение одинаковых лимитов ко всем операциям без дублирования кода
+- Предотвращение загрузки слишком большого количества комментариев/истории
+
+```python
+# Пример для высоконагруженного приложения
+client = MegaplanClient(
+    base_url="https://my.megaplan.ru",
+    access_token="token",
+    default_comments_limit=20,   # Ограничение для быстрых ответов
+    default_history_limit=50,    # Контроль объема данных
+)
+
+# Все вызовы автоматически используют лимиты
+tasks_details = await client.tasks.get_full_details(
+    task_id=100,
+    include_comments=True,
+    include_history=True,
+)
+
+deals_details = await client.deals.get_full_details(
+    deal_id=200,
+    include_comments=True,
+    include_history=True,
+)
+
+projects_details = await client.projects.get_full_details(
+    project_id=300,
+    include_comments=True,
+    include_history=True,
+)
+```
 
 ## Автоматическая подгрузка связанных сущностей
 
@@ -1118,10 +1235,10 @@ async for emp in client.employees.iterate():
 
 SDK спроектирован с учетом модульности:
 
-- **Resources** (`TasksResource`, `ProjectsResource`, etc.) - Обработка операций API
-- **Models** (Pydantic) - Типобезопасные структуры данных
-- **HTTPClient** - Низкоуровневые HTTP-операции с retry и авторизацией
-- **AuthManager** - Управление OAuth2-токенами
+- Resources (`TasksResource`, `ProjectsResource`, etc.) - Обработка операций API
+- Models (Pydantic) - Типобезопасные структуры данных
+- HTTPClient - Низкоуровневые HTTP-операции с retry и авторизацией
+- AuthManager - Управление OAuth2-токенами
 
 ### Расширение SDK
 

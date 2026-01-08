@@ -111,7 +111,7 @@ addopts = [
     "--cov=megaplan_sdk",
     "--cov-report=term-missing",
     "--cov-report=html",
-    "--cov-fail-under=69",
+    "--cov-fail-under=80",
 ]
 
 [tool.coverage.run]

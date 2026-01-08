@@ -36,6 +36,8 @@ class MegaplanClient:
         enable_cache: bool = True,
         cache_ttl: int = 300,
         cache_max_size: int = 1000,
+        default_comments_limit: int | None = None,
+        default_history_limit: int | None = None,
     ) -> None:
         """Initialize Megaplan client.
 
@@ -52,6 +54,12 @@ class MegaplanClient:
             enable_cache: Enable entity caching (default: True).
             cache_ttl: Cache time-to-live in seconds (default: 300 = 5 minutes).
             cache_max_size: Maximum number of cached entities (default: 1000).
+            default_comments_limit: Default limit for comments in get_full_details().
+                None = use Megaplan API default (no explicit limit).
+                This value is used only if comments_limit is not specified in method call.
+            default_history_limit: Default limit for history in get_full_details().
+                None = use Megaplan API default (no explicit limit).
+                This value is used only if history_limit is not specified in method call.
 
         Security Note:
             For production use, it's recommended to use refresh tokens or pre-obtained
@@ -84,9 +92,24 @@ class MegaplanClient:
             logger.debug("MegaplanClient initialized with access_token")
 
         self.auth = AuthResource(self._http, cache=self._cache)
-        self.tasks = TasksResource(self._http, cache=self._cache)
-        self.projects = ProjectsResource(self._http, cache=self._cache)
-        self.deals = DealsResource(self._http, cache=self._cache)
+        self.tasks = TasksResource(
+            self._http,
+            cache=self._cache,
+            default_comments_limit=default_comments_limit,
+            default_history_limit=default_history_limit,
+        )
+        self.projects = ProjectsResource(
+            self._http,
+            cache=self._cache,
+            default_comments_limit=default_comments_limit,
+            default_history_limit=default_history_limit,
+        )
+        self.deals = DealsResource(
+            self._http,
+            cache=self._cache,
+            default_comments_limit=default_comments_limit,
+            default_history_limit=default_history_limit,
+        )
         self.files = FileResource(self._http, cache=self._cache)
         self.comments = CommentsResource(self._http, cache=self._cache)
         self.contractors = ContractorsResource(self._http, cache=self._cache)

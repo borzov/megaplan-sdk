@@ -22,15 +22,27 @@ class BaseResource:
     Provides common functionality for making API requests.
     """
 
-    def __init__(self, http_client: HTTPClient, cache: "EntityCache | None" = None) -> None:
+    def __init__(
+        self,
+        http_client: HTTPClient,
+        cache: "EntityCache | None" = None,
+        default_comments_limit: int | None = None,
+        default_history_limit: int | None = None,
+    ) -> None:
         """Initialize base resource.
 
         Args:
             http_client: HTTP client for making requests.
             cache: Optional entity cache for caching related entities.
+            default_comments_limit: Default limit for comments in get_full_details().
+                None = use API default (no explicit limit).
+            default_history_limit: Default limit for history in get_full_details().
+                None = use API default (no explicit limit).
         """
         self._http = http_client
         self._cache = cache
+        self._default_comments_limit = default_comments_limit
+        self._default_history_limit = default_history_limit
 
     def _build_path(self, *parts: str) -> str:
         """Build API path from parts.

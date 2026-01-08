@@ -2,6 +2,7 @@
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import unquote
 
 import pytest
 import respx
@@ -570,3 +571,152 @@ async def test_custom_fetcher():
         assert isinstance(full_details.related_tasks, list)
         assert len(full_details.related_tasks) == 1
         assert full_details.related_tasks[0].id == 100
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_default_limits_applied_when_not_specified():
+    """Test that default limits are applied when parameters not specified."""
+    respx.get("https://example.com/api/v3/task/1").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {"id": 1, "contentType": "Task", "name": "Test Task"},
+            },
+        )
+    )
+    respx.get("https://example.com/api/v3/task/1/comments").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [{"id": 1, "text": "Comment 1"}],
+            },
+        )
+    )
+    respx.get("https://example.com/api/v3/task/1/history").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [{"id": 1, "action": "created"}],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        # Create resource with default limits
+        resource = TasksResource(
+            http_client, cache=None, default_comments_limit=50, default_history_limit=100
+        )
+
+        # Call get_full_details WITHOUT specifying limits
+        full_details = await resource.get_full_details(
+            task_id=1,
+            include_comments=True,
+            include_history=True,
+        )
+
+        assert full_details.task.id == 1
+        assert full_details.comments is not None
+        assert full_details.history is not None
+
+        # Verify that API was called with default limits
+        comments_request = respx.calls[1].request  # Second call (comments)
+        history_request = respx.calls[2].request  # Third call (history)
+
+        # Parse query params (Megaplan uses JSON in query string)
+        comments_url = unquote(str(comments_request.url))
+        history_url = unquote(str(history_request.url))
+        assert '{"limit": 50}' in comments_url or '{"limit":50}' in comments_url
+        assert '{"limit": 100}' in history_url or '{"limit":100}' in history_url
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_explicit_limit_overrides_default():
+    """Test that explicit limit parameter overrides default."""
+    respx.get("https://example.com/api/v3/task/1").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {"id": 1, "contentType": "Task", "name": "Test Task"},
+            },
+        )
+    )
+    respx.get("https://example.com/api/v3/task/1/comments").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [{"id": 1, "text": "Comment 1"}],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(
+            http_client, cache=None, default_comments_limit=50  # Global default
+        )
+
+        # Call with explicit limit (should override default)
+        full_details = await resource.get_full_details(
+            task_id=1,
+            include_comments=True,
+            comments_limit=10,  # Explicit value
+        )
+
+        assert full_details.task.id == 1
+        assert full_details.comments is not None
+
+        # Verify explicit value was used (not default)
+        comments_request = respx.calls[1].request
+        comments_url = unquote(str(comments_request.url))
+        assert '{"limit": 10}' in comments_url or '{"limit":10}' in comments_url
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_none_default_does_not_add_limit():
+    """Test that None default does not add limit parameter."""
+    respx.get("https://example.com/api/v3/task/1").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {"id": 1, "contentType": "Task", "name": "Test Task"},
+            },
+        )
+    )
+    respx.get("https://example.com/api/v3/task/1/comments").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [{"id": 1, "text": "Comment 1"}],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(
+            http_client, cache=None, default_comments_limit=None  # None = use API default
+        )
+
+        # Call without specifying limit
+        full_details = await resource.get_full_details(
+            task_id=1,
+            include_comments=True,
+        )
+
+        assert full_details.task.id == 1
+        assert full_details.comments is not None
+
+        # Verify NO limit parameter was added (API decides)
+        comments_request = respx.calls[1].request
+        # Should not have limit in query params
+        assert "limit" not in str(comments_request.url) or '{"limit":null}' not in str(
+            comments_request.url
+        )

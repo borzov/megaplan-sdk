@@ -24,9 +24,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         RelatedDataConfig(
             "comments", "include_comments", "get_comments", limit_param="comments_limit"
         ),
-        RelatedDataConfig(
-            "history", "include_history", "get_history", limit_param="history_limit"
-        ),
+        RelatedDataConfig("history", "include_history", "get_history", limit_param="history_limit"),
         RelatedDataConfig("auditors", "include_auditors", "get_auditors"),
         RelatedDataConfig("executors", "include_executors", "get_executors"),
         RelatedDataConfig("milestones", "include_milestones", "get_milestones"),
@@ -45,6 +43,28 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             entity_type="employee",
         ),
     ]
+
+    def __init__(
+        self,
+        http_client,
+        cache=None,
+        default_comments_limit: int | None = None,
+        default_history_limit: int | None = None,
+    ) -> None:
+        """Initialize projects resource.
+
+        Args:
+            http_client: HTTP client for making requests.
+            cache: Optional entity cache.
+            default_comments_limit: Default limit for comments in get_full_details().
+            default_history_limit: Default limit for history in get_full_details().
+        """
+        super().__init__(
+            http_client,
+            cache=cache,
+            default_comments_limit=default_comments_limit,
+            default_history_limit=default_history_limit,
+        )
 
     async def create(self, project_data: dict[str, Any]) -> Project:
         """Create a new project.
@@ -704,7 +724,13 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             include_responsible_details: Load full responsible (Employee) details.
             include_owner_details: Load full owner (Employee) details.
             comments_limit: Limit for comments (if included).
+                None = use global default (from MegaplanClient) or API default.
+                Explicit value overrides global default.
+                Example: comments_limit=50 returns max 50 comments.
             history_limit: Limit for history (if included).
+                None = use global default (from MegaplanClient) or API default.
+                Explicit value overrides global default.
+                Example: history_limit=100 returns max 100 history entries.
 
         Returns:
             ProjectFullDetails object with all requested data.

@@ -17,9 +17,27 @@ from megaplan_sdk.types import FilterType
 class DealsResource(BaseResource, FullDetailsMixin):
     """Resource for working with deals."""
 
-    def __init__(self, http_client, cache=None):
-        """Initialize deals resource."""
-        super().__init__(http_client, cache)
+    def __init__(
+        self,
+        http_client,
+        cache=None,
+        default_comments_limit: int | None = None,
+        default_history_limit: int | None = None,
+    ):
+        """Initialize deals resource.
+
+        Args:
+            http_client: HTTP client for making requests.
+            cache: Optional entity cache.
+            default_comments_limit: Default limit for comments in get_full_details().
+            default_history_limit: Default limit for history in get_full_details().
+        """
+        super().__init__(
+            http_client,
+            cache=cache,
+            default_comments_limit=default_comments_limit,
+            default_history_limit=default_history_limit,
+        )
         # Define config after __init__ to avoid circular import
         self._full_details_config = [
             RelatedDataConfig(
@@ -57,9 +75,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         from megaplan_sdk.resources.tasks import TasksResource
 
         tasks_resource = TasksResource(self._http, cache=self._cache)
-        filter_config = json.dumps(
-            {"baseOn": {"contentType": ContentType.DEAL, "id": deal_id}}
-        )
+        filter_config = json.dumps({"baseOn": {"contentType": ContentType.DEAL, "id": deal_id}})
         # await the coroutine to return actual result, not coroutine
         return await tasks_resource.list(filter=filter_config)
 
@@ -562,7 +578,13 @@ class DealsResource(BaseResource, FullDetailsMixin):
             include_contractor_details: Load full contractor details.
             include_related_tasks: Load tasks related to this deal.
             comments_limit: Limit for comments (if included).
+                None = use global default (from MegaplanClient) or API default.
+                Explicit value overrides global default.
+                Example: comments_limit=50 returns max 50 comments.
             history_limit: Limit for history (if included).
+                None = use global default (from MegaplanClient) or API default.
+                Explicit value overrides global default.
+                Example: history_limit=100 returns max 100 history entries.
 
         Returns:
             DealFullDetails object with all requested data.
