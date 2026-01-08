@@ -11,10 +11,40 @@ from megaplan_sdk.models.deal import Deal
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task
 from megaplan_sdk.resources.base import BaseResource
+from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
 
 
-class ProjectsResource(BaseResource):
+class ProjectsResource(BaseResource, FullDetailsMixin):
     """Resource for working with projects."""
+
+    _full_details_config = [
+        RelatedDataConfig("deals", "include_deals", "get_deals"),
+        RelatedDataConfig("issues", "include_issues", "get_issues"),
+        RelatedDataConfig("actual_issues", "include_actual_issues", "get_actual_issues"),
+        RelatedDataConfig(
+            "comments", "include_comments", "get_comments", limit_param="comments_limit"
+        ),
+        RelatedDataConfig(
+            "history", "include_history", "get_history", limit_param="history_limit"
+        ),
+        RelatedDataConfig("auditors", "include_auditors", "get_auditors"),
+        RelatedDataConfig("executors", "include_executors", "get_executors"),
+        RelatedDataConfig("milestones", "include_milestones", "get_milestones"),
+        RelatedDataConfig(
+            "responsible_details",
+            "include_responsible_details",
+            None,
+            entity_field="responsible",
+            entity_type="employee",
+        ),
+        RelatedDataConfig(
+            "owner_details",
+            "include_owner_details",
+            None,
+            entity_field="owner",
+            entity_type="employee",
+        ),
+    ]
 
     async def create(self, project_data: dict[str, Any]) -> Project:
         """Create a new project.
@@ -690,62 +720,22 @@ class ProjectsResource(BaseResource):
             >>> print(details.project.name)
             >>> print(len(details.deals))
         """
-        # Always fetch the main project entity
-        project = await self.get(project_id)
-
-        # Prepare parallel tasks
-        tasks: dict[str, Any] = {}
-
-        if include_deals:
-            tasks["deals"] = self.get_deals(project_id)
-
-        if include_issues:
-            tasks["issues"] = self.get_issues(project_id)
-
-        if include_actual_issues:
-            tasks["actual_issues"] = self.get_actual_issues(project_id)
-
-        if include_comments:
-            tasks["comments"] = self.get_comments(project_id, limit=comments_limit)
-
-        if include_history:
-            tasks["history"] = self.get_history(project_id, limit=history_limit)
-
-        if include_auditors:
-            tasks["auditors"] = self.get_auditors(project_id)
-
-        if include_executors:
-            tasks["executors"] = self.get_executors(project_id)
-
-        if include_milestones:
-            tasks["milestones"] = self.get_milestones(project_id)
-
-        if include_responsible_details and project.responsible:
-            from megaplan_sdk.models.employee import Employee
-
-            tasks["responsible_details"] = self._get_entity_cached(
-                "employee", project.responsible.id, Employee
-            )
-
-        if include_owner_details and project.owner:
-            from megaplan_sdk.models.employee import Employee
-
-            tasks["owner_details"] = self._get_entity_cached("employee", project.owner.id, Employee)
-
-        # Execute all tasks in parallel
-        task_results = await self._fetch_details_parallel(tasks)
-
-        # Build ProjectFullDetails object
-        return ProjectFullDetails(
-            project=project,
-            deals=task_results.get("deals"),
-            issues=task_results.get("issues"),
-            actual_issues=task_results.get("actual_issues"),
-            comments=task_results.get("comments"),
-            history=task_results.get("history"),
-            auditors=task_results.get("auditors"),
-            executors=task_results.get("executors"),
-            milestones=task_results.get("milestones"),
-            responsible_details=task_results.get("responsible_details"),
-            owner_details=task_results.get("owner_details"),
+        return await self._get_full_details_generic(
+            entity_id=project_id,
+            entity_getter="get",
+            full_details_class=ProjectFullDetails,
+            config=self._full_details_config,
+            main_entity_field="project",
+            include_deals=include_deals,
+            include_issues=include_issues,
+            include_actual_issues=include_actual_issues,
+            include_comments=include_comments,
+            include_history=include_history,
+            include_auditors=include_auditors,
+            include_executors=include_executors,
+            include_milestones=include_milestones,
+            include_responsible_details=include_responsible_details,
+            include_owner_details=include_owner_details,
+            comments_limit=comments_limit,
+            history_limit=history_limit,
         )

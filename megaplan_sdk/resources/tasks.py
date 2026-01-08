@@ -9,11 +9,42 @@ from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.resources.base import BaseResource
+from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
 from megaplan_sdk.types import FilterType
 
 
-class TasksResource(BaseResource):
+class TasksResource(BaseResource, FullDetailsMixin):
     """Resource for working with tasks."""
+
+    _full_details_config = [
+        RelatedDataConfig("sub_tasks", "include_sub_tasks", "get_sub_tasks"),
+        RelatedDataConfig(
+            "actual_sub_tasks", "include_actual_sub_tasks", "get_actual_sub_tasks"
+        ),
+        RelatedDataConfig(
+            "comments", "include_comments", "get_comments", limit_param="comments_limit"
+        ),
+        RelatedDataConfig(
+            "history", "include_history", "get_history", limit_param="history_limit"
+        ),
+        RelatedDataConfig("auditors", "include_auditors", "get_auditors"),
+        RelatedDataConfig("executors", "include_executors", "get_executors"),
+        RelatedDataConfig("milestones", "include_milestones", "get_milestones"),
+        RelatedDataConfig(
+            "responsible_details",
+            "include_responsible_details",
+            None,
+            entity_field="responsible",
+            entity_type="employee",
+        ),
+        RelatedDataConfig(
+            "owner_details",
+            "include_owner_details",
+            None,
+            entity_field="owner",
+            entity_type="employee",
+        ),
+    ]
 
     async def create(self, task_data: dict[str, Any]) -> Task:
         """Create a new task.
@@ -713,58 +744,21 @@ class TasksResource(BaseResource):
             >>> print(details.task.name)
             >>> print(details.responsible_details.first_name)
         """
-        # Always fetch the main task entity
-        task = await self.get(task_id)
-
-        # Prepare parallel tasks
-        tasks: dict[str, Any] = {}
-
-        if include_sub_tasks:
-            tasks["sub_tasks"] = self.get_sub_tasks(task_id)
-
-        if include_actual_sub_tasks:
-            tasks["actual_sub_tasks"] = self.get_actual_sub_tasks(task_id)
-
-        if include_comments:
-            tasks["comments"] = self.get_comments(task_id, limit=comments_limit)
-
-        if include_history:
-            tasks["history"] = self.get_history(task_id, limit=history_limit)
-
-        if include_auditors:
-            tasks["auditors"] = self.get_auditors(task_id)
-
-        if include_executors:
-            tasks["executors"] = self.get_executors(task_id)
-
-        if include_milestones:
-            tasks["milestones"] = self.get_milestones(task_id)
-
-        if include_responsible_details and task.responsible:
-            from megaplan_sdk.models.employee import Employee
-
-            tasks["responsible_details"] = self._get_entity_cached(
-                "employee", task.responsible.id, Employee
-            )
-
-        if include_owner_details and task.owner:
-            from megaplan_sdk.models.employee import Employee
-
-            tasks["owner_details"] = self._get_entity_cached("employee", task.owner.id, Employee)
-
-        # Execute all tasks in parallel
-        task_results = await self._fetch_details_parallel(tasks)
-
-        # Build TaskFullDetails object
-        return TaskFullDetails(
-            task=task,
-            sub_tasks=task_results.get("sub_tasks"),
-            actual_sub_tasks=task_results.get("actual_sub_tasks"),
-            comments=task_results.get("comments"),
-            history=task_results.get("history"),
-            auditors=task_results.get("auditors"),
-            executors=task_results.get("executors"),
-            milestones=task_results.get("milestones"),
-            responsible_details=task_results.get("responsible_details"),
-            owner_details=task_results.get("owner_details"),
+        return await self._get_full_details_generic(
+            entity_id=task_id,
+            entity_getter="get",
+            full_details_class=TaskFullDetails,
+            config=self._full_details_config,
+            main_entity_field="task",
+            include_sub_tasks=include_sub_tasks,
+            include_actual_sub_tasks=include_actual_sub_tasks,
+            include_comments=include_comments,
+            include_history=include_history,
+            include_auditors=include_auditors,
+            include_executors=include_executors,
+            include_milestones=include_milestones,
+            include_responsible_details=include_responsible_details,
+            include_owner_details=include_owner_details,
+            comments_limit=comments_limit,
+            history_limit=history_limit,
         )

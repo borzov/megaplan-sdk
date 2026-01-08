@@ -10,11 +10,57 @@ from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
 from megaplan_sdk.resources.base import BaseResource
+from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
 from megaplan_sdk.types import FilterType
 
 
-class DealsResource(BaseResource):
+class DealsResource(BaseResource, FullDetailsMixin):
     """Resource for working with deals."""
+
+    def __init__(self, http_client, cache=None):
+        """Initialize deals resource."""
+        super().__init__(http_client, cache)
+        # Define config after __init__ to avoid circular import
+        self._full_details_config = [
+            RelatedDataConfig(
+                "comments", "include_comments", "get_comments", limit_param="comments_limit"
+            ),
+            RelatedDataConfig(
+                "history", "include_history", "get_history", limit_param="history_limit"
+            ),
+            RelatedDataConfig("status_history", "include_status_history", "get_status_history"),
+            RelatedDataConfig("auditors", "include_auditors", "get_auditors"),
+            RelatedDataConfig(
+                "responsible_details",
+                "include_responsible_details",
+                None,
+                entity_field="responsible",
+                entity_type="employee",
+            ),
+            RelatedDataConfig(
+                "contractor_details",
+                "include_contractor_details",
+                None,
+                entity_field="contractor",
+                entity_type="contractor",
+            ),
+            RelatedDataConfig(
+                "related_tasks",
+                "include_related_tasks",
+                None,
+                custom_fetcher=self._fetch_related_tasks,
+            ),
+        ]
+
+    async def _fetch_related_tasks(self, deal_id: int, **kwargs: Any) -> Any:
+        """Custom fetcher for related tasks."""
+        from megaplan_sdk.resources.tasks import TasksResource
+
+        tasks_resource = TasksResource(self._http, cache=self._cache)
+        filter_config = json.dumps(
+            {"baseOn": {"contentType": ContentType.DEAL, "id": deal_id}}
+        )
+        return tasks_resource.list(filter=filter_config)
 
     async def create(self, deal_data: dict[str, Any]) -> Deal:
         """Create a new deal.
@@ -531,58 +577,19 @@ class DealsResource(BaseResource):
             >>> print(details.deal.name)
             >>> print(len(details.comments))
         """
-        # Always fetch the main deal entity
-        deal = await self.get(deal_id)
-
-        # Prepare parallel tasks
-        tasks: dict[str, Any] = {}
-
-        if include_comments:
-            tasks["comments"] = self.get_comments(deal_id, limit=comments_limit)
-
-        if include_history:
-            tasks["history"] = self.get_history(deal_id, limit=history_limit)
-
-        if include_status_history:
-            tasks["status_history"] = self.get_status_history(deal_id)
-
-        if include_auditors:
-            tasks["auditors"] = self.get_auditors(deal_id)
-
-        if include_responsible_details and deal.responsible:
-            from megaplan_sdk.models.employee import Employee
-
-            tasks["responsible_details"] = self._get_entity_cached(
-                "employee", deal.responsible.id, Employee
-            )
-
-        if include_contractor_details and deal.contractor:
-            from megaplan_sdk.models.contractor import Contractor
-
-            tasks["contractor_details"] = self._get_entity_cached(
-                "contractor", deal.contractor.id, Contractor
-            )
-
-        if include_related_tasks:
-            from megaplan_sdk.resources.tasks import TasksResource
-
-            tasks_resource = TasksResource(self._http)
-            # Use filter with baseOn to get tasks related to this deal
-            # Convert to JSON string as API expects
-            filter_config = json.dumps({"baseOn": {"contentType": ContentType.DEAL, "id": deal_id}})
-            tasks["related_tasks"] = tasks_resource.list(filter=filter_config)
-
-        # Execute all tasks in parallel
-        task_results = await self._fetch_details_parallel(tasks)
-
-        # Build DealFullDetails object
-        return DealFullDetails(
-            deal=deal,
-            comments=task_results.get("comments"),
-            history=task_results.get("history"),
-            status_history=task_results.get("status_history"),
-            auditors=task_results.get("auditors"),
-            responsible_details=task_results.get("responsible_details"),
-            contractor_details=task_results.get("contractor_details"),
-            related_tasks=task_results.get("related_tasks"),
+        return await self._get_full_details_generic(
+            entity_id=deal_id,
+            entity_getter="get",
+            full_details_class=DealFullDetails,
+            config=self._full_details_config,
+            main_entity_field="deal",
+            include_comments=include_comments,
+            include_history=include_history,
+            include_status_history=include_status_history,
+            include_auditors=include_auditors,
+            include_responsible_details=include_responsible_details,
+            include_contractor_details=include_contractor_details,
+            include_related_tasks=include_related_tasks,
+            comments_limit=comments_limit,
+            history_limit=history_limit,
         )
