@@ -1,6 +1,7 @@
 """Unit tests for FullDetailsMixin."""
 
 import asyncio
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import unquote
 
