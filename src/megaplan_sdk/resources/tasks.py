@@ -64,9 +64,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
             default_history_limit=default_history_limit,
         )
 
-    async def create(
-        self, task_data: dict[str, Any], auto_fill_required: bool = True
-    ) -> Task:
+    async def create(self, task_data: dict[str, Any], auto_fill_required: bool = True) -> Task:
         """Create a new task.
 
         Args:

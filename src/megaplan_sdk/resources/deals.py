@@ -71,11 +71,12 @@ class DealsResource(BaseResource, FullDetailsMixin):
 
     async def _fetch_related_tasks(self, deal_id: int, **kwargs: Any) -> Any:
         """Custom fetcher for related tasks.
-        
+
         Note: For tasks API, filter config must be serialized to JSON string
         when it's a dict, because API expects filter as string in query params.
         """
         import json
+
         from megaplan_sdk.resources.tasks import TasksResource
 
         tasks_resource = TasksResource(self._http, cache=self._cache)
