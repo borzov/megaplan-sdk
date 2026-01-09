@@ -7,27 +7,6 @@
 
 ## [Не выпущено]
 
-### Добавлено
-
-- Helper-функции для создания BaseEntity объектов (`make_entity`, `make_employee_entity`, `make_project_entity`, `make_task_entity`, `make_deal_entity`, `make_contractor_entity`)
-- Упрощенные методы создания сущностей:
-  - `TasksResource.create_simple()` - создание задачи с минимальными параметрами
-  - `TasksResource.create_in_project()` - создание задачи внутри проекта с автоматической установкой связи
-  - `ProjectsResource.create_simple()` - создание проекта с минимальными параметрами
-- Автоматическое заполнение обязательных полей в методах `create()`:
-  - `TasksResource.create()` автоматически устанавливает `isUrgent=False` и `isTemplate=False` если не указаны
-  - `ProjectsResource.create()` автоматически устанавливает `isTemplate=False` если не указано
-
-### Изменено
-
-- Улучшена документация с примерами упрощенного использования helper-функций и методов
-- Методы `create()` в TasksResource и ProjectsResource теперь принимают параметр `auto_fill_required` (по умолчанию `True`)
-
-### Удалено
-
-- Функционал загрузки файлов (`FileResource`, методы `upload` и `upload_bytes`) - не поддерживается API Megaplan
-- Тесты для `FileResource`
-
 ## [0.1.0] - 2026-01-08
 
 ### Добавлено
@@ -44,7 +23,8 @@
 - Иерархия исключений для обработки ошибок API
 - Логирование с настраиваемым уровнем
 - Полная типизация с поддержкой mypy strict mode
-- Комплексные unit-тесты для всех компонентов SDK (покрытие 82%)
+- Helper-функции для создания BaseEntity объектов (`make_entity`, `make_employee_entity`, `make_project_entity`, `make_task_entity`, `make_deal_entity`, `make_contractor_entity`)
+- Комплексные unit-тесты для всех компонентов SDK (покрытие 80%+)
   - Тесты для FullDetailsMixin (8 тестов)
   - Тесты для EntityCache (9 тестов)
   - Тесты для BaseResource (13 тестов)

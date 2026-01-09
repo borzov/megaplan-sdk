@@ -1285,8 +1285,8 @@ SDK спроектирован с учетом модульности:
 
 Для добавления нового ресурса:
 
-1. Создайте модель в `megaplan_sdk/models/`
-2. Создайте ресурс в `megaplan_sdk/resources/`, наследуя от `BaseResource`
+1. Создайте модель в `src/megaplan_sdk/models/`
+2. Создайте ресурс в `src/megaplan_sdk/resources/`, наследуя от `BaseResource`
 3. Добавьте ресурс в `MegaplanClient`:
 
 ```python

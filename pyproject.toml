@@ -8,15 +8,14 @@ version = "0.1.0"
 description = "Professional Python SDK for Megaplan API v3"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
-    {name = "Megaplan SDK Contributors"}
+    {name = "Maxim Borzov", email = "max@borzov.com"}
 ]
 keywords = ["megaplan", "crm", "api", "sdk"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -39,8 +38,14 @@ dev = [
     "ruff>=0.4.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/borzov/megaplan-sdk"
+Documentation = "https://github.com/borzov/megaplan-sdk#readme"
+Repository = "https://github.com/borzov/megaplan-sdk"
+Issues = "https://github.com/borzov/megaplan-sdk/issues"
+
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["megaplan_sdk*"]
 
 [tool.mypy]
@@ -115,7 +120,7 @@ addopts = [
 ]
 
 [tool.coverage.run]
-source = ["megaplan_sdk"]
+source = ["src/megaplan_sdk"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

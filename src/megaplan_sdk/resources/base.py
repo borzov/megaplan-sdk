@@ -217,7 +217,6 @@ class BaseResource:
 
         path = self._build_path("api", "v3", entity_type, str(entity_id), "comments")
 
-        # API expects "content" field, not "text"
         comment_data: dict[str, Any] = {"content": text}
         if attaches:
             comment_data["attaches"] = attaches

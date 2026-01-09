@@ -19,7 +19,10 @@ async def test_client_initialization():
     assert client.tasks is not None
     assert client.projects is not None
     assert client.deals is not None
-    assert client.files is not None
+    assert client.comments is not None
+    assert client.contractors is not None
+    assert client.employees is not None
+    assert client.departments is not None
     assert client.auth is not None
 
     await client.close()

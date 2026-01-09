@@ -34,16 +34,12 @@ class Comment(BaseEntity, TimestampMixin):
 
     content_type: str = Field(alias="contentType", default="Comment")
     subject: BaseEntity | None = None
-    owner: BaseEntity | None = None  # Employee, ContractorCompany, or ContractorHuman
-    content: str | None = None  # Comment text
+    owner: BaseEntity | None = None
+    content: str | None = None
     attaches: list[BaseEntity] | None = None
     attaches_count: int | None = Field(alias="attachesCount", default=None)
-    work_time: dict[str, Any] | None = Field(
-        alias="workTime", default=None
-    )  # DateInterval (contentType, value)
-    work_date: dict[str, Any] | None = Field(
-        alias="workDate", default=None
-    )  # DateTime (contentType, value, timestamp)
+    work_time: dict[str, Any] | None = Field(alias="workTime", default=None)
+    work_date: dict[str, Any] | None = Field(alias="workDate", default=None)
     is_unread: bool | None = Field(alias="isUnread", default=None)
     is_dropped: bool | None = Field(alias="isDropped", default=None)
     completed: int | None = None

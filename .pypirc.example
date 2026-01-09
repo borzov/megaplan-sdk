@@ -1,0 +1,16 @@
+# Скопируйте этот файл в ~/.pypirc и заполните токенами
+# НЕ коммитьте файл ~/.pypirc в репозиторий!
+
+[distutils]
+index-servers =
+    pypi
+    testpypi
+
+[pypi]
+username = __token__
+password = ваш_токен_pypi_здесь
+
+[testpypi]
+repository = https://test.pypi.org/legacy/
+username = __token__
+password = ваш_токен_testpypi_здесь

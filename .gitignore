@@ -66,6 +66,7 @@ CLAUDE.md
 .env
 .env.local
 .venv/
+.pypirc
 
 # Real tests and API responses
 examples/real_tests/collect_api_responses.py
