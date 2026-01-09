@@ -35,16 +35,16 @@ jobs:
           pytest --version
 
       - name: Run ruff check
-        run: ruff check megaplan_sdk
+        run: ruff check src/megaplan_sdk
 
       - name: Run ruff format check
-        run: ruff format --check megaplan_sdk
+        run: ruff format --check src/megaplan_sdk
 
       - name: Run mypy
-        run: mypy megaplan_sdk
+        run: mypy src/megaplan_sdk
 
       - name: Run pytest with coverage
-        run: pytest --cov=megaplan_sdk --cov-report=xml --cov-report=term-missing
+        run: pytest --cov=src/megaplan_sdk --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
