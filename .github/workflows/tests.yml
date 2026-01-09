@@ -44,7 +44,7 @@ jobs:
         run: mypy src/megaplan_sdk
 
       - name: Run pytest with coverage
-        run: pytest --cov=megaplan_sdk --cov-report=xml --cov-report=term-missing
+        run: pytest --cov=megaplan_sdk --cov-config=pyproject.toml --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
