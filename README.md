@@ -583,11 +583,97 @@ details = await client.tasks.get_full_details(
 - `history: list[dict] | None` - История изменений
 - `auditors: list[dict] | None` - Аудиторы
 - `executors: list[dict] | None` - Соисполнители
-- `milestones: list[dict] | None` - Вехи
+- `milestones: list[Milestone] | None` - Вехи
 - `responsible_details: Employee | None` - Полные данные ответственного
 - `owner_details: Employee | None` - Полные данные постановщика
 
 > **Примечание:** Общее описание метода `get_full_details()` и примеры использования см. в разделе [Общие паттерны работы с сущностями](#общие-паттерны-работы-с-сущностями).
+
+### Работа с вехами (Milestones)
+
+Вехи можно получать и создавать для задач и проектов.
+
+#### Получение вех
+
+```python
+# Получить вехи задачи
+milestones = await client.tasks.get_milestones(
+    task_id=123,
+    limit=50  # Опционально
+)
+
+# Получить вехи проекта
+milestones = await client.projects.get_milestones(
+    project_id=456,
+    limit=50  # Опционально
+)
+
+# Вехи также доступны через get_full_details()
+details = await client.tasks.get_full_details(
+    task_id=123,
+    include_milestones=True
+)
+if details.milestones:
+    for milestone in details.milestones:
+        print(f"{milestone.name}: {milestone.type}")
+```
+
+#### Создание вехи
+
+```python
+from megaplan_sdk.models.milestone import Milestone
+
+# Создать веху для задачи
+milestone = await client.tasks.add_milestone(
+    task_id=123,
+    milestone_data={
+        "name": "Release 1.0",
+        "description": "Release milestone description",  # Обязательное поле
+        "type": "report",  # Обязательное: "report", "reminder", или "note"
+        "date": "2026-02-01T10:00:00Z"  # Обязательное: ISO 8601 формат
+    }
+)
+
+# Или использовать модель Milestone
+milestone = await client.tasks.add_milestone(
+    task_id=123,
+    milestone_data=Milestone(
+        name="Release 1.0",
+        description="Release milestone description",
+        type="report",
+        date="2026-02-01T10:00:00Z"
+    )
+)
+
+# Создать веху для проекта
+milestone = await client.projects.add_milestone(
+    project_id=456,
+    milestone_data={
+        "description": "Phase 1 completion",
+        "type": "reminder",
+        "date": "2026-03-15T14:00:00Z"
+    }
+)
+```
+
+**Обязательные поля при создании вехи:**
+- `description: str` - Описание вехи
+- `type: str` - Тип вехи: `"report"`, `"reminder"`, или `"note"`
+- `date: str | DateTime | dict` - Дата и время вехи (ISO 8601 строка или объект DateTime)
+
+**Поля модели Milestone:**
+- `id: int` - Идентификатор вехи
+- `name: str | None` - Название вехи
+- `description: str | None` - Описание
+- `completed: bool | None` - Признак завершенности
+- `type: str | None` - Тип вехи
+- `date: str | DateTime | dict | None` - Дата и время
+- `owner: BaseEntity | None` - Создатель (Employee)
+- `responsible: BaseEntity | None` - Ответственный (Employee)
+- `task: BaseEntity | None` - Связанная задача
+- `project: BaseEntity | None` - Связанный проект
+
+**Примечание:** Метод `get_milestones()` может вернуть пустой список для некоторых задач/проектов из-за ограничений API (ошибка 500). Это обрабатывается автоматически.
 
 ## Работа с проектами
 
@@ -703,11 +789,15 @@ details = await client.projects.get_full_details(
 - `history: list[dict] | None` - История изменений
 - `auditors: list[dict] | None` - Аудиторы
 - `executors: list[dict] | None` - Соисполнители
-- `milestones: list[dict] | None` - Вехи
+- `milestones: list[Milestone] | None` - Вехи
 - `responsible_details: Employee | None` - Полные данные ответственного
 - `owner_details: Employee | None` - Полные данные владельца
 
 > **Примечание:** Общее описание метода `get_full_details()` и примеры использования см. в разделе [Общие паттерны работы с сущностями](#общие-паттерны-работы-с-сущностями).
+
+### Работа с вехами (Milestones)
+
+Вехи для проектов работают аналогично вехам для задач. См. раздел [Работа с вехами](#работа-с-вехами-milestones) в разделе "Работа с задачами" для подробностей.
 
 ## Работа со сделками
 

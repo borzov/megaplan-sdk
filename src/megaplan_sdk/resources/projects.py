@@ -677,8 +677,11 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
-    ) -> list[Any]:
+    ) -> list["Milestone"]:
         """Get milestones for a project.
+
+        Warning: This endpoint may return 500 Internal Server Error for some tasks/projects
+        due to API limitations. The error is handled gracefully and an empty list is returned.
 
         Args:
             project_id: Project identifier.
@@ -688,38 +691,94 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             page_with: Load page containing this entity.
 
         Returns:
-            List of milestones.
+            List of Milestone objects. Returns empty list if API returns 500 error.
 
         Examples:
             >>> milestones = await client.projects.get_milestones(project_id=123)
+            >>> for milestone in milestones:
+            ...     print(f"{milestone.name}: {milestone.date}")
         """
-        return await self._get_entity_related_list(
-            "project", project_id, "milestones", limit, page_after, page_before, page_with
-        )
+        from megaplan_sdk.models.milestone import Milestone
+
+        try:
+            return await self._get_entity_related_list(
+                "project",
+                project_id,
+                "milestones",
+                limit,
+                page_after,
+                page_before,
+                page_with,
+                model_class=Milestone,
+            )
+        except Exception as e:
+            # API may return 500 for milestones endpoint (known limitation)
+            from megaplan_sdk.exceptions import ServerError
+            from megaplan_sdk.logging_config import logger
+
+            if isinstance(e, ServerError) and "500" in str(e):
+                logger.warning(
+                    f"Milestones endpoint returned 500 for project {project_id}. "
+                    "This is a known API limitation. Returning empty list."
+                )
+                return []
+            raise
 
     async def add_milestone(
         self,
         project_id: int,
-        milestone_data: dict[str, Any],
-    ) -> Any:
+        milestone_data: "Milestone | dict[str, Any]",
+    ) -> "Milestone":
         """Add milestone to the project.
 
         Args:
             project_id: Project identifier.
-            milestone_data: Milestone data (name, date, etc.).
+            milestone_data: Milestone data as Milestone object or dict.
+                Required fields: description, type, date.
+                Type must be one of: "report", "reminder", "note".
+                Date can be ISO 8601 string, DateTime object, or dict.
 
         Returns:
-            Added milestone.
+            Created Milestone object.
 
         Examples:
+            >>> # Using dict
             >>> milestone = await client.projects.add_milestone(
             ...     project_id=123,
-            ...     milestone_data={"name": "Phase 1", "date": "2026-03-15"}
+            ...     milestone_data={
+            ...         "name": "Phase 1",
+            ...         "description": "First phase milestone",
+            ...         "type": "report",
+            ...         "date": "2026-03-15T10:00:00Z"
+            ...     }
+            ... )
+            >>>
+            >>> # Using Milestone model
+            >>> from megaplan_sdk.models.milestone import Milestone
+            >>> milestone = await client.projects.add_milestone(
+            ...     project_id=123,
+            ...     milestone_data=Milestone(
+            ...         name="Phase 1",
+            ...         description="First phase milestone",
+            ...         type="report",
+            ...         date="2026-03-15T10:00:00Z"
+            ...     )
             ... )
         """
-        return await self._add_entity_related(
-            "project", project_id, "milestones", 0, "Milestone", data_override=milestone_data
+        from megaplan_sdk.models.milestone import Milestone
+
+        # Validate and convert to dict if needed
+        if isinstance(milestone_data, Milestone):
+            data_dict = milestone_data.model_dump(by_alias=True, exclude_none=True)
+        else:
+            # Validate dict data through model
+            milestone = Milestone(**milestone_data)
+            data_dict = milestone.model_dump(by_alias=True, exclude_none=True)
+
+        response = await self._add_entity_related(
+            "project", project_id, "milestones", 0, "Milestone", data_override=data_dict
         )
+        return Milestone(**response) if isinstance(response, dict) else response
 
     async def get_history(
         self,

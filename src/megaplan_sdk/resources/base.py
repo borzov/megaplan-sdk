@@ -515,7 +515,8 @@ class BaseResource:
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
-    ) -> list[Any]:
+        model_class: type[T] | None = None,
+    ) -> list[Any] | list[T]:
         """Generic method to get related list (auditors, executors, milestones).
 
         Args:
@@ -526,9 +527,11 @@ class BaseResource:
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
+            model_class: Optional Pydantic model class for parsing items.
+                If provided, returns list[model_class], otherwise returns list[dict].
 
         Returns:
-            List of related entities.
+            List of related entities (parsed if model_class provided, otherwise raw dicts).
         """
         path = self._build_path("api", "v3", entity_type, str(entity_id), related_type)
 
@@ -540,7 +543,11 @@ class BaseResource:
         )
 
         response = await self._http.get(path, params=params if params else None)
-        return self._parse_list_response(response)
+        data = self._parse_list_response(response)
+
+        if model_class:
+            return [model_class(**item) if isinstance(item, dict) else item for item in data]
+        return data
 
     async def _add_entity_related(
         self,

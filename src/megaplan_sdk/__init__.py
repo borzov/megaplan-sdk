@@ -40,6 +40,7 @@ from megaplan_sdk.models.filter import (
     TradeFilter,
     UserSetting,
 )
+from megaplan_sdk.models.milestone import Milestone
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.resources.filters import FiltersResource
@@ -68,6 +69,7 @@ __all__ = [
     "ContractorHuman",
     "Employee",
     "Department",
+    "Milestone",
     "DateTime",
     # Filters
     "FiltersResource",

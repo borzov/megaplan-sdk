@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from megaplan_sdk.models.base import BaseEntity
 from megaplan_sdk.models.common import DateTime, TimestampMixin
+
+if TYPE_CHECKING:
+    from megaplan_sdk.models.milestone import Milestone
 
 
 class ProjectFilter(BaseModel):
@@ -69,7 +72,7 @@ class ProjectFullDetails(BaseModel):
     history: list[dict[str, Any]] | None = None
     auditors: list[Any] | None = None
     executors: list[Any] | None = None
-    milestones: list[Any] | None = None
+    milestones: list["Milestone"] | None = None
     responsible_details: Any | None = None
     owner_details: Any | None = None
 

@@ -150,6 +150,8 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 If filter is int/str, it will be converted to {"contentType": "TaskFilter", "id": filter}.
                 If filter is dict, it will be used as is.
             statuses: List of statuses to filter by.
+                Warning: This parameter may return 422 ValidationError due to API limitations.
+                Use FilterBuilder for reliable status filtering instead.
             q: Text search query (searches in task name and description).
                 **Note:** This parameter may not work properly in Megaplan API
                 (returns empty results). For text search, use FilterBuilder instead:
@@ -419,6 +421,9 @@ class TasksResource(BaseResource, FullDetailsMixin):
     ) -> list[Task]:
         """Get filtered list of projects or tasks at current tree level.
 
+        Note: API returns tasks with string IDs in format "Task:ID:hash" or "Project:ID:hash".
+        This method extracts the numeric ID from the string format.
+
         Args:
             filter: Task filter (ID or config).
             limit: Number of items per page.
@@ -431,6 +436,9 @@ class TasksResource(BaseResource, FullDetailsMixin):
 
         Returns:
             List of tasks/projects at current tree level.
+
+        Examples:
+            >>> tasks = await client.tasks.tree_level(limit=10)
         """
         path = self._build_path("api", "v3", "task", "treeLevel")
 
@@ -446,7 +454,37 @@ class TasksResource(BaseResource, FullDetailsMixin):
             only_requested_fields=only_requested_fields,
         )
 
-        return await self._get_list(path, Task, params)
+        # Get raw response to process string IDs
+        response = await self._http.get(path, params=params if params else None)
+        data: list[dict[str, Any]] = response.get("data", [])
+
+        # Process items: extract numeric ID from string format "Task:ID:hash" or "Project:ID:hash"
+        processed_items: list[dict[str, Any]] = []
+        for item in data:
+            processed_item = item.copy()
+            # If id is a string in format "Type:ID:hash", extract the numeric ID
+            if isinstance(processed_item.get("id"), str):
+                id_str = processed_item["id"]
+                # Format: "Task:1005808:dcca48101505dd86b703689a604fe3c4"
+                # Extract ID between first and second colon
+                parts = id_str.split(":")
+                if len(parts) >= 2:
+                    try:
+                        # Extract numeric ID (second part)
+                        numeric_id = int(parts[1])
+                        processed_item["id"] = numeric_id
+                    except (ValueError, IndexError):
+                        # If parsing fails, keep original ID and log warning
+                        from megaplan_sdk.logging_config import logger
+
+                        logger.warning(
+                            f"Could not parse tree node ID from '{id_str}', keeping original"
+                        )
+
+            processed_items.append(processed_item)
+
+        # Parse processed items into Task models
+        return [Task(**item) if isinstance(item, dict) else item for item in processed_items]
 
     async def iterate(
         self,
@@ -816,8 +854,11 @@ class TasksResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
-    ) -> list[Any]:
+    ) -> list["Milestone"]:
         """Get milestones for a task.
+
+        Warning: This endpoint may return 500 Internal Server Error for some tasks/projects
+        due to API limitations. The error is handled gracefully and an empty list is returned.
 
         Args:
             task_id: Task identifier.
@@ -827,38 +868,94 @@ class TasksResource(BaseResource, FullDetailsMixin):
             page_with: Load page containing this entity.
 
         Returns:
-            List of milestones.
+            List of Milestone objects. Returns empty list if API returns 500 error.
 
         Examples:
             >>> milestones = await client.tasks.get_milestones(task_id=123)
+            >>> for milestone in milestones:
+            ...     print(f"{milestone.name}: {milestone.date}")
         """
-        return await self._get_entity_related_list(
-            "task", task_id, "milestones", limit, page_after, page_before, page_with
-        )
+        from megaplan_sdk.models.milestone import Milestone
+
+        try:
+            return await self._get_entity_related_list(
+                "task",
+                task_id,
+                "milestones",
+                limit,
+                page_after,
+                page_before,
+                page_with,
+                model_class=Milestone,
+            )
+        except Exception as e:
+            # API may return 500 for milestones endpoint (known limitation)
+            from megaplan_sdk.exceptions import ServerError
+            from megaplan_sdk.logging_config import logger
+
+            if isinstance(e, ServerError) and "500" in str(e):
+                logger.warning(
+                    f"Milestones endpoint returned 500 for task {task_id}. "
+                    "This is a known API limitation. Returning empty list."
+                )
+                return []
+            raise
 
     async def add_milestone(
         self,
         task_id: int,
-        milestone_data: dict[str, Any],
-    ) -> Any:
+        milestone_data: "Milestone | dict[str, Any]",
+    ) -> "Milestone":
         """Add milestone to the task.
 
         Args:
             task_id: Task identifier.
-            milestone_data: Milestone data (name, date, etc.).
+            milestone_data: Milestone data as Milestone object or dict.
+                Required fields: description, type, date.
+                Type must be one of: "report", "reminder", "note".
+                Date can be ISO 8601 string, DateTime object, or dict.
 
         Returns:
-            Added milestone.
+            Created Milestone object.
 
         Examples:
+            >>> # Using dict
             >>> milestone = await client.tasks.add_milestone(
             ...     task_id=123,
-            ...     milestone_data={"name": "Release 1.0", "date": "2026-02-01"}
+            ...     milestone_data={
+            ...         "name": "Release 1.0",
+            ...         "description": "Release milestone",
+            ...         "type": "report",
+            ...         "date": "2026-02-01T10:00:00Z"
+            ...     }
+            ... )
+            >>>
+            >>> # Using Milestone model
+            >>> from megaplan_sdk.models.milestone import Milestone
+            >>> milestone = await client.tasks.add_milestone(
+            ...     task_id=123,
+            ...     milestone_data=Milestone(
+            ...         name="Release 1.0",
+            ...         description="Release milestone",
+            ...         type="report",
+            ...         date="2026-02-01T10:00:00Z"
+            ...     )
             ... )
         """
-        return await self._add_entity_related(
-            "task", task_id, "milestones", 0, "Milestone", data_override=milestone_data
+        from megaplan_sdk.models.milestone import Milestone
+
+        # Validate and convert to dict if needed
+        if isinstance(milestone_data, Milestone):
+            data_dict = milestone_data.model_dump(by_alias=True, exclude_none=True)
+        else:
+            # Validate dict data through model
+            milestone = Milestone(**milestone_data)
+            data_dict = milestone.model_dump(by_alias=True, exclude_none=True)
+
+        response = await self._add_entity_related(
+            "task", task_id, "milestones", 0, "Milestone", data_override=data_dict
         )
+        return Milestone(**response) if isinstance(response, dict) else response
 
     async def get_history(
         self,
