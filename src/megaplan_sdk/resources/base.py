@@ -151,8 +151,10 @@ class BaseResource:
                 break
 
             last_item = items[-1]
-            # TypeVar T doesn't guarantee .id attribute, but all our entities have it
-            item_id: int = getattr(last_item, "id", 0)
+            item_id = getattr(last_item, "id", None)
+            if item_id is None:
+                logger.warning(f"Entity without id during pagination: {type(last_item).__name__}")
+                break
             page_after = {"contentType": content_type, "id": item_id}
 
     async def _get_entity_comments(
@@ -481,8 +483,6 @@ class BaseResource:
         if result:
             return result
 
-        # Fallback: capitalize first letter for unknown types
-        # Log warning in production if this path is hit frequently
         return entity_type.capitalize()
 
     @staticmethod

@@ -43,7 +43,7 @@ class AuthManager:
         Raises:
             AuthenticationError: If authentication fails.
         """
-        logger.info(f"Authenticating user: {username}")
+        logger.info("Authentication attempt")
 
         try:
             response = await self._http.post_form(
@@ -66,7 +66,7 @@ class AuthManager:
 
             self._http.set_access_token(self._access_token)
 
-            logger.info(f"Authentication successful for user: {username}")
+            logger.info("Authentication successful")
 
             return self._access_token
 

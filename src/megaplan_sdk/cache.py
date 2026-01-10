@@ -1,5 +1,6 @@
 """Entity caching system for Megaplan SDK."""
 
+from collections import defaultdict
 from dataclasses import dataclass
 from time import time
 from typing import Any
@@ -46,7 +47,15 @@ class EntityCache:
         self._cache: dict[tuple[str, int], CacheEntry] = {}
         self._max_size = max_size
         self._ttl = ttl
-        self._access_order: list[tuple[str, int]] = []  # For LRU
+        self._access_order: list[tuple[str, int]] = []
+        self._type_keys: dict[str, set[tuple[str, int]]] = defaultdict(set)
+        self._type_counts: dict[str, int] = defaultdict(int)
+
+    def _move_to_end(self, key: tuple[str, int]) -> None:
+        """Move key to end of access order (LRU update)."""
+        if key in self._access_order:
+            self._access_order.remove(key)
+        self._access_order.append(key)
 
     def get(self, content_type: str, entity_id: int) -> Any | None:
         """Get entity from cache if not expired.
@@ -73,17 +82,14 @@ class EntityCache:
 
         # Check expiration
         if time() > entry.expires_at:
-            # Expired - remove from cache
             self._cache.pop(key, None)
             if key in self._access_order:
                 self._access_order.remove(key)
+            self._type_keys[content_type].discard(key)
+            self._type_counts[content_type] = max(0, self._type_counts[content_type] - 1)
             return None
 
-        # Update access order (LRU)
-        if key in self._access_order:
-            self._access_order.remove(key)
-        self._access_order.append(key)
-
+        self._move_to_end(key)
         return entry.data
 
     def set(self, content_type: str, entity_id: int, data: Any) -> None:
@@ -100,11 +106,15 @@ class EntityCache:
         """
         key = (content_type, entity_id)
 
+        is_new_key = key not in self._cache
+
         # Evict oldest if at capacity
-        if len(self._cache) >= self._max_size and key not in self._cache:
-            if self._access_order:
-                oldest_key = self._access_order.pop(0)
-                self._cache.pop(oldest_key, None)
+        if is_new_key and len(self._cache) >= self._max_size and self._access_order:
+            oldest_key = self._access_order.pop(0)
+            old_type = oldest_key[0]
+            self._cache.pop(oldest_key, None)
+            self._type_keys[old_type].discard(oldest_key)
+            self._type_counts[old_type] = max(0, self._type_counts[old_type] - 1)
 
         # Store entry
         self._cache[key] = CacheEntry(
@@ -112,10 +122,12 @@ class EntityCache:
             expires_at=time() + self._ttl,
         )
 
-        # Update access order
-        if key in self._access_order:
-            self._access_order.remove(key)
-        self._access_order.append(key)
+        # Update type tracking
+        if is_new_key:
+            self._type_keys[content_type].add(key)
+            self._type_counts[content_type] += 1
+
+        self._move_to_end(key)
 
     def clear(self) -> None:
         """Clear all cached entities.
@@ -128,6 +140,9 @@ class EntityCache:
         """
         self._cache.clear()
         self._access_order.clear()
+        self._type_keys.clear()
+        for content_type in self._type_counts:
+            self._type_counts[content_type] = 0
 
     def clear_type(self, content_type: str) -> None:
         """Clear cache for specific entity type.
@@ -143,12 +158,15 @@ class EntityCache:
             >>> assert cache.get("Employee", 1) is None
             >>> assert cache.get("Task", 2) is not None
         """
-        keys_to_remove = [key for key in self._cache.keys() if key[0] == content_type]
+        keys_to_remove = self._type_keys.get(content_type, set()).copy()
 
         for key in keys_to_remove:
             self._cache.pop(key, None)
             if key in self._access_order:
                 self._access_order.remove(key)
+
+        self._type_keys[content_type].clear()
+        self._type_counts[content_type] = 0
 
     def size(self) -> int:
         """Get current cache size.
@@ -180,13 +198,9 @@ class EntityCache:
             >>> print(stats["types"])
             {'Employee': 1, 'Task': 1}
         """
-        type_counts: dict[str, int] = {}
-        for content_type, _ in self._cache.keys():
-            type_counts[content_type] = type_counts.get(content_type, 0) + 1
-
         return {
             "size": len(self._cache),
             "max_size": self._max_size,
             "ttl": self._ttl,
-            "types": type_counts,
+            "types": dict(self._type_counts),
         }

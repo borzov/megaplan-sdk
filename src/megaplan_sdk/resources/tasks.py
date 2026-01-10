@@ -471,11 +471,9 @@ class TasksResource(BaseResource, FullDetailsMixin):
         """
         extra_fields = {}
         if work is not None:
-            # API expects workTime as DateInterval with seconds
-            # Convert hours to seconds
             extra_fields["workTime"] = {
                 "contentType": "DateInterval",
-                "seconds": int(work * 3600),  # Convert hours to seconds
+                "seconds": int(work * 3600),
             }
 
         return await self._create_entity_comment(

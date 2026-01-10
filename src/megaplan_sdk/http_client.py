@@ -49,10 +49,15 @@ class HTTPClient:
             )
 
         self.base_url = base_url.rstrip("/")
-        self.access_token = access_token
+        self._access_token: str | None = access_token
         self.timeout = timeout
         self.max_retries = max_retries
         self._client: httpx.AsyncClient | None = None
+
+    @property
+    def access_token(self) -> str | None:
+        """Access token for authentication (read-only)."""
+        return self._access_token
 
     async def __aenter__(self) -> "HTTPClient":
         """Async context manager entry."""
@@ -93,7 +98,7 @@ class HTTPClient:
         Args:
             access_token: OAuth2 access token (or None to clear).
         """
-        self.access_token = access_token
+        self._access_token = access_token
 
     def _build_url(self, path: str, params: dict[str, Any] | None = None) -> str:
         """Build URL with JSON parameters in query string.
@@ -127,8 +132,8 @@ class HTTPClient:
         """
         headers: dict[str, str] = {"Content-Type": "application/json"}
 
-        if self.access_token:
-            headers["Authorization"] = f"Bearer {self.access_token}"
+        if self._access_token:
+            headers["Authorization"] = f"Bearer {self._access_token}"
 
         if extra_headers:
             headers.update(extra_headers)
@@ -281,10 +286,6 @@ class HTTPClient:
                     continue
                 raise
 
-        # Note: This point is never reached because:
-        # - Success case returns via 'return response_data'
-        # - Error cases either raise immediately or continue retrying
-        # - After max retries, exceptions are re-raised above
         raise RuntimeError("Unexpected error in request")
 
     async def get(
