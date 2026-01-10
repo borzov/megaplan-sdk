@@ -22,6 +22,34 @@
 
 Библиотека полностью асинхронная, что позволяет эффективно работать с большими объемами данных и выполнять параллельные запросы. Встроенная логика повторных попыток при временных сбоях сервера делает интеграцию более надежной. Модульная архитектура позволяет легко расширять функциональность и добавлять поддержку новых модулей API.
 
+## Содержание
+
+### Основы
+- [Быстрый старт](#быстрый-старт)
+- [Авторизация](#авторизация)
+- [Helper-функции](#helper-функции)
+- [Обработка ошибок](#обработка-ошибок)
+
+### Работа с сущностями
+- [Общие паттерны](#общие-паттерны-работы-с-сущностями)
+- [Задачи](#работа-с-задачами)
+- [Проекты](#работа-с-проектами)
+- [Сделки](#работа-со-сделками)
+
+### Продвинутые возможности
+- [Кэширование сущностей](#кэширование-сущностей)
+- [Глобальные дефолтные лимиты](#глобальные-дефолтные-лимиты)
+- [Автоматическая подгрузка связанных сущностей](#автоматическая-подгрузка-связанных-сущностей)
+- [Работа с фильтрами](#работа-с-фильтрами)
+- [Настройка HTTP-клиента](#настройка-http-клиента)
+- [Ручное управление токенами](#ручное-управление-токенами)
+
+### Справочная информация
+- [Известные ограничения API](#известные-ограничения-api)
+- [Архитектура](#архитектура)
+- [Требования](#требования)
+- [Разработка](#разработка)
+
 ## Возможности
 
 - Полный CRUD для задач, проектов и сделок
@@ -30,6 +58,12 @@
 - Типобезопасность с Pydantic-моделями и полной типизацией
 - Асинхронность — поддержка async/await во всех операциях
 - Автоматические повторы при ошибках сервера (5xx)
+- Кэширование сущностей с LRU и TTL для оптимизации запросов
+- FilterBuilder для создания фильтров с fluent API
+- Параметр `expand` для автоматической подгрузки связанных сущностей
+- Метод `iterate()` для автоматической пагинации больших списков
+- Helper-функции для создания BaseEntity объектов
+- Глобальные дефолтные лимиты для комментариев и истории
 - Модульная архитектура для легкого расширения
 - Комплексные тесты с покрытием 80%+
 
@@ -131,31 +165,269 @@ deal_ref = make_deal_entity(101)
 contractor_ref = make_contractor_entity(202)
 ```
 
-## Работа с задачами
+## Обработка ошибок
 
-### Получение списка задач
+SDK предоставляет специфичные типы исключений для различных сценариев ошибок:
 
 ```python
-tasks = await client.tasks.list(
-    filter=None,              # TaskFilter: ID фильтра (int) или конфигурация (dict)
-    statuses=None,            # list[str]: Статусы задач для фильтрации
-    limit=None,               # int: Количество элементов на странице
-    page_after=None,          # dict: Загрузить страницу, начиная с этой сущности
-    page_before=None,         # dict: Загрузить страницу строго до этой сущности
-    page_with=None,           # dict: Загрузить страницу с наличием этой сущности
-    fields=None,              # any: Набор дополнительных полей
-    sort_by=None,             # list[dict]: Массив полей сортировки
-    only_requested_fields=None # bool: Отдавать только перечисленные поля
+from megaplan_sdk import (
+    AuthenticationError,      # 401 - Ошибка аутентификации
+    AuthorizationError,        # 403 - Ошибка авторизации (нет прав)
+    NotFoundError,            # 404 - Ресурс не найден
+    ValidationError,          # 422 - Ошибка валидации запроса
+    RateLimitError,           # 429 - Превышен лимит запросов
+    ServerError               # 5xx - Ошибка сервера
 )
-# Возвращает: list[Task] - список объектов Task
+
+try:
+    task = await client.tasks.get(task_id=999)
+except NotFoundError:
+    print("Задача не найдена")
+except AuthenticationError:
+    print("Ошибка аутентификации")
+except ValidationError as e:
+    print(f"Ошибки валидации: {e.errors}")
+    # e.errors содержит список ошибок из API
 ```
 
-**Примеры использования:**
+## Общие паттерны работы с сущностями
 
+Большинство сущностей (задачи, проекты, сделки) поддерживают одинаковые операции CRUD и паттерны работы. В этом разделе описаны общие методы, которые применяются ко всем типам сущностей.
+
+### Базовые операции CRUD
+
+Все ресурсы поддерживают стандартные операции:
+
+#### Получение списка (`list`)
+
+```python
+# Общий формат для всех ресурсов
+entities = await client.{resource}.list(
+    limit=None,              # int: Количество элементов на странице
+    page_after=None,        # dict: Загрузить страницу, начиная с этой сущности
+    page_before=None,       # dict: Загрузить страницу строго до этой сущности
+    page_with=None,         # dict: Загрузить страницу с наличием этой сущности
+    fields=None,            # any: Набор дополнительных полей
+    sort_by=None,           # list[dict]: Массив полей сортировки
+    only_requested_fields=None  # bool: Отдавать только перечисленные поля
+)
+```
+
+**Примеры:**
 ```python
 # Получить все задачи
 tasks = await client.tasks.list()
 
+# Получить проекты с лимитом
+projects = await client.projects.list(limit=50)
+
+# Получить сделки с пагинацией
+deals = await client.deals.list(limit=100, page_after={"contentType": "Deal", "id": 100})
+```
+
+#### Получение по ID (`get`)
+
+```python
+entity = await client.{resource}.get({resource}_id=42)
+# Возвращает: объект сущности со всеми полями
+```
+
+**Примеры:**
+```python
+task = await client.tasks.get(task_id=42)
+project = await client.projects.get(project_id=5)
+deal = await client.deals.get(deal_id=200)
+```
+
+#### Создание (`create`)
+
+```python
+entity = await client.{resource}.create({resource}_data={
+    "name": "Название",  # Обязательное поле
+    # ... другие поля
+})
+# Возвращает: созданная сущность
+```
+
+**Примеры:**
+```python
+# Простое создание задачи
+task = await client.tasks.create({"name": "Новая задача"})
+
+# Создание проекта
+project = await client.projects.create({"name": "Новый проект"})
+
+# Создание сделки (требует program)
+deal = await client.deals.create({
+    "name": "Новая сделка",
+    "program": {"contentType": "Program", "id": 10}
+})
+```
+
+#### Обновление (`update`)
+
+```python
+entity = await client.{resource}.update(
+    {resource}_id=42,
+    {resource}_data={
+        "name": "Обновленное название",
+        # ... другие поля для обновления
+    }
+)
+# Возвращает: обновленная сущность
+```
+
+**Примеры:**
+```python
+task = await client.tasks.update(task_id=42, task_data={"status": "completed"})
+project = await client.projects.update(project_id=5, project_data={"name": "Новое название"})
+deal = await client.deals.update(deal_id=200, deal_data={"sum_base": 60000.0})
+```
+
+#### Удаление (`delete`)
+
+```python
+await client.{resource}.delete({resource}_id=42)
+# Возвращает: None
+```
+
+**Примеры:**
+```python
+await client.tasks.delete(task_id=42)
+await client.projects.delete(project_id=5)
+await client.deals.delete(deal_id=200)
+```
+
+### Пагинация
+
+SDK поддерживает несколько способов работы с большими списками:
+
+#### Ручная пагинация
+
+```python
+# Пагинация "после" определенной сущности
+entities = await client.tasks.list(
+    limit=50,
+    page_after={"contentType": "Task", "id": 100}
+)
+
+# Пагинация "до" определенной сущности
+entities = await client.tasks.list(
+    limit=50,
+    page_before={"contentType": "Task", "id": 200}
+)
+
+# Пагинация "с" определенной сущностью
+entities = await client.tasks.list(
+    limit=50,
+    page_with={"contentType": "Task", "id": 150}
+)
+```
+
+#### Автоматическая пагинация с `iterate()`
+
+Метод `iterate()` автоматически обрабатывает пагинацию и возвращает все элементы:
+
+```python
+# Итерация по всем задачам
+async for task in client.tasks.iterate(limit=100):
+    print(task.name)
+
+# Итерация по всем проектам
+async for project in client.projects.iterate(limit=50):
+    print(project.name)
+
+# Итерация по всем сделкам
+async for deal in client.deals.iterate(limit=200):
+    print(deal.name)
+```
+
+### Получение полной информации (`get_full_details`)
+
+Метод `get_full_details()` позволяет получить сущность со всеми связанными данными за один вызов. Все запросы выполняются параллельно для максимальной производительности.
+
+**Общий формат:**
+```python
+details = await client.{resource}.get_full_details(
+    {resource}_id=42,
+    include_comments=True,          # Загрузить комментарии
+    include_history=True,            # Загрузить историю изменений
+    comments_limit=50,               # Лимит комментариев (опционально)
+    history_limit=100                # Лимит записей истории (опционально)
+    # ... другие специфичные параметры для каждого типа
+)
+```
+
+**Примеры для разных типов:**
+
+```python
+# Задача со всеми данными
+task_details = await client.tasks.get_full_details(
+    task_id=42,
+    include_comments=True,
+    include_sub_tasks=True,
+    include_responsible_details=True
+)
+
+# Проект со всеми данными
+project_details = await client.projects.get_full_details(
+    project_id=5,
+    include_deals=True,
+    include_issues=True,
+    include_comments=True
+)
+
+# Сделка со всеми данными
+deal_details = await client.deals.get_full_details(
+    deal_id=200,
+    include_comments=True,
+    include_status_history=True,
+    include_contractor_details=True
+)
+```
+
+**Доступ к данным:**
+```python
+# Основная сущность
+print(details.task.name)      # для задач
+print(details.project.name)   # для проектов
+print(details.deal.name)      # для сделок
+
+# Связанные данные
+if details.comments:
+    for comment in details.comments:
+        print(comment.text)
+
+if details.history:
+    print(f"Записей в истории: {len(details.history)}")
+```
+
+Подробнее о специфичных параметрах для каждого типа сущностей см. в соответствующих разделах:
+- [Задачи](#работа-с-задачами)
+- [Проекты](#работа-с-проектами)
+- [Сделки](#работа-со-сделками)
+
+## Работа с задачами
+
+> **Примечание:** Базовые операции CRUD (list, get, create, update, delete) и пагинация описаны в разделе [Общие паттерны работы с сущностями](#общие-паттерны-работы-с-сущностями).
+
+### Специфичные параметры для задач
+
+#### Получение списка задач с фильтрацией
+
+Метод `list()` поддерживает дополнительные параметры для задач:
+
+```python
+tasks = await client.tasks.list(
+    filter=None,              # TaskFilter: ID фильтра (int/str) или FilterBuilder объект
+    statuses=None,            # list[str]: Статусы задач для фильтрации
+    # ... остальные параметры из общих паттернов
+)
+```
+
+**Примеры использования фильтров:**
+
+```python
 # С фильтром по статусам
 tasks = await client.tasks.list(
     statuses=["assigned", "in_progress"],
@@ -192,22 +464,12 @@ filter_obj = (
     .build()
 )
 tasks = await client.tasks.list(filter=filter_obj)
-
-# Итерация по всем задачам с автоматической пагинацией
-async for task in client.tasks.iterate(limit=100):
-    print(task.name)
 ```
 
-### Получение задачи по ID
+Подробнее о работе с фильтрами см. раздел [Работа с фильтрами](#работа-с-фильтрами).
 
-```python
-task = await client.tasks.get(task_id=42)
-# Параметры:
-#   task_id: int - Идентификатор задачи
-# Возвращает: Task - объект задачи со всеми полями
-```
+### Поля модели Task
 
-**Поля объекта Task:**
 - `id: int` - Идентификатор задачи
 - `name: str` - Название задачи
 - `description: str` - Описание
@@ -225,15 +487,11 @@ task = await client.tasks.get(task_id=42)
 - `created_at: str` - Дата создания
 - `updated_at: str` - Дата обновления
 
-### Создание задачи
+### Упрощенные методы создания
 
-#### Упрощенное создание (рекомендуется)
+Помимо стандартного `create()`, задачи поддерживают упрощенные методы:
 
 ```python
-# Простое создание задачи с автоматическим заполнением обязательных полей
-# Автоматически устанавливает isUrgent=False, isTemplate=False
-task = await client.tasks.create({"name": "Новая задача"})
-
 # Создание задачи с текущим пользователем как ответственным
 task = await client.tasks.create_simple(
     "Новая задача",
@@ -241,7 +499,6 @@ task = await client.tasks.create_simple(
 )
 
 # Создание задачи с указанным ответственным
-from megaplan_sdk import make_employee_entity
 task = await client.tasks.create_simple(
     "Новая задача",
     responsible_id=123
@@ -255,54 +512,7 @@ task = await client.tasks.create_in_project(
 )
 ```
 
-#### Полное создание (для продвинутых случаев)
-
-```python
-# Использование helper-функций для создания BaseEntity объектов
-from megaplan_sdk import make_employee_entity, make_project_entity, make_task_entity
-
-task = await client.tasks.create({
-    "name": "Новая задача",                    # str: Название задачи (обязательно)
-    "responsible": make_employee_entity(1),   # BaseEntity: Ответственный (helper)
-    "deadline": "2024-12-31",                 # str: Срок выполнения
-    "subject": "Описание задачи",             # str: Описание
-    "parent": make_project_entity(5),        # BaseEntity: Родительский проект (helper)
-    "priority": "high",                        # str: Приоритет
-    "isUrgent": False,                         # bool: Горящая (обязательно, но можно не указывать)
-    "isTemplate": False,                       # bool: Шаблон (обязательно, но можно не указывать)
-})
-# Возвращает: Task - созданная задача
-
-# Или вручную создавать BaseEntity
-task = await client.tasks.create({
-    "name": "Новая задача",
-    "responsible": {"contentType": "Employee", "id": 1},
-    "parent": {"contentType": "Project", "id": 5},
-})
-```
-
-### Обновление задачи
-
-```python
-task = await client.tasks.update(
-    task_id=42,                               # int: Идентификатор задачи
-    task_data={                               # dict: Данные для обновления
-        "status": "completed",
-        "actualFinish": "2024-01-15",
-        "name": "Обновленное название"
-    }
-)
-# Возвращает: Task - обновленная задача
-```
-
-### Удаление задачи
-
-```python
-await client.tasks.delete(task_id=42)
-# Параметры:
-#   task_id: int - Идентификатор задачи
-# Возвращает: None
-```
+**Примечание:** Стандартный метод `create()` также поддерживается. При создании задачи автоматически устанавливаются `isUrgent=False` и `isTemplate=False`, если они не указаны явно.
 
 ### Получение подзадач
 
@@ -346,48 +556,23 @@ tasks = await client.tasks.tree_level(
 
 ### Получение полной информации о задаче
 
-Метод `get_full_details()` позволяет получить задачу со всеми связанными данными за один вызов. Все запросы выполняются параллельно для максимальной производительности.
+Метод `get_full_details()` для задач поддерживает следующие специфичные параметры:
 
 ```python
-from megaplan_sdk import MegaplanClient
-
-async with MegaplanClient(...) as client:
-    # Получить задачу со всей информацией
-    details = await client.tasks.get_full_details(
-        task_id=42,
-        include_sub_tasks=True,                    # Загрузить подзадачи
-        include_actual_sub_tasks=True,             # Загрузить актуальные подзадачи
-        include_comments=True,                     # Загрузить комментарии
-        include_history=True,                      # Загрузить историю изменений
-        include_auditors=True,                     # Загрузить список аудиторов
-        include_executors=True,                    # Загрузить соисполнителей
-        include_milestones=True,                   # Загрузить вехи
-        include_responsible_details=True,          # Загрузить полные данные ответственного
-        include_owner_details=True,                # Загрузить полные данные постановщика
-        comments_limit=50,                         # Лимит комментариев (опционально)
-        history_limit=100                          # Лимит записей истории (опционально)
-    )
-
-    # Доступ к основным данным задачи
-    print(f"Задача: {details.task.name}")
-    print(f"Статус: {details.task.status}")
-
-    # Доступ к связанным данным
-    if details.comments:
-        print(f"Комментариев: {len(details.comments)}")
-        for comment in details.comments:
-            print(f"  - {comment.text}")
-
-    if details.sub_tasks:
-        print(f"Подзадач: {len(details.sub_tasks)}")
-        for subtask in details.sub_tasks:
-            print(f"  - {subtask.name}")
-
-    if details.responsible_details:
-        print(f"Ответственный: {details.responsible_details.first_name} {details.responsible_details.last_name}")
-
-    if details.owner_details:
-        print(f"Постановщик: {details.owner_details.first_name} {details.owner_details.last_name}")
+details = await client.tasks.get_full_details(
+    task_id=42,
+    include_sub_tasks=True,              # Загрузить подзадачи
+    include_actual_sub_tasks=True,       # Загрузить актуальные подзадачи
+    include_comments=True,                # Загрузить комментарии
+    include_history=True,                 # Загрузить историю изменений
+    include_auditors=True,                # Загрузить список аудиторов
+    include_executors=True,               # Загрузить соисполнителей
+    include_milestones=True,              # Загрузить вехи
+    include_responsible_details=True,     # Загрузить полные данные ответственного
+    include_owner_details=True,           # Загрузить полные данные постановщика
+    comments_limit=50,                    # Лимит комментариев (опционально)
+    history_limit=100                    # Лимит записей истории (опционально)
+)
 ```
 
 **Поля объекта TaskFullDetails:**
@@ -402,60 +587,15 @@ async with MegaplanClient(...) as client:
 - `responsible_details: Employee | None` - Полные данные ответственного
 - `owner_details: Employee | None` - Полные данные постановщика
 
-**Примеры использования:**
-
-```python
-# Минимальный вызов - только основная задача
-details = await client.tasks.get_full_details(task_id=42)
-
-# Задача с комментариями и историей
-details = await client.tasks.get_full_details(
-    task_id=42,
-    include_comments=True,
-    include_history=True,
-    comments_limit=20
-)
-
-# Полная информация для отчета
-details = await client.tasks.get_full_details(
-    task_id=42,
-    include_sub_tasks=True,
-    include_comments=True,
-    include_history=True,
-    include_auditors=True,
-    include_executors=True,
-    include_responsible_details=True,
-    include_owner_details=True
-)
-```
+> **Примечание:** Общее описание метода `get_full_details()` и примеры использования см. в разделе [Общие паттерны работы с сущностями](#общие-паттерны-работы-с-сущностями).
 
 ## Работа с проектами
 
-### Получение списка проектов
+> **Примечание:** Базовые операции CRUD (list, get, create, update, delete) описаны в разделе [Общие паттерны работы с сущностями](#общие-паттерны-работы-с-сущностями).
 
-```python
-projects = await client.projects.list(
-    limit=None,                               # int: Количество элементов на странице
-    page_after=None,                          # dict: Загрузить страницу, начиная с этой сущности
-    page_before=None,                         # dict: Загрузить страницу строго до этой сущности
-    page_with=None,                           # dict: Загрузить страницу с наличием этой сущности
-    fields=None,                              # any: Набор дополнительных полей
-    sort_by=None,                             # list[dict]: Массив полей сортировки
-    only_requested_fields=None                # bool: Отдавать только перечисленные поля
-)
-# Возвращает: list[Project] - список объектов Project
-```
+**Важно:** Проекты не поддерживают фильтрацию через API (параметр `filter` недоступен).
 
-### Получение проекта по ID
-
-```python
-project = await client.projects.get(project_id=5)
-# Параметры:
-#   project_id: int - Идентификатор проекта
-# Возвращает: Project - объект проекта со всеми полями
-```
-
-**Поля объекта Project:**
+### Поля модели Project
 - `id: int` - Идентификатор проекта
 - `name: str` - Название проекта
 - `description: str` - Описание
@@ -472,15 +612,11 @@ project = await client.projects.get(project_id=5)
 - `created_at: str` - Дата создания
 - `updated_at: str` - Дата обновления
 
-### Создание проекта
+### Упрощенные методы создания
 
-#### Упрощенное создание (рекомендуется)
+Помимо стандартного `create()`, проекты поддерживают упрощенный метод:
 
 ```python
-# Простое создание проекта с автоматическим заполнением обязательных полей
-# Автоматически устанавливает isTemplate=False
-project = await client.projects.create({"name": "Новый проект"})
-
 # Создание проекта с текущим пользователем как владельцем и ответственным
 project = await client.projects.create_simple(
     "Новый проект",
@@ -495,44 +631,7 @@ project = await client.projects.create_simple(
 )
 ```
 
-#### Полное создание (для продвинутых случаев)
-
-```python
-# Использование helper-функций
-from megaplan_sdk import make_employee_entity
-
-project = await client.projects.create({
-    "name": "Новый проект",                   # str: Название проекта (обязательно)
-    "owner": make_employee_entity(1),        # BaseEntity: Владелец (helper)
-    "responsible": make_employee_entity(2),   # BaseEntity: Ответственный (helper)
-    "deadline": "2024-12-31",                 # str: Срок выполнения
-    "description": "Описание проекта",        # str: Описание
-    "isTemplate": False,                       # bool: Шаблон (обязательно, но можно не указывать)
-})
-# Возвращает: Project - созданный проект
-```
-
-### Обновление проекта
-
-```python
-project = await client.projects.update(
-    project_id=5,                             # int: Идентификатор проекта
-    project_data={                            # dict: Данные для обновления
-        "name": "Обновленное название",
-        "status": "in_progress"
-    }
-)
-# Возвращает: Project - обновленный проект
-```
-
-### Удаление проекта
-
-```python
-await client.projects.delete(project_id=5)
-# Параметры:
-#   project_id: int - Идентификатор проекта
-# Возвращает: None
-```
+**Примечание:** При создании проекта автоматически устанавливается `isTemplate=False`, если не указано явно.
 
 ### Получение сделок проекта
 
@@ -575,52 +674,24 @@ actual_issues = await client.projects.get_actual_issues(
 
 ### Получение полной информации о проекте
 
-Метод `get_full_details()` позволяет получить проект со всеми связанными данными за один вызов. Все запросы выполняются параллельно для максимальной производительности.
+Метод `get_full_details()` для проектов поддерживает следующие специфичные параметры:
 
 ```python
-from megaplan_sdk import MegaplanClient
-
-async with MegaplanClient(...) as client:
-    # Получить проект со всей информацией
-    details = await client.projects.get_full_details(
-        project_id=5,
-        include_deals=True,                        # Загрузить связанные сделки
-        include_issues=True,                       # Загрузить задачи проекта
-        include_actual_issues=True,                # Загрузить актуальные задачи
-        include_comments=True,                     # Загрузить комментарии
-        include_history=True,                      # Загрузить историю изменений
-        include_auditors=True,                     # Загрузить список аудиторов
-        include_executors=True,                    # Загрузить соисполнителей
-        include_milestones=True,                   # Загрузить вехи
-        include_responsible_details=True,          # Загрузить полные данные ответственного
-        include_owner_details=True,                # Загрузить полные данные владельца
-        comments_limit=50,                         # Лимит комментариев (опционально)
-        history_limit=100                          # Лимит записей истории (опционально)
-    )
-
-    # Доступ к основным данным проекта
-    print(f"Проект: {details.project.name}")
-    print(f"Статус: {details.project.status}")
-
-    # Доступ к связанным данным
-    if details.deals:
-        print(f"Сделок: {len(details.deals)}")
-        for deal in details.deals:
-            print(f"  - {deal.name}")
-
-    if details.issues:
-        print(f"Задач: {len(details.issues)}")
-        for task in details.issues:
-            print(f"  - {task.name}")
-
-    if details.comments:
-        print(f"Комментариев: {len(details.comments)}")
-
-    if details.responsible_details:
-        print(f"Ответственный: {details.responsible_details.first_name} {details.responsible_details.last_name}")
-
-    if details.owner_details:
-        print(f"Владелец: {details.owner_details.first_name} {details.owner_details.last_name}")
+details = await client.projects.get_full_details(
+    project_id=5,
+    include_deals=True,                    # Загрузить связанные сделки
+    include_issues=True,                    # Загрузить задачи проекта
+    include_actual_issues=True,            # Загрузить актуальные задачи
+    include_comments=True,                  # Загрузить комментарии
+    include_history=True,                   # Загрузить историю изменений
+    include_auditors=True,                  # Загрузить список аудиторов
+    include_executors=True,                 # Загрузить соисполнителей
+    include_milestones=True,                # Загрузить вехи
+    include_responsible_details=True,        # Загрузить полные данные ответственного
+    include_owner_details=True,             # Загрузить полные данные владельца
+    comments_limit=50,                      # Лимит комментариев (опционально)
+    history_limit=100                      # Лимит записей истории (опционально)
+)
 ```
 
 **Поля объекта ProjectFullDetails:**
@@ -636,57 +707,30 @@ async with MegaplanClient(...) as client:
 - `responsible_details: Employee | None` - Полные данные ответственного
 - `owner_details: Employee | None` - Полные данные владельца
 
-**Примеры использования:**
-
-```python
-# Минимальный вызов - только основной проект
-details = await client.projects.get_full_details(project_id=5)
-
-# Проект со сделками и задачами
-details = await client.projects.get_full_details(
-    project_id=5,
-    include_deals=True,
-    include_issues=True
-)
-
-# Полная информация для отчета
-details = await client.projects.get_full_details(
-    project_id=5,
-    include_deals=True,
-    include_issues=True,
-    include_comments=True,
-    include_history=True,
-    include_responsible_details=True,
-    include_owner_details=True
-)
-```
+> **Примечание:** Общее описание метода `get_full_details()` и примеры использования см. в разделе [Общие паттерны работы с сущностями](#общие-паттерны-работы-с-сущностями).
 
 ## Работа со сделками
 
-### Получение списка сделок
+> **Примечание:** Базовые операции CRUD (list, get, create, update, delete) описаны в разделе [Общие паттерны работы с сущностями](#общие-паттерны-работы-с-сущностями).
+
+### Специфичные параметры для сделок
+
+#### Получение списка сделок с фильтрацией
+
+Метод `list()` поддерживает дополнительные параметры для сделок:
 
 ```python
 deals = await client.deals.list(
-    filter=None,                              # TradeFilter: ID фильтра (int/str) или FilterBuilder объект
-    status=None,                              # ProgramState: Статус программы для фильтрации
-    base_on=None,                             # BaseEntity: Базовая сущность для фильтрации
-    limit=None,                               # int: Количество элементов на странице
-    page_after=None,                           # dict: Пагинация после
-    page_before=None,                          # dict: Пагинация до
-    page_with=None,                            # dict: Пагинация с
-    fields=None,                               # any: Дополнительные поля
-    sort_by=None,                              # list[dict]: Сортировка
-    only_requested_fields=None                 # bool: Только запрошенные поля
+    filter=None,              # TradeFilter: ID фильтра (int/str) или FilterBuilder объект
+    status=None,              # ProgramState: Статус программы для фильтрации
+    base_on=None,             # BaseEntity: Базовая сущность для фильтрации
+    # ... остальные параметры из общих паттернов
 )
-# Возвращает: list[Deal] - список объектов Deal
 ```
 
-**Примеры использования:**
+**Примеры использования фильтров:**
 
 ```python
-# Получить все сделки
-deals = await client.deals.list()
-
 # С фильтром по ID
 deals = await client.deals.list(filter=123)
 deals = await client.deals.list(filter="active")
@@ -709,16 +753,9 @@ filter_obj = (
 deals = await client.deals.list(filter=filter_obj)
 ```
 
-### Получение сделки по ID
+Подробнее о работе с фильтрами см. раздел [Работа с фильтрами](#работа-с-фильтрами).
 
-```python
-deal = await client.deals.get(deal_id=200)
-# Параметры:
-#   deal_id: int - Идентификатор сделки
-# Возвращает: Deal - объект сделки со всеми полями
-```
-
-**Поля объекта Deal:**
+### Поля модели Deal
 - `id: int` - Идентификатор сделки
 - `name: str` - Название сделки
 - `program: BaseEntity` - Программа (схема сделки)
@@ -734,53 +771,11 @@ deal = await client.deals.get(deal_id=200)
 - `created_at: str` - Дата создания
 - `updated_at: str` - Дата обновления
 
-### Создание сделки
+**Важно:** При создании сделки обязательно указывать поле `program` (программа/схема сделки).
 
-```python
-deal = await client.deals.create(deal_data={
-    "program": {                              # BaseEntity: Программа (обязательно)
-        "contentType": "Program",
-        "id": 10
-    },
-    "name": "Новая сделка",                   # str: Название сделки (обязательно)
-    "contractor": {                           # BaseEntity: Контрагент
-        "contentType": "ContractorCompany",
-        "id": 100
-    },
-    "responsible": {                          # BaseEntity: Ответственный
-        "contentType": "Employee",
-        "id": 1
-    },
-    "sum_base": 50000.0,                      # float: Сумма сделки
-    "deadline": "2024-12-31",                 # str: Срок
-    "description": "Описание сделки"          # str: Описание
-})
-# Возвращает: Deal - созданная сделка
-```
+### Специфичные методы сделок
 
-### Обновление сделки
-
-```python
-deal = await client.deals.update(
-    deal_id=200,                              # int: Идентификатор сделки
-    deal_data={                               # dict: Данные для обновления
-        "sum_base": 60000.0,
-        "status": "active"
-    }
-)
-# Возвращает: Deal - обновленная сделка
-```
-
-### Удаление сделки
-
-```python
-await client.deals.delete(deal_id=200)
-# Параметры:
-#   deal_id: int - Идентификатор сделки
-# Возвращает: None
-```
-
-### Применение перехода (изменение статуса)
+#### Применение перехода (изменение статуса)
 
 ```python
 deal = await client.deals.apply_transition(
@@ -833,54 +828,21 @@ exists = await client.deals.check_exists(deal_params={
 
 ### Получение полной информации о сделке
 
-Метод `get_full_details()` позволяет получить сделку со всеми связанными данными за один вызов. Все запросы выполняются параллельно для максимальной производительности.
+Метод `get_full_details()` для сделок поддерживает следующие специфичные параметры:
 
 ```python
-from megaplan_sdk import MegaplanClient
-
-async with MegaplanClient(...) as client:
-    # Получить сделку со всей информацией
-    details = await client.deals.get_full_details(
-        deal_id=200,
-        include_comments=True,                     # Загрузить комментарии
-        include_history=True,                      # Загрузить историю изменений
-        include_status_history=True,               # Загрузить историю статусов
-        include_auditors=True,                     # Загрузить список аудиторов
-        include_responsible_details=True,          # Загрузить полные данные ответственного
-        include_contractor_details=True,           # Загрузить полные данные контрагента
-        include_related_tasks=True,                # Загрузить связанные задачи
-        comments_limit=50,                         # Лимит комментариев (опционально)
-        history_limit=100                          # Лимит записей истории (опционально)
-    )
-
-    # Доступ к основным данным сделки
-    print(f"Сделка: {details.deal.name}")
-    print(f"Сумма: {details.deal.sum_base}")
-    print(f"Статус: {details.deal.state.name if details.deal.state else 'Не указан'}")
-
-    # Доступ к связанным данным
-    if details.comments:
-        print(f"Комментариев: {len(details.comments)}")
-        for comment in details.comments:
-            print(f"  - {comment.text}")
-
-    if details.history:
-        print(f"Записей в истории: {len(details.history)}")
-
-    if details.status_history:
-        print(f"Изменений статуса: {len(details.status_history)}")
-
-    if details.responsible_details:
-        print(f"Ответственный: {details.responsible_details.first_name} {details.responsible_details.last_name}")
-        print(f"Email: {details.responsible_details.email}")
-
-    if details.contractor_details:
-        print(f"Контрагент: {details.contractor_details.name}")
-
-    if details.related_tasks:
-        print(f"Связанных задач: {len(details.related_tasks)}")
-        for task in details.related_tasks:
-            print(f"  - {task.name}")
+details = await client.deals.get_full_details(
+    deal_id=200,
+    include_comments=True,                # Загрузить комментарии
+    include_history=True,                  # Загрузить историю изменений
+    include_status_history=True,           # Загрузить историю статусов
+    include_auditors=True,                  # Загрузить список аудиторов
+    include_responsible_details=True,      # Загрузить полные данные ответственного
+    include_contractor_details=True,       # Загрузить полные данные контрагента
+    include_related_tasks=True,            # Загрузить связанные задачи
+    comments_limit=50,                     # Лимит комментариев (опционально)
+    history_limit=100                      # Лимит записей истории (опционально)
+)
 ```
 
 **Поля объекта DealFullDetails:**
@@ -893,101 +855,11 @@ async with MegaplanClient(...) as client:
 - `contractor_details: Contractor | None` - Полные данные контрагента
 - `related_tasks: list[Task] | None` - Связанные задачи
 
-**Примеры использования:**
+> **Примечание:** Общее описание метода `get_full_details()` и примеры использования см. в разделе [Общие паттерны работы с сущностями](#общие-паттерны-работы-с-сущностями).
 
-```python
-# Минимальный вызов - только основная сделка
-details = await client.deals.get_full_details(deal_id=200)
+## Продвинутые возможности
 
-# Сделка с комментариями и историей
-details = await client.deals.get_full_details(
-    deal_id=200,
-    include_comments=True,
-    include_history=True,
-    include_status_history=True,
-    comments_limit=20
-)
-
-# Полная информация для отчета
-details = await client.deals.get_full_details(
-    deal_id=200,
-    include_comments=True,
-    include_history=True,
-    include_status_history=True,
-    include_auditors=True,
-    include_responsible_details=True,
-    include_contractor_details=True,
-    include_related_tasks=True
-)
-
-# Только данные о людях
-details = await client.deals.get_full_details(
-    deal_id=200,
-    include_responsible_details=True,
-    include_contractor_details=True
-)
-```
-
-## Обработка ошибок
-
-SDK предоставляет специфичные типы исключений для различных сценариев ошибок:
-
-```python
-from megaplan_sdk import (
-    AuthenticationError,      # 401 - Ошибка аутентификации
-    AuthorizationError,        # 403 - Ошибка авторизации (нет прав)
-    NotFoundError,            # 404 - Ресурс не найден
-    ValidationError,          # 422 - Ошибка валидации запроса
-    RateLimitError,           # 429 - Превышен лимит запросов
-    ServerError               # 5xx - Ошибка сервера
-)
-
-try:
-    task = await client.tasks.get(task_id=999)
-except NotFoundError:
-    print("Задача не найдена")
-except AuthenticationError:
-    print("Ошибка аутентификации")
-except ValidationError as e:
-    print(f"Ошибки валидации: {e.errors}")
-    # e.errors содержит список ошибок из API
-```
-
-## Продвинутое использование
-
-### Настройка HTTP-клиента
-
-```python
-client = MegaplanClient(
-    base_url="https://my.megaplan.ru",
-    username="user@example.com",
-    password="password",
-    timeout=60.0,                             # float: Таймаут запросов в секундах (по умолчанию 30.0)
-    max_retries=5                              # int: Максимальное количество повторов при 5xx ошибках (по умолчанию 3)
-)
-```
-
-### Ручное управление токенами
-
-```python
-# Получить токен доступа
-token = await client.auth.authenticate("user@example.com", "password")
-# Возвращает: str - access_token
-
-# Обновить токен
-new_token = await client.auth.refresh_token(refresh_token="refresh_token")
-# Параметры:
-#   refresh_token: str | None - Токен обновления (опционально, используется сохраненный)
-# Возвращает: str - новый access_token
-
-# Установить токен вручную
-client.set_access_token("your_token")
-
-# Очистить токены
-client.auth.clear_tokens()
-```
-
-## Кэширование сущностей
+### Кэширование сущностей
 
 SDK автоматически кэширует справочные сущности (сотрудники, контрагенты, отделы) для уменьшения количества API запросов и повышения производительности.
 
@@ -1034,7 +906,7 @@ if client._cache:
 - Кэш работает автоматически, не требуя изменений в коде
 - При использовании `expand` уникальные сущности загружаются параллельно
 
-## Глобальные дефолтные лимиты
+### Глобальные дефолтные лимиты
 
 SDK позволяет задать глобальные дефолтные значения для параметров `comments_limit` и `history_limit` на уровне клиента. Эти значения будут применяться ко всем вызовам `get_full_details()` для задач, проектов и сделок, если не переопределены явно.
 
@@ -1151,7 +1023,7 @@ projects_details = await client.projects.get_full_details(
 )
 ```
 
-## Автоматическая подгрузка связанных сущностей
+### Автоматическая подгрузка связанных сущностей
 
 Параметр `expand` позволяет автоматически подгружать связанные сущности (сотрудников, контрагентов, отделы) вместо получения только ID.
 
@@ -1283,7 +1155,7 @@ tasks_full = await client.tasks.list(limit=100, expand=["responsible"])
 - С expand: 2 запроса (1 список + 1 батч на 5 сотрудников)
 - **Экономия: 99 запросов (98%)**
 
-## Работа с фильтрами
+### Работа с фильтрами
 
 SDK предоставляет удобный `FilterBuilder` для создания фильтров с использованием fluent API. Фильтры поддерживаются для задач (`TaskFilter`) и сделок (`TradeFilter`). **Проекты не поддерживают фильтрацию через API.**
 
@@ -1396,15 +1268,41 @@ updated = await client.filters.update("task", filter_id=123, filter_config={...}
 export_data = await client.filters.export("task", filter_id=123)
 ```
 
-### Важные замечания
+### Настройка HTTP-клиента
 
-1. **Параметр `q` не работает**: Параметр `q` для текстового поиска в методах `list()` не работает корректно в Megaplan API (возвращает пустые результаты). Используйте `FilterBuilder` с `contains()` для текстового поиска.
+```python
+client = MegaplanClient(
+    base_url="https://my.megaplan.ru",
+    username="user@example.com",
+    password="password",
+    timeout=60.0,                             # float: Таймаут запросов в секундах (по умолчанию 30.0)
+    max_retries=5                              # int: Максимальное количество повторов при 5xx ошибках (по умолчанию 3)
+)
+```
 
-2. **Проекты не поддерживают фильтрацию**: API не поддерживает параметр `filter` для проектов. Фильтрация доступна только для задач и сделок.
+### Ручное управление токенами
 
-3. **Рекомендуется использовать FilterBuilder**: Вместо ручного создания сложных фильтров используйте `FilterBuilder` для типобезопасности и удобства.
+```python
+# Получить токен доступа
+token = await client.auth.authenticate("user@example.com", "password")
+# Возвращает: str - access_token
 
-## Известные ограничения API
+# Обновить токен
+new_token = await client.auth.refresh_token(refresh_token="refresh_token")
+# Параметры:
+#   refresh_token: str | None - Токен обновления (опционально, используется сохраненный)
+# Возвращает: str - новый access_token
+
+# Установить токен вручную
+client.set_access_token("your_token")
+
+# Очистить токены
+client.auth.clear_tokens()
+```
+
+## Справочная информация
+
+### Известные ограничения API
 
 Некоторые эндпоинты Megaplan API имеют ограничения или известные проблемы:
 
@@ -1445,7 +1343,7 @@ async for emp in client.employees.iterate():
         all_employees.append(emp)
 ```
 
-## Архитектура
+### Архитектура
 
 SDK спроектирован с учетом модульности:
 
@@ -1469,13 +1367,13 @@ class MegaplanClient:
         self.new_resource = NewResource(self._http)
 ```
 
-## Требования
+### Требования
 
 - Python 3.11+
 - httpx >= 0.25.0
 - pydantic >= 2.0.0
 
-## Разработка
+### Разработка
 
 ### Установка для разработки
 
