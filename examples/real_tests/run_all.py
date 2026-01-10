@@ -16,6 +16,7 @@ from test_tasks import run_all_tests as run_task_tests
 from test_deals import run_all_tests as run_deal_tests
 from test_projects import run_all_tests as run_project_tests
 from test_contractors import run_all_tests as run_contractor_tests
+from test_filters import run_all_tests as run_filter_tests
 
 
 async def run_all_integration_tests():
@@ -57,6 +58,11 @@ async def run_all_integration_tests():
 
     print("📋 Тестирование: Contractors...")
     results["Contractors"] = await run_contractor_tests()
+
+    print("\n" + "-" * 70 + "\n")
+
+    print("📋 Тестирование: Filters...")
+    results["Filters"] = await run_filter_tests()
 
     # Print overall summary
     print_header("ОБЩАЯ ИТОГОВАЯ СТАТИСТИКА")

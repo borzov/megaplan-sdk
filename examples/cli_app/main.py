@@ -306,11 +306,11 @@ async def test_task_full_details(client: MegaplanClient):
             print(f"\n💬 Последние комментарии ({len(details.comments)} всего):")
             for i, comment in enumerate(details.comments[:3], 1):
                 author_str = "Неизвестен"
-                if comment.author:
-                    author_str = await format_employee_from_entity(client, comment.author)
-                text_preview = (comment.text or "")[:60]
+                if comment.owner:
+                    author_str = await format_employee_from_entity(client, comment.owner)
+                text_preview = (comment.content or "")[:60]
                 print(f"  {i}. #{comment.id} от {author_str}:")
-                print(f"     {text_preview}{'...' if len(comment.text or '') > 60 else ''}")
+                print(f"     {text_preview}{'...' if len(comment.content or '') > 60 else ''}")
 
         # Show subtasks
         if details.sub_tasks:
@@ -554,9 +554,9 @@ async def test_tasks(client: MegaplanClient):
                         print(f"\n💬 Комментарии ({len(comments)}):")
                         for comment in comments:
                             author_str = "Неизвестен"
-                            if comment.author:
-                                author_str = await format_employee_from_entity(client, comment.author)
-                            text_preview = (comment.text or "")[:50]
+                            if comment.owner:
+                                author_str = await format_employee_from_entity(client, comment.owner)
+                            text_preview = (comment.content or "")[:50]
                             print(f"  - #{comment.id} от {author_str}: {text_preview}...")
                     else:
                         print("\n💬 Комментариев нет")
@@ -825,8 +825,8 @@ async def test_projects(client: MegaplanClient):
                     if comments:
                         print(f"\n💬 Комментарии ({len(comments)}):")
                         for comment in comments:
-                            author = comment.author.id if comment.author else "Unknown"
-                            text_preview = (comment.text or "")[:50]
+                            author = comment.owner.id if comment.owner else "Unknown"
+                            text_preview = (comment.content or "")[:50]
                             print(f"  - #{comment.id} от {author}: {text_preview}...")
                     else:
                         print("\n💬 Комментариев нет")
@@ -1091,9 +1091,9 @@ async def test_deals(client: MegaplanClient):
                         print(f"\n💬 Комментарии ({len(comments)}):")
                         for comment in comments:
                             author_str = "Неизвестен"
-                            if comment.author:
-                                author_str = await format_employee_from_entity(client, comment.author)
-                            text_preview = (comment.text or "")[:50]
+                            if comment.owner:
+                                author_str = await format_employee_from_entity(client, comment.owner)
+                            text_preview = (comment.content or "")[:50]
                             print(f"  - #{comment.id} от {author_str}: {text_preview}...")
                     else:
                         print("\n💬 Комментариев нет")
@@ -1244,9 +1244,9 @@ async def test_comments(client: MegaplanClient):
                     print(f"\n✅ Найдено комментариев: {len(comments)}")
                     for comment in comments:
                         author_str = "Неизвестен"
-                        if comment.author:
-                            author_str = await format_employee_from_entity(client, comment.author)
-                        text_preview = (comment.text or "")[:50]
+                        if comment.owner:
+                            author_str = await format_employee_from_entity(client, comment.owner)
+                        text_preview = (comment.content or "")[:50]
                         print(f"  - #{comment.id} от {author_str}: {text_preview}...")
                 except Exception as e:
                     print(f"\n❌ Ошибка: {e}")

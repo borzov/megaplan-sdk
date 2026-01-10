@@ -30,8 +30,10 @@ async def test_create_task():
 @respx.mock
 async def test_list_tasks():
     """Test listing tasks."""
-    # httpx URL-encodes the JSON query params, and TasksResource adds statuses parameter
-    respx.get("https://example.com/api/v3/task?{%22limit%22:%2010,%20%22statuses%22:%20null}").mock(
+    # httpx URL-encodes the JSON query params
+    # _build_list_params now filters None values from extra_params
+    # So statuses=None won't be included in URL
+    respx.get("https://example.com/api/v3/task?{%22limit%22:%2010}").mock(
         return_value=Response(
             200,
             json={
@@ -47,6 +49,31 @@ async def test_list_tasks():
 
         assert len(tasks) == 1
         assert tasks[0].id == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_tasks_with_q():
+    """Test listing tasks with q parameter."""
+    # q parameter is included in params via extra_params
+    # None values are filtered, so statuses=None won't be in URL
+    respx.get("https://example.com/api/v3/task?{%22limit%22:%2010,%20%22q%22:%20%22test%22}").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [{"id": 1, "contentType": "Task", "name": "Test task"}],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        tasks = await resource.list(limit=10, q="test")
+
+        assert len(tasks) == 1
+        assert tasks[0].id == 1
+        assert tasks[0].name == "Test task"
 
 
 @pytest.mark.asyncio

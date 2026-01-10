@@ -135,7 +135,7 @@ class CommentsResource(BaseResource):
         Examples:
             >>> # Iterate over all comments for task #123
             >>> async for comment in client.comments.iterate(entity_id=123):
-            ...     print(comment.text)
+            ...     print(comment.content)
         """
         comment: Comment
         async for comment in self._iterate_generic(  # type: ignore[valid-type]

@@ -115,7 +115,9 @@ class BaseResource:
             params["onlyRequestedFields"] = only_requested_fields
 
         # Add extra params (like statuses, status, q, baseOn, etc.)
-        params.update(extra_params)
+        # Filter out None values to avoid sending null in JSON
+        filtered_extra = {k: v for k, v in extra_params.items() if v is not None}
+        params.update(filtered_extra)
 
         return params if params else {}
 

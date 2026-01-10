@@ -176,7 +176,6 @@ class HTTPClient:
 
         for attempt in range(self.max_retries + 1):
             try:
-                # LOG REQUEST
                 logger.debug(
                     f"Making {method} request to {path}",
                     extra={
@@ -204,7 +203,6 @@ class HTTPClient:
                 if status != 200:
                     raise_for_status(status, response_data)
 
-                # LOG SUCCESS
                 logger.debug(
                     f"{method} {path} succeeded",
                     extra={"status_code": response.status_code, "attempt": attempt + 1},
@@ -215,7 +213,6 @@ class HTTPClient:
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
-                # LOG HTTP ERROR
                 logger.warning(
                     f"HTTP error {status_code} on {method} {path}",
                     extra={"status_code": status_code, "attempt": attempt + 1},
@@ -270,7 +267,6 @@ class HTTPClient:
                 raise_for_status(status_code, response_data)
 
             except httpx.RequestError as e:
-                # LOG REQUEST ERROR
                 logger.warning(
                     f"Request error on {method} {path}: {str(e)}",
                     extra={"error_type": type(e).__name__, "attempt": attempt + 1},

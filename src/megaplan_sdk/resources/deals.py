@@ -155,6 +155,32 @@ class DealsResource(BaseResource, FullDetailsMixin):
             filter: Trade filter (ID or config).
             status: Program state to filter by.
             q: Search query.
+                **Note:** This parameter may not work properly in Megaplan API
+                (returns empty results). For text search, use FilterBuilder instead:
+                ```python
+                from megaplan_sdk import FilterBuilder
+
+                # Simple text search
+                filter_obj = FilterBuilder("TradeFilter").field("name").contains("Leader").build()
+                deals = await client.deals.list(filter=filter_obj)
+
+                # Multiple conditions with different types
+                filter_obj = (
+                    FilterBuilder("TradeFilter")
+                    .field("name").contains("Leader")
+                    .and_()
+                    .field_number("amount").between(1000, 5000)
+                    .and_()
+                    .field_enum("status").in_list(["active", "pending"])
+                    .build()
+                )
+                deals = await client.deals.list(filter=filter_obj)
+
+                # Using specialized builder
+                from megaplan_sdk import TradeFilterBuilder
+                filter_obj = TradeFilterBuilder().field("name").contains("Leader").build()
+                deals = await client.deals.list(filter=filter_obj)
+                ```
             base_on: Base entity for filtering.
             limit: Number of items per page.
             page_after: Load page starting from this entity.
@@ -186,6 +212,12 @@ class DealsResource(BaseResource, FullDetailsMixin):
         """
         path = self._build_path("api", "v3", "deal")
 
+        # Convert filter ID to object format if needed
+        processed_filter = filter
+        if filter is not None and isinstance(filter, int | str) and not isinstance(filter, dict):
+            # Convert ID to filter object format
+            processed_filter = {"contentType": "TradeFilter", "id": str(filter)}
+
         # Prepare deal-specific parameters
         extra_params: dict[str, Any] = {}
         if status:
@@ -199,7 +231,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
 
         # Use base method to build params (DRY)
         params = self._build_list_params(
-            filter=filter,
+            filter=processed_filter,
             limit=limit,
             page_after=page_after,
             page_before=page_before,

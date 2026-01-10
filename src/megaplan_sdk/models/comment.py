@@ -26,10 +26,6 @@ class Comment(BaseEntity, TimestampMixin):
         completed: Completion status.
         created_at: Creation timestamp (timeCreated).
         updated_at: Last update timestamp (timeUpdated).
-
-        Legacy fields for compatibility:
-        author: Alias for owner.
-        text: Alias for content.
     """
 
     content_type: str = Field(alias="contentType", default="Comment")
@@ -43,16 +39,5 @@ class Comment(BaseEntity, TimestampMixin):
     is_unread: bool | None = Field(alias="isUnread", default=None)
     is_dropped: bool | None = Field(alias="isDropped", default=None)
     completed: int | None = None
-
-    # Legacy aliases for compatibility
-    @property
-    def author(self) -> BaseEntity | None:
-        """Alias for owner field."""
-        return self.owner
-
-    @property
-    def text(self) -> str | None:
-        """Alias for content field."""
-        return self.content
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")

@@ -10,6 +10,12 @@ from megaplan_sdk.exceptions import (
     ServerError,
     ValidationError,
 )
+from megaplan_sdk.filter_builder import (
+    FilterBuilder,
+    ProjectFilterBuilder,
+    TaskFilterBuilder,
+    TradeFilterBuilder,
+)
 from megaplan_sdk.helpers import (
     make_contractor_entity,
     make_deal_entity,
@@ -25,8 +31,18 @@ from megaplan_sdk.models.contractor import Contractor, ContractorCompany, Contra
 from megaplan_sdk.models.deal import Deal, DealFullDetails
 from megaplan_sdk.models.department import Department
 from megaplan_sdk.models.employee import Employee
+from megaplan_sdk.models.filter import (
+    BaseFilter,
+    EmployeeFilter,
+    FilterExport,
+    ProjectFilter,
+    TaskFilter,
+    TradeFilter,
+    UserSetting,
+)
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task, TaskFullDetails
+from megaplan_sdk.resources.filters import FiltersResource
 
 __all__ = [
     # Client
@@ -53,6 +69,15 @@ __all__ = [
     "Employee",
     "Department",
     "DateTime",
+    # Filters
+    "FiltersResource",
+    "BaseFilter",
+    "TaskFilter",
+    "TradeFilter",
+    "EmployeeFilter",
+    "ProjectFilter",
+    "FilterExport",
+    "UserSetting",
     # Utils
     "setup_logging",
     # Helpers
@@ -62,6 +87,11 @@ __all__ = [
     "make_task_entity",
     "make_deal_entity",
     "make_contractor_entity",
+    # Filter Builder
+    "FilterBuilder",
+    "TaskFilterBuilder",
+    "TradeFilterBuilder",
+    "ProjectFilterBuilder",
 ]
 
 __version__ = "0.1.0"

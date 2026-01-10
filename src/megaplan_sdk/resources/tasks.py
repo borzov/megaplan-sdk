@@ -101,6 +101,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         *,
         filter: FilterType | None = None,
         statuses: list[str] | None = None,
+        q: str | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -117,6 +118,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         *,
         filter: FilterType | None = None,
         statuses: list[str] | None = None,
+        q: str | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -131,6 +133,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         self,
         filter: FilterType | None = None,
         statuses: list[str] | None = None,
+        q: str | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -143,8 +146,51 @@ class TasksResource(BaseResource, FullDetailsMixin):
         """Get list of tasks.
 
         Args:
-            filter: Task filter (ID or config).
+            filter: Task filter (ID, string ID, or filter object with contentType and id).
+                If filter is int/str, it will be converted to {"contentType": "TaskFilter", "id": filter}.
+                If filter is dict, it will be used as is.
             statuses: List of statuses to filter by.
+            q: Text search query (searches in task name and description).
+                **Note:** This parameter may not work properly in Megaplan API
+                (returns empty results). For text search, use FilterBuilder instead:
+                ```python
+                from megaplan_sdk import FilterBuilder
+
+                # Simple text search
+                filter_obj = FilterBuilder("TaskFilter").field("name").contains("договор").build()
+                tasks = await client.tasks.list(filter=filter_obj)
+
+                # Multiple conditions with different types
+                filter_obj = (
+                    FilterBuilder("TaskFilter")
+                    .field("name").contains("договор")
+                    .and_()
+                    .field_number("amount").greater_than(1000)
+                    .and_()
+                    .field_enum("status").in_list(["active", "pending"])
+                    .build()
+                )
+                tasks = await client.tasks.list(filter=filter_obj)
+
+                # Nested groups
+                filter_obj = (
+                    FilterBuilder("TaskFilter")
+                    .field("name").contains("договор")
+                    .and_()
+                    .group()
+                        .field("status").equals("active")
+                        .or_()
+                        .field("priority").equals("high")
+                    .end_group()
+                    .build()
+                )
+                tasks = await client.tasks.list(filter=filter_obj)
+
+                # Using specialized builder
+                from megaplan_sdk import TaskFilterBuilder
+                filter_obj = TaskFilterBuilder().field("name").contains("договор").build()
+                tasks = await client.tasks.list(filter=filter_obj)
+                ```
             limit: Number of items per page.
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
@@ -163,6 +209,15 @@ class TasksResource(BaseResource, FullDetailsMixin):
             >>> # Get tasks without expansion
             >>> tasks = await client.tasks.list(limit=10)
             >>>
+            >>> # Get tasks with text search
+            >>> tasks = await client.tasks.list(q="договор", limit=10)
+            >>>
+            >>> # Get tasks with filter by ID
+            >>> tasks = await client.tasks.list(filter="incoming", limit=10)
+            >>>
+            >>> # Get tasks with filter object
+            >>> tasks = await client.tasks.list(filter={"contentType": "TaskFilter", "id": "incoming"})
+            >>>
             >>> # Get tasks with expanded responsible and owner
             >>> tasks_full = await client.tasks.list(
             ...     limit=10, expand=["responsible", "owner"]
@@ -173,9 +228,15 @@ class TasksResource(BaseResource, FullDetailsMixin):
         """
         path = self._build_path("api", "v3", "task")
 
+        # Convert filter ID to object format if needed
+        processed_filter = filter
+        if filter is not None and isinstance(filter, int | str) and not isinstance(filter, dict):
+            # Convert ID to filter object format
+            processed_filter = {"contentType": "TaskFilter", "id": str(filter)}
+
         # Use base method to build params (DRY)
         params = self._build_list_params(
-            filter=filter,
+            filter=processed_filter,
             limit=limit,
             page_after=page_after,
             page_before=page_before,
@@ -184,6 +245,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
             sort_by=sort_by,
             only_requested_fields=only_requested_fields,
             statuses=statuses,  # Extra param specific to tasks
+            q=q,  # Extra param specific to tasks - text search
         )
 
         # 1. Fetch tasks

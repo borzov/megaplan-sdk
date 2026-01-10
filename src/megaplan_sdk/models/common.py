@@ -1,10 +1,8 @@
 """Common models for Megaplan SDK."""
 
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
-T = TypeVar("T")
 
 
 class Pagination(BaseModel):
@@ -31,18 +29,6 @@ class Meta(BaseModel):
     status: int = 200
     errors: list[dict[str, Any]] = Field(default_factory=list)
     pagination: Pagination | None = None
-
-
-class ApiResponse(BaseModel, Generic[T]):
-    """Generic API response wrapper.
-
-    Attributes:
-        meta: Meta information (status, errors, pagination).
-        data: Response data (single item or list).
-    """
-
-    meta: Meta
-    data: T
 
 
 class File(BaseModel):

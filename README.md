@@ -162,11 +162,36 @@ tasks = await client.tasks.list(
     limit=50
 )
 
-# С фильтром по ID
+# С фильтром по ID (int или str)
 tasks = await client.tasks.list(filter=123)
+tasks = await client.tasks.list(filter="incoming")
 
-# С фильтром по конфигурации
-tasks = await client.tasks.list(filter={"status": "active"})
+# С FilterBuilder для текстового поиска (рекомендуется)
+from megaplan_sdk import TaskFilterBuilder
+
+# Простой поиск по названию
+filter_obj = TaskFilterBuilder().field("name").contains("договор").build()
+tasks = await client.tasks.list(filter=filter_obj)
+
+# Несколько условий с AND
+filter_obj = (
+    TaskFilterBuilder()
+    .field("name").contains("договор")
+    .and_()
+    .field("name").starts_with("Важный")
+    .build()
+)
+tasks = await client.tasks.list(filter=filter_obj)
+
+# Условия с OR
+filter_obj = (
+    TaskFilterBuilder()
+    .field("name").contains("договор")
+    .or_()
+    .field("name").contains("соглашение")
+    .build()
+)
+tasks = await client.tasks.list(filter=filter_obj)
 
 # Итерация по всем задачам с автоматической пагинацией
 async for task in client.tasks.iterate(limit=100):
@@ -642,9 +667,8 @@ details = await client.projects.get_full_details(
 
 ```python
 deals = await client.deals.list(
-    filter=None,                              # TradeFilter: ID фильтра (int) или конфигурация (dict)
+    filter=None,                              # TradeFilter: ID фильтра (int/str) или FilterBuilder объект
     status=None,                              # ProgramState: Статус программы для фильтрации
-    q=None,                                   # str: Поисковый запрос
     base_on=None,                             # BaseEntity: Базовая сущность для фильтрации
     limit=None,                               # int: Количество элементов на странице
     page_after=None,                           # dict: Пагинация после
@@ -655,6 +679,34 @@ deals = await client.deals.list(
     only_requested_fields=None                 # bool: Только запрошенные поля
 )
 # Возвращает: list[Deal] - список объектов Deal
+```
+
+**Примеры использования:**
+
+```python
+# Получить все сделки
+deals = await client.deals.list()
+
+# С фильтром по ID
+deals = await client.deals.list(filter=123)
+deals = await client.deals.list(filter="active")
+
+# С FilterBuilder для текстового поиска (рекомендуется)
+from megaplan_sdk import TradeFilterBuilder
+
+# Простой поиск по названию
+filter_obj = TradeFilterBuilder().field("name").contains("Leader").build()
+deals = await client.deals.list(filter=filter_obj)
+
+# Несколько условий
+filter_obj = (
+    TradeFilterBuilder()
+    .field("name").contains("Leader")
+    .and_()
+    .field("name").starts_with("Важная")
+    .build()
+)
+deals = await client.deals.list(filter=filter_obj)
 ```
 
 ### Получение сделки по ID
@@ -1230,6 +1282,127 @@ tasks_full = await client.tasks.list(limit=100, expand=["responsible"])
 - Без expand: 101 запрос (1 список + 100 запросов на сотрудников)
 - С expand: 2 запроса (1 список + 1 батч на 5 сотрудников)
 - **Экономия: 99 запросов (98%)**
+
+## Работа с фильтрами
+
+SDK предоставляет удобный `FilterBuilder` для создания фильтров с использованием fluent API. Фильтры поддерживаются для задач (`TaskFilter`) и сделок (`TradeFilter`). **Проекты не поддерживают фильтрацию через API.**
+
+### Базовое использование
+
+```python
+from megaplan_sdk import TaskFilterBuilder, TradeFilterBuilder
+
+# Простой текстовый поиск в задачах
+filter_obj = TaskFilterBuilder().field("name").contains("договор").build()
+tasks = await client.tasks.list(filter=filter_obj)
+
+# Простой текстовый поиск в сделках
+filter_obj = TradeFilterBuilder().field("name").contains("Leader").build()
+deals = await client.deals.list(filter=filter_obj)
+```
+
+### Доступные операции для строковых полей
+
+```python
+# Поиск подстроки (рекомендуется для текстового поиска)
+filter_obj = TaskFilterBuilder().field("name").contains("договор").build()
+
+# Поиск по началу строки
+filter_obj = TaskFilterBuilder().field("name").starts_with("Важный").build()
+
+# Точное совпадение
+filter_obj = TaskFilterBuilder().field("status").equals("active").build()
+
+# Исключение подстроки
+filter_obj = TaskFilterBuilder().field("name").not_contains("архив").build()
+
+# Не равно
+filter_obj = TaskFilterBuilder().field("status").not_equals("completed").build()
+```
+
+### Комбинирование условий
+
+```python
+# Несколько условий с AND
+filter_obj = (
+    TaskFilterBuilder()
+    .field("name").contains("договор")
+    .and_()
+    .field("name").starts_with("Важный")
+    .build()
+)
+
+# Условия с OR
+filter_obj = (
+    TaskFilterBuilder()
+    .field("name").contains("договор")
+    .or_()
+    .field("name").contains("соглашение")
+    .build()
+)
+```
+
+### Использование фильтров по ID
+
+Помимо `FilterBuilder`, можно использовать сохраненные фильтры по их ID:
+
+```python
+# Фильтр по числовому ID
+tasks = await client.tasks.list(filter=123)
+
+# Фильтр по строковому ID
+tasks = await client.tasks.list(filter="incoming")
+deals = await client.deals.list(filter="active")
+```
+
+### Управление фильтрами
+
+SDK предоставляет методы для работы с сохраненными фильтрами:
+
+```python
+# Получить список всех фильтров для задач
+filters = await client.filters.list("task")
+
+# Получить конкретный фильтр
+filter_obj = await client.filters.get("task", filter_id=123)
+
+# Создать новый фильтр
+new_filter = await client.filters.create(
+    "task",
+    filter_id="my_custom_filter",
+    filter_config={
+        "config": {
+            "contentType": "FilterConfig",
+            "termGroup": {
+                "contentType": "FilterTermGroup",
+                "join": "and",
+                "terms": [
+                    {
+                        "contentType": "FilterTermString",
+                        "field": "name",
+                        "comparison": "contains",
+                        "value": "договор"
+                    }
+                ]
+            }
+        }
+    }
+)
+
+# Обновить существующий фильтр
+updated = await client.filters.update("task", filter_id=123, filter_config={...})
+
+# Экспортировать фильтр
+export_data = await client.filters.export("task", filter_id=123)
+```
+
+### Важные замечания
+
+1. **Параметр `q` не работает**: Параметр `q` для текстового поиска в методах `list()` не работает корректно в Megaplan API (возвращает пустые результаты). Используйте `FilterBuilder` с `contains()` для текстового поиска.
+
+2. **Проекты не поддерживают фильтрацию**: API не поддерживает параметр `filter` для проектов. Фильтрация доступна только для задач и сделок.
+
+3. **Рекомендуется использовать FilterBuilder**: Вместо ручного создания сложных фильтров используйте `FilterBuilder` для типобезопасности и удобства.
 
 ## Известные ограничения API
 

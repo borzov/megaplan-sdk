@@ -12,6 +12,7 @@ from megaplan_sdk.resources.contractors import ContractorsResource
 from megaplan_sdk.resources.deals import DealsResource
 from megaplan_sdk.resources.departments import DepartmentsResource
 from megaplan_sdk.resources.employees import EmployeesResource
+from megaplan_sdk.resources.filters import FiltersResource
 from megaplan_sdk.resources.projects import ProjectsResource
 from megaplan_sdk.resources.tasks import TasksResource
 
@@ -113,6 +114,7 @@ class MegaplanClient:
         self.contractors = ContractorsResource(self._http, cache=self._cache)
         self.employees = EmployeesResource(self._http, cache=self._cache)
         self.departments = DepartmentsResource(self._http, cache=self._cache)
+        self.filters = FiltersResource(self._http, cache=self._cache)
 
         # Security: Store password only for initial authentication if provided
         self._initial_password = password if (username and password) else None

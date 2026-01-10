@@ -13,15 +13,57 @@ class LinkEntity(TypedDict, total=False):
 
 
 class TaskFilterConfig(TypedDict, total=False):
-    """Task filter configuration."""
+    """Task filter configuration.
 
-    pass  # Will be extended based on API documentation
+    Can contain FilterConfig with termGroup for complex filtering.
+    Example:
+        {
+            "contentType": "FilterConfig",
+            "termGroup": {
+                "contentType": "FilterTermGroup",
+                "join": "and",
+                "terms": [
+                    {
+                        "contentType": "FilterTermString",
+                        "field": "name",
+                        "comparison": "contains",
+                        "value": "договор"
+                    }
+                ]
+            }
+        }
+    """
+
+    contentType: str  # "FilterConfig"
+    termGroup: dict[str, Any]  # FilterTermGroup
+    filterId: int | str | None
 
 
 class TradeFilterConfig(TypedDict, total=False):
-    """Trade filter configuration."""
+    """Trade filter configuration.
 
-    pass  # Will be extended based on API documentation
+    Can contain FilterConfig with termGroup for complex filtering.
+    Example:
+        {
+            "contentType": "FilterConfig",
+            "termGroup": {
+                "contentType": "FilterTermGroup",
+                "join": "and",
+                "terms": [
+                    {
+                        "contentType": "FilterTermString",
+                        "field": "name",
+                        "comparison": "contains",
+                        "value": "Leader"
+                    }
+                ]
+            }
+        }
+    """
+
+    contentType: str  # "FilterConfig"
+    termGroup: dict[str, Any]  # FilterTermGroup
+    filterId: int | str | None
 
 
 class ProjectFilterConfig(TypedDict, total=False):
