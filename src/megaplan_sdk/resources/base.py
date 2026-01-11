@@ -79,27 +79,26 @@ class BaseResource:
         Returns:
             Normalized BaseEntity as dict.
         """
+        # Handle dict - normalize id field
         if isinstance(entity, dict):
             normalized = dict(entity)
-            # Ensure id is int if present
             if "id" in normalized and isinstance(normalized["id"], str):
                 try:
                     normalized["id"] = int(normalized["id"])
                 except (ValueError, TypeError):
-                    pass  # Keep as string if can't convert
+                    pass
             return normalized
 
         # Handle Pydantic models
         if hasattr(entity, "model_dump"):
             return entity.model_dump(by_alias=True)
 
-        # Handle objects with attributes
-        if hasattr(entity, "content_type") and hasattr(entity, "id"):
-            return {
-                "contentType": getattr(entity, "content_type", None)
-                or getattr(entity, "contentType", None),
-                "id": entity.id,
-            }
+        # Handle objects with id attribute
+        if hasattr(entity, "id"):
+            content_type = getattr(entity, "contentType", None) or getattr(
+                entity, "content_type", None
+            )
+            return {"contentType": content_type, "id": entity.id}
 
         return entity
 
@@ -849,3 +848,109 @@ class BaseResource:
                 result[field_name] = loaded
 
         return result
+
+    async def _get_milestones_generic(
+        self,
+        entity_type: str,
+        entity_id: int,
+    ) -> list[Any]:
+        """Generic method to get milestones for any entity (task or project).
+
+        Note: Direct endpoint /{entity_type}/{id}/milestones returns 500 error.
+        This method uses /{entity_type}/{id} with fields parameter to get milestones.
+
+        Args:
+            entity_type: API resource type ("task" or "project").
+            entity_id: Entity identifier.
+
+        Returns:
+            List of Milestone objects.
+        """
+        from megaplan_sdk.exceptions import ServerError
+        from megaplan_sdk.models.milestone import Milestone
+
+        try:
+            path = self._build_path("api", "v3", entity_type, str(entity_id))
+            response = await self._http.get(path, params={"fields": ["milestones"]})
+            entity_data = response.get("data", {})
+
+            milestones_data = entity_data.get("milestones", [])
+            if not milestones_data:
+                return []
+
+            if not isinstance(milestones_data, list):
+                milestones_data = [milestones_data]
+
+            return [
+                Milestone(**item) if isinstance(item, dict) else item for item in milestones_data
+            ]
+        except ServerError:
+            # Return empty list if server error occurs
+            return []
+
+    def _normalize_datetime_field(
+        self,
+        data_dict: dict[str, Any],
+        field_name: str = "date",
+    ) -> None:
+        """Normalize DateTime field by converting string to DateTime object.
+
+        Modifies data_dict in-place by converting string date values to
+        DateTime object format expected by API.
+
+        Args:
+            data_dict: Data dictionary to normalize.
+            field_name: Name of the field to normalize (default: "date").
+
+        Examples:
+            >>> data = {"date": "2026-03-15T10:00:00Z"}
+            >>> _normalize_datetime_field(data)
+            >>> data
+            {"date": {"contentType": "DateTime", "value": "2026-03-15T10:00:00Z"}}
+        """
+        if field_name in data_dict and isinstance(data_dict[field_name], str):
+            # API expects DateTime object with contentType and value
+            data_dict[field_name] = {"contentType": "DateTime", "value": data_dict[field_name]}
+
+    async def _add_milestone_generic(
+        self,
+        entity_type: str,
+        entity_id: int,
+        milestone_data: Any,
+    ) -> Any:
+        """Generic method to add milestone to any entity (task or project).
+
+        Args:
+            entity_type: API resource type ("task" or "project").
+            entity_id: Entity identifier.
+            milestone_data: Milestone data as Milestone object or dict.
+                Required fields: description, type, date.
+                Type must be one of: "report", "reminder", "note".
+                Date can be ISO 8601 string, DateTime object, or dict.
+
+        Returns:
+            Created Milestone object.
+        """
+        from megaplan_sdk.models.milestone import Milestone
+
+        # Convert to dict if needed
+        if isinstance(milestone_data, Milestone):
+            data_dict = milestone_data.model_dump(by_alias=True, exclude_none=True, exclude={"id"})
+            # Normalize date field
+            self._normalize_datetime_field(data_dict, "date")
+        else:
+            # Use dict as is, but ensure required fields are present
+            data_dict = dict(milestone_data)
+            # Remove id if present (should not be set when creating)
+            data_dict.pop("id", None)
+            # Ensure contentType is set
+            if "contentType" not in data_dict:
+                data_dict["contentType"] = "Milestone"
+
+            # Normalize date field
+            self._normalize_datetime_field(data_dict, "date")
+
+        path = self._build_path("api", "v3", entity_type, str(entity_id), "milestones")
+        response = await self._http.post(path, json_data=data_dict)
+        data = response.get("data", response)
+        return Milestone(**data) if isinstance(data, dict) else data

@@ -91,3 +91,22 @@ class TimestampMixin(BaseModel):
 
     created_at: str | DateTime | None = Field(alias="createdAt", default=None)
     updated_at: str | DateTime | None = Field(alias="updatedAt", default=None)
+
+
+def rebuild_model_with_forward_refs(
+    model_class: type[BaseModel], force_rebuild: bool = True
+) -> None:
+    """Rebuild Pydantic model to resolve forward references.
+
+    This function is used when a model uses TYPE_CHECKING imports and forward
+    references that need to be resolved after all models are loaded.
+
+    Args:
+        model_class: Pydantic model class to rebuild.
+        force_rebuild: Force rebuild even if already built (default: True).
+
+    Examples:
+        >>> from megaplan_sdk.models.project import ProjectFullDetails
+        >>> rebuild_model_with_forward_refs(ProjectFullDetails)
+    """
+    model_class.model_rebuild(force=force_rebuild)

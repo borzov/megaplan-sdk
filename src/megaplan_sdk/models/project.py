@@ -84,7 +84,8 @@ def _rebuild_project_models() -> None:
     """Rebuild ProjectFullDetails model after Milestone is imported."""
     from megaplan_sdk.models.milestone import Milestone  # noqa: F401
 
-    ProjectFullDetails.model_rebuild()
+    # Rebuild with force to ensure forward references are resolved
+    ProjectFullDetails.model_rebuild(force=True)
 
 
 # Auto-rebuild on import

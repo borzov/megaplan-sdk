@@ -404,56 +404,48 @@ class DealsResource(BaseResource, FullDetailsMixin):
             ... )
         """
         path = self._build_path("api", "v3", "deal", "checkDealExist")
-
-        # Build parameters according to API documentation
         params: dict[str, Any] = {}
 
+        # Normalize filter parameter
         if filter is not None:
-            if isinstance(filter, int | str) and not isinstance(filter, dict):
-                # Convert filter ID to BaseEntity format
+            if isinstance(filter, int | str):
                 params["filter"] = {
                     "contentType": "TradeFilter",
-                    "id": int(filter)
-                    if isinstance(filter, (int, str)) and str(filter).isdigit()
-                    else str(filter),
+                    "id": int(filter) if str(filter).isdigit() else str(filter),
                 }
             else:
                 params["filter"] = filter
 
+        # Normalize status parameter
         if status:
-            # Normalize status (ProgramState) to dict
-            if hasattr(status, "model_dump"):
-                params["status"] = status.model_dump(by_alias=True)
-            elif isinstance(status, dict):
-                params["status"] = status
-            else:
-                params["status"] = status
+            params["status"] = (
+                status.model_dump(by_alias=True) if hasattr(status, "model_dump") else status
+            )
 
+        # Add query parameter
         if query:
             params["query"] = query
 
+        # Normalize deal parameter
         if deal:
-            # Normalize deal object - ensure nested BaseEntity objects are properly formatted
-            if isinstance(deal, dict):
-                normalized_deal = dict(deal)
-                # Normalize nested BaseEntity objects (e.g., contractor)
-                for key, value in normalized_deal.items():
-                    if isinstance(value, dict) and "contentType" in value and "id" in value:
-                        normalized_deal[key] = self._normalize_base_entity(value)
-                params["deal"] = normalized_deal
-            elif hasattr(deal, "model_dump"):
+            if hasattr(deal, "model_dump"):
                 params["deal"] = deal.model_dump(by_alias=True)
+            elif isinstance(deal, dict):
+                normalized_deal = {
+                    key: self._normalize_base_entity(value)
+                    if isinstance(value, dict) and "contentType" in value
+                    else value
+                    for key, value in deal.items()
+                }
+                params["deal"] = normalized_deal
             else:
                 params["deal"] = deal
 
-        # API requires GET with parameters in query string
+        # Execute API call with error handling
         try:
             response = await self._http.get(path, params=params if params else None)
-            data: dict[str, Any] = response.get("data", {})
-            exists: bool = data.get("exists", False)
-            return exists
+            return response.get("data", {}).get("exists", False)
         except Exception as e:
-            # API may return 500 for check_exists endpoint (known limitation)
             from megaplan_sdk.exceptions import ServerError
             from megaplan_sdk.logging_config import logger
 
