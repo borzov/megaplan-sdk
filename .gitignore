@@ -72,3 +72,6 @@ AGENTS.md
 # Real tests and API responses
 examples/real_tests/collect_api_responses.py
 examples/real_tests/temp_api_responses/
+
+# Documentation (local only)
+docs/
