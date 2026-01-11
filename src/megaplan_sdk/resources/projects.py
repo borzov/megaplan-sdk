@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
 
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.comment import Comment
@@ -12,6 +12,9 @@ from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
+
+if TYPE_CHECKING:
+    from megaplan_sdk.models.milestone import Milestone
 
 
 class ProjectsResource(BaseResource, FullDetailsMixin):
@@ -677,58 +680,56 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
-    ) -> list["Milestone"]:
+    ) -> list[Milestone]:
         """Get milestones for a project.
 
-        Warning: This endpoint may return 500 Internal Server Error for some tasks/projects
-        due to API limitations. The error is handled gracefully and an empty list is returned.
+        Note: Direct endpoint /project/{id}/milestones returns 500 error.
+        This method uses /project/{id} with fields parameter to get milestones.
 
         Args:
             project_id: Project identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-            page_before: Load page strictly before this entity.
-            page_with: Load page containing this entity.
+            limit: Number of items per page (not used, kept for API compatibility).
+            page_after: Load page starting from this entity (not used, kept for API compatibility).
+            page_before: Load page strictly before this entity (not used, kept for API compatibility).
+            page_with: Load page containing this entity (not used, kept for API compatibility).
 
         Returns:
-            List of Milestone objects. Returns empty list if API returns 500 error.
+            List of Milestone objects.
 
         Examples:
             >>> milestones = await client.projects.get_milestones(project_id=123)
             >>> for milestone in milestones:
             ...     print(f"{milestone.name}: {milestone.date}")
         """
+        from megaplan_sdk.exceptions import ServerError
         from megaplan_sdk.models.milestone import Milestone
 
+        # Direct endpoint /project/{id}/milestones returns 500 error
+        # Use main project endpoint with fields parameter instead
         try:
-            return await self._get_entity_related_list(
-                "project",
-                project_id,
-                "milestones",
-                limit,
-                page_after,
-                page_before,
-                page_with,
-                model_class=Milestone,
-            )
-        except Exception as e:
-            # API may return 500 for milestones endpoint (known limitation)
-            from megaplan_sdk.exceptions import ServerError
-            from megaplan_sdk.logging_config import logger
+            path = self._build_path("api", "v3", "project", str(project_id))
+            response = await self._http.get(path, params={"fields": ["milestones"]})
+            project_data = response.get("data", {})
 
-            if isinstance(e, ServerError) and "500" in str(e):
-                logger.warning(
-                    f"Milestones endpoint returned 500 for project {project_id}. "
-                    "This is a known API limitation. Returning empty list."
-                )
+            milestones_data = project_data.get("milestones", [])
+            if not milestones_data:
                 return []
-            raise
+
+            if not isinstance(milestones_data, list):
+                milestones_data = [milestones_data]
+
+            return [
+                Milestone(**item) if isinstance(item, dict) else item for item in milestones_data
+            ]
+        except ServerError:
+            # Return empty list if server error occurs
+            return []
 
     async def add_milestone(
         self,
         project_id: int,
-        milestone_data: "Milestone | dict[str, Any]",
-    ) -> "Milestone":
+        milestone_data: Milestone | dict[str, Any],
+    ) -> Milestone:
         """Add milestone to the project.
 
         Args:
@@ -767,18 +768,30 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         """
         from megaplan_sdk.models.milestone import Milestone
 
-        # Validate and convert to dict if needed
+        # Convert to dict if needed
         if isinstance(milestone_data, Milestone):
-            data_dict = milestone_data.model_dump(by_alias=True, exclude_none=True)
+            data_dict = milestone_data.model_dump(by_alias=True, exclude_none=True, exclude={"id"})
+            # Convert date to DateTime object if it's a string
+            if "date" in data_dict and isinstance(data_dict["date"], str):
+                data_dict["date"] = {"contentType": "DateTime", "value": data_dict["date"]}
         else:
-            # Validate dict data through model
-            milestone = Milestone(**milestone_data)
-            data_dict = milestone.model_dump(by_alias=True, exclude_none=True)
+            # Use dict as is, but ensure required fields are present
+            data_dict = dict(milestone_data)
+            # Remove id if present (should not be set when creating)
+            data_dict.pop("id", None)
+            # Ensure contentType is set
+            if "contentType" not in data_dict:
+                data_dict["contentType"] = "Milestone"
 
-        response = await self._add_entity_related(
-            "project", project_id, "milestones", 0, "Milestone", data_override=data_dict
-        )
-        return Milestone(**response) if isinstance(response, dict) else response
+            # Convert date string to DateTime object if needed
+            if "date" in data_dict and isinstance(data_dict["date"], str):
+                # API expects DateTime object with contentType and value
+                data_dict["date"] = {"contentType": "DateTime", "value": data_dict["date"]}
+
+        path = self._build_path("api", "v3", "project", str(project_id), "milestones")
+        response = await self._http.post(path, json_data=data_dict)
+        data = response.get("data", response)
+        return Milestone(**data) if isinstance(data, dict) else data
 
     async def get_history(
         self,

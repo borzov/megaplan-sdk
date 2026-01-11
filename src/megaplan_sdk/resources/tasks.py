@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
 
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.comment import Comment
@@ -11,6 +11,24 @@ from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
 from megaplan_sdk.types import FilterType
+
+if TYPE_CHECKING:
+    from megaplan_sdk.models.milestone import Milestone
+
+# Valid task statuses according to RAML documentation
+VALID_TASK_STATUSES = {
+    "created",
+    "assigned",
+    "accepted",
+    "done",
+    "completed",
+    "rejected",
+    "cancelled",
+    "expired",
+    "delayed",
+    "template",
+    "overdue",
+}
 
 
 class TasksResource(BaseResource, FullDetailsMixin):
@@ -150,8 +168,10 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 If filter is int/str, it will be converted to {"contentType": "TaskFilter", "id": filter}.
                 If filter is dict, it will be used as is.
             statuses: List of statuses to filter by.
-                Warning: This parameter may return 422 ValidationError due to API limitations.
-                Use FilterBuilder for reliable status filtering instead.
+                Valid values: "created", "assigned", "accepted", "done", "completed",
+                "rejected", "cancelled", "expired", "delayed", "template", "overdue".
+                Invalid status values will cause 422 ValidationError.
+                The array is serialized as JSON in query string: {"statuses": ["assigned", "accepted"]}
             q: Text search query (searches in task name and description).
                 **Note:** This parameter may not work properly in Megaplan API
                 (returns empty results). For text search, use FilterBuilder instead:
@@ -229,6 +249,15 @@ class TasksResource(BaseResource, FullDetailsMixin):
             ...         print(task_full.responsible_details.display_name())
         """
         path = self._build_path("api", "v3", "task")
+
+        # Validate statuses if provided
+        if statuses:
+            invalid_statuses = [s for s in statuses if s not in VALID_TASK_STATUSES]
+            if invalid_statuses:
+                raise ValueError(
+                    f"Invalid task status values: {invalid_statuses}. "
+                    f"Valid values: {sorted(VALID_TASK_STATUSES)}"
+                )
 
         # Convert filter ID to object format if needed
         processed_filter = filter
@@ -408,6 +437,49 @@ class TasksResource(BaseResource, FullDetailsMixin):
 
         return await self._get_list(path, Task, params)
 
+    def _parse_tree_node_id(self, node_id: str | int) -> int | None:
+        """Parse numeric ID from tree node ID string.
+
+        API returns tree nodes with string IDs in format "Task:ID:hash" or "Project:ID:hash".
+        This method extracts the numeric ID from the string format.
+
+        Args:
+            node_id: Node ID as string (e.g., "Task:1005808:dcca48101505dd86b703689a604fe3c4")
+                     or integer (returned as is).
+
+        Returns:
+            Numeric ID if parsing successful, None otherwise.
+
+        Examples:
+            >>> resource._parse_tree_node_id("Task:1005808:dcca48101505dd86b703689a604fe3c4")
+            1005808
+            >>> resource._parse_tree_node_id(123)
+            123
+        """
+        if isinstance(node_id, int):
+            return node_id
+
+        if not isinstance(node_id, str):
+            return None
+
+        # Format: "Task:1005808:dcca48101505dd86b703689a604fe3c4"
+        # Extract ID between first and second colon
+        parts = node_id.split(":")
+        if len(parts) >= 2:
+            try:
+                # Extract numeric ID (second part)
+                return int(parts[1])
+            except (ValueError, IndexError):
+                # If parsing fails, log warning and return None
+                from megaplan_sdk.logging_config import logger
+
+                logger.warning(
+                    f"Could not parse tree node ID from '{node_id}', expected format 'Type:ID:hash'"
+                )
+                return None
+
+        return None
+
     async def tree_level(
         self,
         filter: FilterType | None = None,
@@ -463,23 +535,11 @@ class TasksResource(BaseResource, FullDetailsMixin):
         for item in data:
             processed_item = item.copy()
             # If id is a string in format "Type:ID:hash", extract the numeric ID
-            if isinstance(processed_item.get("id"), str):
-                id_str = processed_item["id"]
-                # Format: "Task:1005808:dcca48101505dd86b703689a604fe3c4"
-                # Extract ID between first and second colon
-                parts = id_str.split(":")
-                if len(parts) >= 2:
-                    try:
-                        # Extract numeric ID (second part)
-                        numeric_id = int(parts[1])
-                        processed_item["id"] = numeric_id
-                    except (ValueError, IndexError):
-                        # If parsing fails, keep original ID and log warning
-                        from megaplan_sdk.logging_config import logger
-
-                        logger.warning(
-                            f"Could not parse tree node ID from '{id_str}', keeping original"
-                        )
+            item_id = processed_item.get("id")
+            if item_id is not None:
+                parsed_id = self._parse_tree_node_id(item_id)
+                if parsed_id is not None:
+                    processed_item["id"] = parsed_id
 
             processed_items.append(processed_item)
 
@@ -854,58 +914,56 @@ class TasksResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
-    ) -> list["Milestone"]:
+    ) -> list[Milestone]:
         """Get milestones for a task.
 
-        Warning: This endpoint may return 500 Internal Server Error for some tasks/projects
-        due to API limitations. The error is handled gracefully and an empty list is returned.
+        Note: Direct endpoint /task/{id}/milestones returns 500 error.
+        This method uses /task/{id} with fields parameter to get milestones.
 
         Args:
             task_id: Task identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-            page_before: Load page strictly before this entity.
-            page_with: Load page containing this entity.
+            limit: Number of items per page (not used, kept for API compatibility).
+            page_after: Load page starting from this entity (not used, kept for API compatibility).
+            page_before: Load page strictly before this entity (not used, kept for API compatibility).
+            page_with: Load page containing this entity (not used, kept for API compatibility).
 
         Returns:
-            List of Milestone objects. Returns empty list if API returns 500 error.
+            List of Milestone objects.
 
         Examples:
             >>> milestones = await client.tasks.get_milestones(task_id=123)
             >>> for milestone in milestones:
             ...     print(f"{milestone.name}: {milestone.date}")
         """
+        from megaplan_sdk.exceptions import ServerError
         from megaplan_sdk.models.milestone import Milestone
 
+        # Direct endpoint /task/{id}/milestones returns 500 error
+        # Use main task endpoint with fields parameter instead
         try:
-            return await self._get_entity_related_list(
-                "task",
-                task_id,
-                "milestones",
-                limit,
-                page_after,
-                page_before,
-                page_with,
-                model_class=Milestone,
-            )
-        except Exception as e:
-            # API may return 500 for milestones endpoint (known limitation)
-            from megaplan_sdk.exceptions import ServerError
-            from megaplan_sdk.logging_config import logger
+            path = self._build_path("api", "v3", "task", str(task_id))
+            response = await self._http.get(path, params={"fields": ["milestones"]})
+            task_data = response.get("data", {})
 
-            if isinstance(e, ServerError) and "500" in str(e):
-                logger.warning(
-                    f"Milestones endpoint returned 500 for task {task_id}. "
-                    "This is a known API limitation. Returning empty list."
-                )
+            milestones_data = task_data.get("milestones", [])
+            if not milestones_data:
                 return []
-            raise
+
+            if not isinstance(milestones_data, list):
+                milestones_data = [milestones_data]
+
+            return [
+                Milestone(**item) if isinstance(item, dict) else item for item in milestones_data
+            ]
+        except ServerError:
+            # Return empty list if server error occurs
+            return []
 
     async def add_milestone(
         self,
         task_id: int,
-        milestone_data: "Milestone | dict[str, Any]",
-    ) -> "Milestone":
+        milestone_data: Milestone | dict[str, Any],
+    ) -> Milestone:
         """Add milestone to the task.
 
         Args:
@@ -944,18 +1002,27 @@ class TasksResource(BaseResource, FullDetailsMixin):
         """
         from megaplan_sdk.models.milestone import Milestone
 
-        # Validate and convert to dict if needed
+        # Convert to dict if needed
         if isinstance(milestone_data, Milestone):
-            data_dict = milestone_data.model_dump(by_alias=True, exclude_none=True)
+            data_dict = milestone_data.model_dump(by_alias=True, exclude_none=True, exclude={"id"})
         else:
-            # Validate dict data through model
-            milestone = Milestone(**milestone_data)
-            data_dict = milestone.model_dump(by_alias=True, exclude_none=True)
+            # Use dict as is, but ensure required fields are present
+            data_dict = dict(milestone_data)
+            # Remove id if present (should not be set when creating)
+            data_dict.pop("id", None)
+            # Ensure contentType is set
+            if "contentType" not in data_dict:
+                data_dict["contentType"] = "Milestone"
 
-        response = await self._add_entity_related(
-            "task", task_id, "milestones", 0, "Milestone", data_override=data_dict
-        )
-        return Milestone(**response) if isinstance(response, dict) else response
+            # Convert date string to DateTime object if needed
+            if "date" in data_dict and isinstance(data_dict["date"], str):
+                # API expects DateTime object with contentType and value
+                data_dict["date"] = {"contentType": "DateTime", "value": data_dict["date"]}
+
+        path = self._build_path("api", "v3", "task", str(task_id), "milestones")
+        response = await self._http.post(path, json_data=data_dict)
+        data = response.get("data", response)
+        return Milestone(**data) if isinstance(data, dict) else data
 
     async def get_history(
         self,

@@ -17,6 +17,11 @@ from utils import (
     print_success,
     print_warning,
 )
+from .utils_validation import (
+    log_api_error,
+    validate_search_results,
+    validate_status_filter,
+)
 
 
 async def test_list_tasks():
@@ -320,6 +325,17 @@ async def test_filter_builder():
                 for i, task in enumerate(filtered_tasks[:5], 1):
                     print(f"  {i}. [{task.id}] {task.name}")
 
+                # Validate that all results contain the search term
+                is_valid, errors = validate_search_results(
+                    filtered_tasks, search_word, field_name="name"
+                )
+                if not is_valid:
+                    print_warning("Валидация результатов фильтрации провалилась:")
+                    for error in errors:
+                        print_warning(f"  - {error}")
+                    return False
+                print_success("Валидация результатов фильтрации: все результаты содержат поисковое слово")
+
             return True
 
     except Exception as e:
@@ -346,9 +362,11 @@ async def test_list_with_statuses():
             username=username,
             password=password
         ) as client:
-            print("\n⏳ Загрузка задач со статусами 'assigned' и 'in_progress'...")
-            # Note: API may not support statuses parameter in all cases
-            tasks = await client.tasks.list(statuses=["assigned", "in_progress"], limit=10)
+            print("\n⏳ Загрузка задач со статусами 'assigned' и 'accepted'...")
+            # Note: Valid task statuses according to RAML: created, assigned, accepted, done, 
+            # completed, rejected, cancelled, expired, delayed, template, overdue
+            # Using "assigned" and "accepted" which are present in the system
+            tasks = await client.tasks.list(statuses=["assigned", "accepted"], limit=10)
 
             print_success(f"Найдено задач: {len(tasks)}")
             if tasks:
@@ -356,12 +374,28 @@ async def test_list_with_statuses():
                 for i, task in enumerate(tasks[:5], 1):
                     print(f"  {i}. [{task.id}] {task.name} - {task.status}")
 
+                # Validate that all results have one of the expected statuses
+                is_valid, errors = validate_status_filter(
+                    tasks, ["assigned", "accepted"], status_field="status"
+                )
+                if not is_valid:
+                    print_warning("Валидация результатов фильтрации по статусам провалилась:")
+                    for error in errors:
+                        print_warning(f"  - {error}")
+                    return False
+                print_success("Валидация результатов фильтрации: все задачи имеют ожидаемые статусы")
+
             return True
 
     except Exception as e:
-        # API may not support statuses parameter - not a critical failure
-        print_warning(f"Фильтрация по статусам не поддерживается или вернула ошибку: {e}")
-        return True  # Not a critical failure
+        # Log API error with full details
+        log_api_error(
+            method="GET",
+            url=f"{base_url}/api/v3/task",
+            params={"statuses": ["assigned", "in_progress"]},
+            error=e,
+        )
+        raise  # Re-raise to fail the test
 
 
 async def test_list_with_pagination():
@@ -661,9 +695,13 @@ async def test_get_milestones():
             return True
 
     except Exception as e:
-        # API may return 500 for milestones endpoint (known limitation)
-        print_warning(f"API вернул ошибку для milestones (известное ограничение): {e}")
-        return True  # Not a critical failure
+        # Log API error with full details
+        log_api_error(
+            method="GET",
+            url=f"{base_url}/api/v3/task/{task_id}/milestones",
+            error=e,
+        )
+        raise  # Re-raise to fail the test
 
 
 async def test_get_history():

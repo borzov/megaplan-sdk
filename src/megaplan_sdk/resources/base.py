@@ -67,6 +67,42 @@ class BaseResource:
         params = {k: v for k, v in kwargs.items() if v is not None}
         return params if params else None
 
+    def _normalize_base_entity(self, entity: dict[str, Any] | Any) -> dict[str, Any]:
+        """Normalize BaseEntity to ensure correct format.
+
+        Ensures BaseEntity objects have contentType and id in correct format.
+        Converts Pydantic models to dicts and ensures id is int (not string).
+
+        Args:
+            entity: BaseEntity as dict, Pydantic model, or other object.
+
+        Returns:
+            Normalized BaseEntity as dict.
+        """
+        if isinstance(entity, dict):
+            normalized = dict(entity)
+            # Ensure id is int if present
+            if "id" in normalized and isinstance(normalized["id"], str):
+                try:
+                    normalized["id"] = int(normalized["id"])
+                except (ValueError, TypeError):
+                    pass  # Keep as string if can't convert
+            return normalized
+
+        # Handle Pydantic models
+        if hasattr(entity, "model_dump"):
+            return entity.model_dump(by_alias=True)
+
+        # Handle objects with attributes
+        if hasattr(entity, "content_type") and hasattr(entity, "id"):
+            return {
+                "contentType": getattr(entity, "content_type", None)
+                or getattr(entity, "contentType", None),
+                "id": entity.id,
+            }
+
+        return entity
+
     def _build_list_params(
         self,
         filter: Any | None = None,
@@ -102,11 +138,12 @@ class BaseResource:
         if limit is not None:
             params["limit"] = limit
         if page_after:
-            params["pageAfter"] = page_after
+            # Normalize BaseEntity for pagination
+            params["pageAfter"] = self._normalize_base_entity(page_after)
         if page_before:
-            params["pageBefore"] = page_before
+            params["pageBefore"] = self._normalize_base_entity(page_before)
         if page_with:
-            params["pageWith"] = page_with
+            params["pageWith"] = self._normalize_base_entity(page_with)
         if fields is not None:
             params["fields"] = fields
         if sort_by:
@@ -117,7 +154,13 @@ class BaseResource:
         # Add extra params (like statuses, status, q, baseOn, etc.)
         # Filter out None values to avoid sending null in JSON
         filtered_extra = {k: v for k, v in extra_params.items() if v is not None}
-        params.update(filtered_extra)
+
+        # Normalize BaseEntity in extra params (e.g., baseOn)
+        for key, value in filtered_extra.items():
+            if key in ("baseOn", "base_on") and isinstance(value, dict):
+                params[key if key == "baseOn" else "baseOn"] = self._normalize_base_entity(value)
+            else:
+                params[key] = value
 
         return params if params else {}
 
@@ -535,12 +578,17 @@ class BaseResource:
         """
         path = self._build_path("api", "v3", entity_type, str(entity_id), related_type)
 
-        params = self._build_list_params(
-            limit=limit,
-            page_after=page_after,
-            page_before=page_before,
-            page_with=page_with,
-        )
+        # Build params - always include limit for milestones to avoid 500 errors
+        if related_type == "milestones" and limit is None:
+            # Default limit for milestones to avoid API 500 errors
+            params = self._build_list_params(limit=100)
+        else:
+            params = self._build_list_params(
+                limit=limit,
+                page_after=page_after,
+                page_before=page_before,
+                page_with=page_with,
+            )
 
         response = await self._http.get(path, params=params if params else None)
         data = self._parse_list_response(response)

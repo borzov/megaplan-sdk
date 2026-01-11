@@ -242,6 +242,383 @@ async def test_get_full_details():
         return False
 
 
+async def test_iterate_projects():
+    """Test iterating over projects."""
+    print_header("TEST: Автоматическая пагинация проектов (iterate)")
+
+    load_env_file()
+    credentials = get_credentials()
+    if not credentials:
+        return False
+
+    base_url, username, password = credentials
+
+    try:
+        async with MegaplanClient(
+            base_url=base_url,
+            username=username,
+            password=password
+        ) as client:
+            print("\n⏳ Итерация по проектам (первые 15)...")
+            count = 0
+            async for project in client.projects.iterate(limit=10):
+                count += 1
+                if count <= 5:
+                    print(f"  {count}. [{project.id}] {project.name}")
+                if count >= 15:
+                    break
+
+            print_success(f"Обработано проектов: {count}")
+            return True
+
+    except Exception as e:
+        print(f"\n❌ Ошибка при итерации: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def test_list_with_expand():
+    """Test listing projects with expand."""
+    print_header("TEST: Получение проектов с автоматической подгрузкой связанных сущностей")
+
+    load_env_file()
+    credentials = get_credentials()
+    if not credentials:
+        return False
+
+    base_url, username, password = credentials
+
+    try:
+        async with MegaplanClient(
+            base_url=base_url,
+            username=username,
+            password=password
+        ) as client:
+            print("\n⏳ Загрузка проектов с expand (responsible, owner)...")
+            projects_full = await client.projects.list(limit=10, expand=["responsible", "owner"])
+            print_success(f"Загружено проектов: {len(projects_full)}")
+
+            if projects_full:
+                print("\n📁 Проекты:")
+                for i, project_full in enumerate(projects_full[:5], 1):
+                    project = project_full.project
+                    print(f"  {i}. [{project.id}] {project.name}")
+                    if project_full.responsible_details:
+                        print(f"     Ответственный: {project_full.responsible_details.display_name()}")
+                    if project_full.owner_details:
+                        print(f"     Владелец: {project_full.owner_details.display_name()}")
+
+            return True
+
+    except Exception as e:
+        print(f"\n❌ Ошибка при загрузке: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def test_list_with_pagination():
+    """Test listing projects with pagination."""
+    print_header("TEST: Пагинация проектов")
+
+    load_env_file()
+    credentials = get_credentials()
+    if not credentials:
+        return False
+
+    base_url, username, password = credentials
+
+    try:
+        async with MegaplanClient(
+            base_url=base_url,
+            username=username,
+            password=password
+        ) as client:
+            print("\n⏳ Загрузка первой страницы (5 проектов)...")
+            first_page = await client.projects.list(limit=5)
+            if not first_page:
+                print_warning("Нет доступных проектов для тестирования")
+                return False
+
+            print_success(f"Загружено проектов на первой странице: {len(first_page)}")
+
+            if len(first_page) >= 5:
+                last_project = first_page[-1]
+                print(f"\n⏳ Загрузка второй страницы (после проекта #{last_project.id})...")
+                second_page = await client.projects.list(
+                    limit=5,
+                    page_after={"contentType": "Project", "id": last_project.id}
+                )
+                print_success(f"Загружено проектов на второй странице: {len(second_page)}")
+
+            return True
+
+    except Exception as e:
+        print(f"\n❌ Ошибка при пагинации: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def test_get_deals():
+    """Test getting project deals."""
+    print_header("TEST: Получение сделок проекта")
+
+    load_env_file()
+    credentials = get_credentials()
+    if not credentials:
+        return False
+
+    base_url, username, password = credentials
+
+    try:
+        async with MegaplanClient(
+            base_url=base_url,
+            username=username,
+            password=password
+        ) as client:
+            projects = await client.projects.list(limit=5)
+            if not projects:
+                print_warning("Нет доступных проектов для тестирования")
+                return False
+
+            project_id = None
+            for project in projects:
+                try:
+                    deals = await client.projects.get_deals(project.id, limit=1)
+                    if deals:
+                        project_id = project.id
+                        break
+                except Exception:
+                    continue
+
+            if not project_id:
+                project_id = projects[0].id
+
+            print(f"\n⏳ Загрузка сделок для проекта #{project_id}...")
+            deals = await client.projects.get_deals(project_id, limit=10)
+            print_success(f"Найдено сделок: {len(deals)}")
+
+            if deals:
+                print("\n💼 Сделки:")
+                for i, deal in enumerate(deals[:5], 1):
+                    print(f"  {i}. [{deal.id}] {deal.name}")
+
+            return True
+
+    except Exception as e:
+        print(f"\n❌ Ошибка при загрузке сделок: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def test_get_actual_issues():
+    """Test getting actual project issues."""
+    print_header("TEST: Получение актуальных задач проекта")
+
+    load_env_file()
+    credentials = get_credentials()
+    if not credentials:
+        return False
+
+    base_url, username, password = credentials
+
+    try:
+        async with MegaplanClient(
+            base_url=base_url,
+            username=username,
+            password=password
+        ) as client:
+            projects = await client.projects.list(limit=5)
+            if not projects:
+                print_warning("Нет доступных проектов для тестирования")
+                return False
+
+            project_id = projects[0].id
+            print(f"\n⏳ Загрузка актуальных задач для проекта #{project_id}...")
+            actual_issues = await client.projects.get_actual_issues(project_id, limit=10)
+            print_success(f"Найдено актуальных задач: {len(actual_issues)}")
+
+            if actual_issues:
+                print("\n📋 Актуальные задачи:")
+                for i, issue in enumerate(actual_issues[:5], 1):
+                    print(f"  {i}. [{issue.id}] {issue.name}")
+
+            return True
+
+    except Exception as e:
+        print(f"\n❌ Ошибка при загрузке актуальных задач: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def test_get_auditors():
+    """Test getting project auditors."""
+    print_header("TEST: Получение аудиторов проекта")
+
+    load_env_file()
+    credentials = get_credentials()
+    if not credentials:
+        return False
+
+    base_url, username, password = credentials
+
+    try:
+        async with MegaplanClient(
+            base_url=base_url,
+            username=username,
+            password=password
+        ) as client:
+            projects = await client.projects.list(limit=10)
+            if not projects:
+                print_warning("Нет доступных проектов для тестирования")
+                return False
+
+            project_id = projects[0].id
+            print(f"\n⏳ Загрузка аудиторов для проекта #{project_id}...")
+            auditors = await client.projects.get_auditors(project_id)
+            print_success(f"Найдено аудиторов: {len(auditors)}")
+
+            if auditors:
+                print("\n👥 Аудиторы:")
+                for i, auditor in enumerate(auditors[:5], 1):
+                    print(f"  {i}. {auditor}")
+
+            return True
+
+    except Exception as e:
+        print(f"\n❌ Ошибка при загрузке аудиторов: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def test_get_executors():
+    """Test getting project executors."""
+    print_header("TEST: Получение соисполнителей проекта")
+
+    load_env_file()
+    credentials = get_credentials()
+    if not credentials:
+        return False
+
+    base_url, username, password = credentials
+
+    try:
+        async with MegaplanClient(
+            base_url=base_url,
+            username=username,
+            password=password
+        ) as client:
+            projects = await client.projects.list(limit=10)
+            if not projects:
+                print_warning("Нет доступных проектов для тестирования")
+                return False
+
+            project_id = projects[0].id
+            print(f"\n⏳ Загрузка соисполнителей для проекта #{project_id}...")
+            executors = await client.projects.get_executors(project_id)
+            print_success(f"Найдено соисполнителей: {len(executors)}")
+
+            if executors:
+                print("\n👥 Соисполнители:")
+                for i, executor in enumerate(executors[:5], 1):
+                    print(f"  {i}. {executor}")
+
+            return True
+
+    except Exception as e:
+        print(f"\n❌ Ошибка при загрузке соисполнителей: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def test_get_milestones():
+    """Test getting project milestones."""
+    print_header("TEST: Получение вех проекта")
+
+    load_env_file()
+    credentials = get_credentials()
+    if not credentials:
+        return False
+
+    base_url, username, password = credentials
+
+    try:
+        async with MegaplanClient(
+            base_url=base_url,
+            username=username,
+            password=password
+        ) as client:
+            projects = await client.projects.list(limit=10)
+            if not projects:
+                print_warning("Нет доступных проектов для тестирования")
+                return False
+
+            project_id = projects[0].id
+            print(f"\n⏳ Загрузка вех для проекта #{project_id}...")
+            milestones = await client.projects.get_milestones(project_id)
+            print_success(f"Найдено вех: {len(milestones)}")
+
+            if milestones:
+                print("\n🎯 Вехи:")
+                for i, milestone in enumerate(milestones[:5], 1):
+                    print(f"  {i}. {milestone}")
+
+            return True
+
+    except Exception as e:
+        print(f"\n❌ Ошибка при загрузке вех: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def test_get_history():
+    """Test getting project history."""
+    print_header("TEST: Получение истории изменений проекта")
+
+    load_env_file()
+    credentials = get_credentials()
+    if not credentials:
+        return False
+
+    base_url, username, password = credentials
+
+    try:
+        async with MegaplanClient(
+            base_url=base_url,
+            username=username,
+            password=password
+        ) as client:
+            projects = await client.projects.list(limit=10)
+            if not projects:
+                print_warning("Нет доступных проектов для тестирования")
+                return False
+
+            project_id = projects[0].id
+            print(f"\n⏳ Загрузка истории для проекта #{project_id}...")
+            history = await client.projects.get_history(project_id, limit=10)
+            print_success(f"Найдено записей истории: {len(history)}")
+
+            if history:
+                print("\n📜 История изменений:")
+                for i, record in enumerate(history[:5], 1):
+                    print(f"  {i}. {record}")
+
+            return True
+
+    except Exception as e:
+        print(f"\n❌ Ошибка при загрузке истории: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 async def run_all_tests():
     """Run all project tests."""
     print("\n" + "=" * 70)
@@ -264,6 +641,33 @@ async def run_all_tests():
 
     # Test 4: Get full details
     results.append(await test_get_full_details())
+
+    # Test 5: Iterate projects
+    results.append(await test_iterate_projects())
+
+    # Test 6: List with expand
+    results.append(await test_list_with_expand())
+
+    # Test 7: Pagination
+    results.append(await test_list_with_pagination())
+
+    # Test 8: Get deals
+    results.append(await test_get_deals())
+
+    # Test 9: Get actual issues
+    results.append(await test_get_actual_issues())
+
+    # Test 10: Get auditors
+    results.append(await test_get_auditors())
+
+    # Test 11: Get executors
+    results.append(await test_get_executors())
+
+    # Test 12: Get milestones
+    results.append(await test_get_milestones())
+
+    # Test 13: Get history
+    results.append(await test_get_history())
 
     # Print summary
     print_header("ИТОГОВАЯ СТАТИСТИКА")

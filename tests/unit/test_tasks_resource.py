@@ -150,7 +150,7 @@ async def test_get_sub_tasks():
 @respx.mock
 async def test_get_full_details():
     """Test getting full task details with related entities."""
-    # Mock main task
+    # Mock main task with milestones field
     respx.get("https://example.com/api/v3/task/1").mock(
         return_value=Response(
             200,
@@ -162,6 +162,15 @@ async def test_get_full_details():
                     "name": "Test Task",
                     "responsible": {"id": 10, "contentType": "Employee"},
                     "owner": {"id": 11, "contentType": "Employee"},
+                    "milestones": [
+                        {
+                            "id": 100,
+                            "contentType": "Milestone",
+                            "name": "Test Milestone",
+                            "type": "report",
+                            "date": "2026-02-01T10:00:00Z",
+                        }
+                    ],
                 },
             },
         )
@@ -311,3 +320,139 @@ async def test_get_full_details():
 
         assert full_details.owner_details is not None
         assert full_details.owner_details.first_name == "Jane"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_milestones():
+    """Test getting task milestones via get_full_details."""
+    # Mock task with milestones field
+    respx.get(url__regex=r"https://example\.com/api/v3/task/1\?.*").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {
+                    "id": 1,
+                    "contentType": "Task",
+                    "name": "Test Task",
+                    "milestones": [
+                        {
+                            "id": 1,
+                            "contentType": "Milestone",
+                            "name": "Release 1.0",
+                            "description": "Release milestone",
+                            "type": "report",
+                            "date": "2026-02-01T10:00:00Z",
+                        }
+                    ],
+                },
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        milestones = await resource.get_milestones(task_id=1)
+
+        assert len(milestones) == 1
+        assert milestones[0].id == 1
+        assert milestones[0].name == "Release 1.0"
+        assert milestones[0].type == "report"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_milestones_500_error():
+    """Test handling 500 error when getting milestones via get_full_details."""
+    from megaplan_sdk.exceptions import ServerError
+
+    # Mock task endpoint returning 500 error
+    respx.get(url__regex=r"https://example\.com/api/v3/task/1\?.*").mock(
+        return_value=Response(500, json={"meta": {"status": 500, "errors": ["Internal Server Error"]}})
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        # Should return empty list instead of raising exception
+        milestones = await resource.get_milestones(task_id=1)
+
+        assert milestones == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_add_milestone_dict():
+    """Test adding milestone using dict."""
+    respx.post("https://example.com/api/v3/task/1/milestones").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {
+                    "id": 1,
+                    "contentType": "Milestone",
+                    "name": "Release 1.0",
+                    "description": "Release milestone",
+                    "type": "report",
+                    "date": "2026-02-01T10:00:00Z",
+                },
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        milestone = await resource.add_milestone(
+            task_id=1,
+            milestone_data={
+                "name": "Release 1.0",
+                "description": "Release milestone",
+                "type": "report",
+                "date": "2026-02-01T10:00:00Z",
+            },
+        )
+
+        assert milestone.id == 1
+        assert milestone.name == "Release 1.0"
+        assert milestone.description == "Release milestone"
+        assert milestone.type == "report"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_add_milestone_model():
+    """Test adding milestone using Milestone model."""
+    from megaplan_sdk.models.milestone import Milestone
+
+    respx.post("https://example.com/api/v3/task/1/milestones").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {
+                    "id": 2,
+                    "contentType": "Milestone",
+                    "name": "Phase 1",
+                    "description": "First phase milestone",
+                    "type": "reminder",
+                    "date": "2026-03-01T10:00:00Z",
+                },
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        milestone_data = Milestone(
+            name="Phase 1",
+            description="First phase milestone",
+            type="reminder",
+            date="2026-03-01T10:00:00Z",
+        )
+        milestone = await resource.add_milestone(task_id=1, milestone_data=milestone_data)
+
+        assert milestone.id == 2
+        assert milestone.name == "Phase 1"
+        assert milestone.description == "First phase milestone"
+        assert milestone.type == "reminder"

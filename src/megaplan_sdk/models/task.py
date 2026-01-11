@@ -71,8 +71,20 @@ class TaskFullDetails(BaseModel):
     history: list[dict[str, Any]] | None = None
     auditors: list[Any] | None = None
     executors: list[Any] | None = None
-    milestones: list["Milestone"] | None = None
+    milestones: list[Milestone] | None = None
     responsible_details: Any | None = None
     owner_details: Any | None = None
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+
+# Rebuild models after Milestone is defined to resolve forward references
+def _rebuild_task_models() -> None:
+    """Rebuild TaskFullDetails model after Milestone is imported."""
+    from megaplan_sdk.models.milestone import Milestone  # noqa: F401
+
+    TaskFullDetails.model_rebuild()
+
+
+# Auto-rebuild on import
+_rebuild_task_models()

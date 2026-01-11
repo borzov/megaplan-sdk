@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from megaplan_sdk.models.base import BaseEntity
 from megaplan_sdk.models.common import DateTime, TimestampMixin
@@ -14,7 +14,7 @@ class Milestone(BaseEntity, TimestampMixin):
     Represents a milestone (веха) in Megaplan attached to a task or project.
 
     Attributes:
-        id: Milestone identifier.
+        id: Milestone identifier (optional when creating new milestone).
         content_type: Entity content type (always "Milestone").
         name: Milestone name.
         description: Milestone description (required when creating).
@@ -32,6 +32,7 @@ class Milestone(BaseEntity, TimestampMixin):
         updated_at: Last update timestamp.
     """
 
+    id: int | None = None  # Override BaseEntity to make id optional for creation
     content_type: str = Field(alias="contentType", default="Milestone")
     name: str | None = None
     description: str | None = None

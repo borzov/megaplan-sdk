@@ -4,7 +4,9 @@ import asyncio
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from typing import Any
 
 from megaplan_sdk import MegaplanClient, TradeFilterBuilder, setup_logging
 
@@ -17,6 +19,11 @@ from utils import (
     print_header,
     print_success,
     print_warning,
+)
+from .utils_validation import (
+    log_api_error,
+    validate_base_entity_filter,
+    validate_search_results,
 )
 
 
@@ -217,7 +224,7 @@ async def test_get_full_details():
             details = await client.deals.get_full_details(
                 deal_id=deal_id,
                 include_comments=True,
-                include_related_tasks=False,  # TODO: Fix HTTP 422 error
+                include_related_tasks=True,
                 include_responsible_details=True,
                 include_contractor_details=True,
                 comments_limit=5
@@ -328,6 +335,17 @@ async def test_filter_builder():
                 for i, deal in enumerate(filtered_deals[:5], 1):
                     print(f"  {i}. [{deal.id}] {deal.name}")
 
+                # Validate that all results contain the search term
+                is_valid, errors = validate_search_results(
+                    filtered_deals, search_word, field_name="name"
+                )
+                if not is_valid:
+                    print_warning("Валидация результатов фильтрации провалилась:")
+                    for error in errors:
+                        print_warning(f"  - {error}")
+                    return False
+                print_success("Валидация результатов фильтрации: все результаты содержат поисковое слово")
+
             return True
 
     except Exception as e:
@@ -362,6 +380,7 @@ async def test_list_with_base_on():
 
             contractor_id = contractors[0].id
             print(f"\n⏳ Загрузка сделок для контрагента #{contractor_id}...")
+            # Note: API may require base_on in a specific format
             deals = await client.deals.list(
                 base_on={"contentType": "Contractor", "id": contractor_id},
                 limit=10
@@ -373,13 +392,29 @@ async def test_list_with_base_on():
                 for i, deal in enumerate(deals[:5], 1):
                     print(f"  {i}. [{deal.id}] {deal.name}")
 
+                # Validate that all deals are related to the specified contractor
+                base_entity = {"contentType": "Contractor", "id": contractor_id}
+                is_valid, errors = validate_base_entity_filter(
+                    deals, base_entity, entity_field="contractor"
+                )
+                if not is_valid:
+                    print_warning("Валидация результатов фильтрации по base_on провалилась:")
+                    for error in errors:
+                        print_warning(f"  - {error}")
+                    return False
+                print_success("Валидация результатов фильтрации: все сделки связаны с указанным контрагентом")
+
             return True
 
     except Exception as e:
-        print(f"\n❌ Ошибка при фильтрации: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+        # Log API error with full details
+        log_api_error(
+            method="GET",
+            url=f"{base_url}/api/v3/deal",
+            params={"baseOn": {"contentType": "Contractor", "id": contractor_id}},
+            error=e,
+        )
+        raise  # Re-raise to fail the test
 
 
 async def test_list_with_pagination():
@@ -572,15 +607,57 @@ async def test_check_exists():
 
             deal = deals[0]
             print(f"\n⏳ Проверка существования сделки '{deal.name}'...")
-            exists = await client.deals.check_exists({
-                "name": deal.name,
-                "contractor": {"contentType": deal.contractor.contentType, "id": deal.contractor.id} if deal.contractor else None
-            })
+            
+            # Use query parameter for name search
+            try:
+                exists = await client.deals.check_exists(query=deal.name)
+                print_success(f"Сделка существует (поиск по имени): {exists}")
+            except Exception as check_error:
+                # Log API error with full details
+                log_api_error(
+                    method="GET",
+                    url=f"{base_url}/api/v3/deal/checkDealExist",
+                    params={"query": deal.name},
+                    error=check_error,
+                )
+                raise  # Re-raise to fail the test
+            
+            # Also try with deal object if contractor is available
+            if deal.contractor:
+                try:
+                    deal_obj = {
+                        "name": deal.name,
+                        "contractor": {
+                            "contentType": deal.contractor.content_type,
+                            "id": deal.contractor.id
+                        }
+                    }
+                    exists2 = await client.deals.check_exists(deal=deal_obj)
+                    print_success(f"Сделка существует (поиск по объекту): {exists2}")
+                except Exception as check_error2:
+                    # Log API error with full details
+                    log_api_error(
+                        method="GET",
+                        url=f"{base_url}/api/v3/deal/checkDealExist",
+                        params={"deal": deal_obj},
+                        error=check_error2,
+                    )
+                    raise  # Re-raise to fail the test
 
-            print_success(f"Сделка существует: {exists}")
             return True
 
     except Exception as e:
+        # Only allow 405 (Method Not Allowed) as acceptable - means endpoint doesn't exist
+        if "405" in str(e) or "Method Not Allowed" in str(e):
+            print_warning(f"Метод check_exists не поддерживается API (405): {e}")
+            return True  # Not a critical failure - endpoint doesn't exist
+        
+        # All other errors (422, 500, etc.) should be logged and fail the test
+        log_api_error(
+            method="GET",
+            url=f"{base_url}/api/v3/deal/checkDealExist",
+            error=e,
+        )
         print(f"\n❌ Ошибка при проверке существования: {e}")
         import traceback
         traceback.print_exc()

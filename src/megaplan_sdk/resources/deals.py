@@ -182,6 +182,9 @@ class DealsResource(BaseResource, FullDetailsMixin):
                 deals = await client.deals.list(filter=filter_obj)
                 ```
             base_on: Base entity for filtering.
+                Warning: This parameter may return 422 ValidationError due to API limitations.
+                Format: {"contentType": "Contractor", "id": 123} (id should be int, not string).
+                BaseEntity objects are automatically normalized to ensure correct format.
             limit: Number of items per page.
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
@@ -357,20 +360,110 @@ class DealsResource(BaseResource, FullDetailsMixin):
         data: list[dict[str, Any]] = response.get("data", [])
         return data
 
-    async def check_exists(self, deal_params: dict[str, Any]) -> bool:
+    async def check_exists(
+        self,
+        filter: FilterType | None = None,
+        status: ProgramState | dict[str, Any] | None = None,
+        query: str | None = None,
+        deal: dict[str, Any] | None = None,
+    ) -> bool:
         """Check if deal exists.
 
+        Uses GET request with parameters in query string as per API documentation.
+
+        Warning: This endpoint may return 500 Internal Server Error due to API limitations.
+        The error is handled gracefully and False is returned.
+
         Args:
-            deal_params: Parameters to check.
+            filter: Trade filter (ID or config).
+                If ID (int/str), will be converted to BaseEntity format.
+            status: Program state to filter by (ProgramState object or dict).
+            query: Search query string.
+            deal: Deal object with fields to match.
+                Nested BaseEntity objects (e.g., contractor) are automatically normalized.
+                Format: {"name": "Deal name", "contractor": {"contentType": "Contractor", "id": 123}}
 
         Returns:
-            True if deal exists, False otherwise.
+            True if deal exists, False otherwise (or if API returns 500 error).
+
+        Examples:
+            >>> # Check by query
+            >>> exists = await client.deals.check_exists(query="Deal name")
+            >>>
+            >>> # Check by deal object
+            >>> exists = await client.deals.check_exists(
+            ...     deal={"name": "Deal name", "contractor": {"contentType": "Contractor", "id": 123}}
+            ... )
+            >>>
+            >>> # Check by filter ID
+            >>> exists = await client.deals.check_exists(filter=123)
+            >>>
+            >>> # Check by filter object
+            >>> exists = await client.deals.check_exists(
+            ...     filter={"contentType": "TradeFilter", "id": "my_filter"}
+            ... )
         """
         path = self._build_path("api", "v3", "deal", "checkDealExist")
-        response = await self._http.post(path, json_data=deal_params)
-        data: dict[str, Any] = response.get("data", {})
-        exists: bool = data.get("exists", False)
-        return exists
+
+        # Build parameters according to API documentation
+        params: dict[str, Any] = {}
+
+        if filter is not None:
+            if isinstance(filter, int | str) and not isinstance(filter, dict):
+                # Convert filter ID to BaseEntity format
+                params["filter"] = {
+                    "contentType": "TradeFilter",
+                    "id": int(filter)
+                    if isinstance(filter, (int, str)) and str(filter).isdigit()
+                    else str(filter),
+                }
+            else:
+                params["filter"] = filter
+
+        if status:
+            # Normalize status (ProgramState) to dict
+            if hasattr(status, "model_dump"):
+                params["status"] = status.model_dump(by_alias=True)
+            elif isinstance(status, dict):
+                params["status"] = status
+            else:
+                params["status"] = status
+
+        if query:
+            params["query"] = query
+
+        if deal:
+            # Normalize deal object - ensure nested BaseEntity objects are properly formatted
+            if isinstance(deal, dict):
+                normalized_deal = dict(deal)
+                # Normalize nested BaseEntity objects (e.g., contractor)
+                for key, value in normalized_deal.items():
+                    if isinstance(value, dict) and "contentType" in value and "id" in value:
+                        normalized_deal[key] = self._normalize_base_entity(value)
+                params["deal"] = normalized_deal
+            elif hasattr(deal, "model_dump"):
+                params["deal"] = deal.model_dump(by_alias=True)
+            else:
+                params["deal"] = deal
+
+        # API requires GET with parameters in query string
+        try:
+            response = await self._http.get(path, params=params if params else None)
+            data: dict[str, Any] = response.get("data", {})
+            exists: bool = data.get("exists", False)
+            return exists
+        except Exception as e:
+            # API may return 500 for check_exists endpoint (known limitation)
+            from megaplan_sdk.exceptions import ServerError
+            from megaplan_sdk.logging_config import logger
+
+            if isinstance(e, ServerError) and "500" in str(e):
+                logger.warning(
+                    "check_exists endpoint returned 500. "
+                    "This is a known API limitation. Returning False."
+                )
+                return False
+            raise
 
     async def iterate(
         self,

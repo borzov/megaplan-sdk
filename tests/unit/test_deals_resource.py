@@ -207,7 +207,11 @@ async def test_get_full_details():
 @respx.mock
 async def test_check_exists_true():
     """Test check_exists() returns True."""
-    respx.post("https://example.com/api/v3/deal/checkDealExist").mock(
+    # Megaplan API uses JSON in query string: ?{"name":"Test Deal"}
+    # Use regex to match any query string format
+    respx.get(
+        url__regex=r"https://example\.com/api/v3/deal/checkDealExist\?.*"
+    ).mock(
         return_value=Response(
             200,
             json={
@@ -228,7 +232,11 @@ async def test_check_exists_true():
 @respx.mock
 async def test_check_exists_false():
     """Test check_exists() returns False."""
-    respx.post("https://example.com/api/v3/deal/checkDealExist").mock(
+    # Megaplan API uses JSON in query string: ?{"name":"Non-existent Deal"}
+    # Use regex to match any query string format
+    respx.get(
+        url__regex=r"https://example\.com/api/v3/deal/checkDealExist\?.*"
+    ).mock(
         return_value=Response(
             200,
             json={

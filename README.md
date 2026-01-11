@@ -1427,6 +1427,79 @@ employees = await client.employees.list(q="Иван Иванов")
 employees = await client.employees.list(q="ivan@example.com")
 
 # Или загрузите всех сотрудников и фильтруйте локально
+```
+
+### Проверка существования сделки (check_exists)
+
+Метод `check_exists()` для сделок может возвращать ошибки 500 или 422 из-за ограничений API. SDK автоматически обрабатывает эти ошибки и возвращает `False`. Для проверки существования сделки рекомендуется использовать альтернативные методы:
+
+```python
+# Может вернуть 500/422 ошибку
+# exists = await client.deals.check_exists(query="Deal name")
+
+# Альтернатива: используйте поиск через list()
+deals = await client.deals.list(q="Deal name", limit=1)
+exists = len(deals) > 0
+
+# Или используйте FilterBuilder
+from megaplan_sdk import TradeFilterBuilder
+filter_obj = TradeFilterBuilder().field("name").equals("Deal name").build()
+deals = await client.deals.list(filter=filter_obj, limit=1)
+exists = len(deals) > 0
+```
+
+**Примечание:** SDK автоматически нормализует BaseEntity объекты (конвертирует строковые ID в int), но это не решает проблему багов API.
+
+### Параметр statuses для задач
+
+Параметр `statuses` для фильтрации задач по статусам может возвращать ошибку 422 ValidationError из-за ограничений API. Рекомендуется использовать FilterBuilder для надежной фильтрации:
+
+```python
+# Может вернуть 422 ошибку
+# tasks = await client.tasks.list(statuses=["assigned", "in_progress"])
+
+# Рекомендуется: используйте FilterBuilder
+from megaplan_sdk import TaskFilterBuilder
+filter_obj = TaskFilterBuilder().field_enum("status").in_list(["assigned", "in_progress"]).build()
+tasks = await client.tasks.list(filter=filter_obj)
+```
+
+### Параметр baseOn для сделок
+
+Параметр `baseOn` для фильтрации сделок по связанной сущности может возвращать ошибку 422 ValidationError из-за ограничений API. SDK автоматически нормализует BaseEntity объекты (конвертирует строковые ID в int), но это не всегда решает проблему:
+
+```python
+# Может вернуть 422 ошибку
+# deals = await client.deals.list(base_on={"contentType": "Contractor", "id": 123})
+
+# Альтернатива: используйте FilterBuilder
+from megaplan_sdk import TradeFilterBuilder
+filter_obj = TradeFilterBuilder().field("contractor").equals({"contentType": "Contractor", "id": 123}).build()
+deals = await client.deals.list(filter=filter_obj)
+```
+
+### Пагинация контрагентов
+
+Пагинация через `page_after`, `page_before`, `page_with` для контрагентов может возвращать ошибку 422 ValidationError из-за ограничений API. SDK автоматически нормализует BaseEntity объекты, но рекомендуется использовать `limit` и ручную итерацию:
+
+```python
+# Может вернуть 422 ошибку
+# contractors = await client.contractors.list(page_after={"contentType": "Contractor", "id": 123})
+
+# Рекомендуется: используйте limit и iterate()
+async for contractor in client.contractors.iterate(limit=50):
+    # Обработка контрагента
+    pass
+```
+
+### Нормализация BaseEntity
+
+SDK автоматически нормализует BaseEntity объекты во всех параметрах:
+- Конвертирует строковые ID в int (где возможно)
+- Обеспечивает правильный формат `contentType` и `id`
+- Применяется к параметрам: `page_after`, `page_before`, `page_with`, `baseOn`, вложенным объектам в `deal` для `check_exists()`
+
+Это помогает избежать некоторых ошибок валидации, но не решает все проблемы API.
 all_employees = []
 async for emp in client.employees.iterate():
     if "Иван" in emp.first_name:

@@ -10,84 +10,52 @@ from megaplan_sdk import setup_logging
 
 from utils import load_env_file, print_header, print_success, print_warning
 
-# Import all test modules
-from test_employees import run_all_tests as run_employee_tests
-from test_tasks import run_all_tests as run_task_tests
-from test_deals import run_all_tests as run_deal_tests
-from test_projects import run_all_tests as run_project_tests
-from test_contractors import run_all_tests as run_contractor_tests
-from test_filters import run_all_tests as run_filter_tests
+# Import read-only test runner
+from run_read_only import run_all_read_only_tests
+
+# Import write test runner
+from run_write import run_all_write_tests
 
 
 async def run_all_integration_tests():
-    """Run all integration tests for all resources."""
+    """Run all integration tests (read-only and optionally write)."""
     print("\n" + "=" * 70)
     print("  ЗАПУСК ВСЕХ ИНТЕГРАЦИОННЫХ ТЕСТОВ MEGAPLAN SDK")
     print("=" * 70)
 
-    # Load environment
     load_env_file()
+    setup_logging("WARNING")
 
-    # Setup logging
-    setup_logging("WARNING")  # Less verbose for full test run
+    # Always run read-only tests
+    print("\n📖 Запуск READ-ONLY тестов...\n")
+    read_only_success = await run_all_read_only_tests()
 
-    results = {}
+    # Ask about write tests
+    print("\n" + "=" * 70)
+    print("\n⚠️  WRITE тесты создают, модифицируют и удаляют объекты!")
+    print("   Хотите запустить write тесты? (yes/no): ", end="")
+    response = input().strip().lower()
 
-    # Run tests for each resource
-    print("\n🚀 Запуск тестов для всех ресурсов...\n")
-
-    print("📋 Тестирование: Employees...")
-    results["Employees"] = await run_employee_tests()
-
-    print("\n" + "-" * 70 + "\n")
-
-    print("📋 Тестирование: Tasks...")
-    results["Tasks"] = await run_task_tests()
-
-    print("\n" + "-" * 70 + "\n")
-
-    print("📋 Тестирование: Deals...")
-    results["Deals"] = await run_deal_tests()
-
-    print("\n" + "-" * 70 + "\n")
-
-    print("📋 Тестирование: Projects...")
-    results["Projects"] = await run_project_tests()
-
-    print("\n" + "-" * 70 + "\n")
-
-    print("📋 Тестирование: Contractors...")
-    results["Contractors"] = await run_contractor_tests()
-
-    print("\n" + "-" * 70 + "\n")
-
-    print("📋 Тестирование: Filters...")
-    results["Filters"] = await run_filter_tests()
-
-    # Print overall summary
-    print_header("ОБЩАЯ ИТОГОВАЯ СТАТИСТИКА")
-
-    print("\n📊 Результаты по ресурсам:")
-    passed_resources = 0
-    for resource, success in results.items():
-        status = "✅ УСПЕШНО" if success else "❌ ПРОВАЛЕНО"
-        print(f"   {resource:15} - {status}")
-        if success:
-            passed_resources += 1
-
-    total_resources = len(results)
-    print(f"\n📈 Итого:")
-    print(f"   Всего ресурсов протестировано: {total_resources}")
-    print(f"   Успешно: {passed_resources}")
-    print(f"   Провалено: {total_resources - passed_resources}")
-
-    all_passed = passed_resources == total_resources
-    if all_passed:
-        print_success("ВСЕ ИНТЕГРАЦИОННЫЕ ТЕСТЫ ПРОШЛИ УСПЕШНО! 🎉🎉🎉")
+    write_success = True
+    if response in ("yes", "y", "да", "д"):
+        print("\n✏️  Запуск WRITE тестов...\n")
+        write_success = await run_all_write_tests()
     else:
-        print_warning(
-            f"Некоторые тесты провалились ({total_resources - passed_resources}/{total_resources})"
-        )
+        print("\n⏭️  WRITE тесты пропущены.")
+
+    # Final summary
+    print_header("ФИНАЛЬНАЯ СТАТИСТИКА")
+
+    print("\n📊 Результаты:")
+    print(f"   Read-only тесты: {'✅ УСПЕШНО' if read_only_success else '❌ ПРОВАЛЕНО'}")
+    if response in ("yes", "y", "да", "д"):
+        print(f"   Write тесты: {'✅ УСПЕШНО' if write_success else '❌ ПРОВАЛЕНО'}")
+
+    all_passed = read_only_success and write_success
+    if all_passed:
+        print_success("\nВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО! 🎉🎉🎉")
+    else:
+        print_warning("\nНекоторые тесты провалились")
 
     return all_passed
 

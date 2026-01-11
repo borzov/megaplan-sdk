@@ -17,6 +17,7 @@ from utils import (
     print_success,
     print_warning,
 )
+from .utils_validation import log_api_error
 
 
 async def test_list_projects():
@@ -574,9 +575,13 @@ async def test_get_milestones():
             return True
 
     except Exception as e:
-        # API may return 500 for milestones endpoint (known limitation)
-        print_warning(f"API вернул ошибку для milestones (известное ограничение): {e}")
-        return True  # Not a critical failure
+        # Log API error with full details
+        log_api_error(
+            method="GET",
+            url=f"{base_url}/api/v3/project/{project_id}/milestones",
+            error=e,
+        )
+        raise  # Re-raise to fail the test
 
 
 async def test_get_history():

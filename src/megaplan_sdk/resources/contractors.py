@@ -57,13 +57,23 @@ class ContractorsResource(BaseResource):
     ) -> list[Contractor]:
         """Get list of contractors.
 
+        Warning: Pagination via page_after/page_before/page_with may not work properly
+        for contractors due to API limitations. If you encounter 422 errors with pagination,
+        use limit parameter and manual iteration instead.
+
+        Note: BaseEntity objects in pagination parameters are automatically normalized
+        to ensure correct format (id as int, contentType as string).
+
         Args:
             q: Search query (name, email, phone, INN).
             category_id: Filter by category ID.
             limit: Number of items per page.
             page_after: Load page starting from this entity.
+                Note: May not work due to API limitations.
             page_before: Load page strictly before this entity.
+                Note: May not work due to API limitations.
             page_with: Load page containing this entity.
+                Note: May not work due to API limitations.
             fields: Additional fields to include.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
@@ -74,6 +84,9 @@ class ContractorsResource(BaseResource):
         Examples:
             >>> # Search contractors by name
             >>> contractors = await client.contractors.list(q="Company")
+            >>>
+            >>> # Get contractors with limit (pagination may not work)
+            >>> contractors = await client.contractors.list(limit=50)
         """
         path = self._build_path("api", "v3", "contractor")
 
@@ -136,14 +149,6 @@ class ContractorsResource(BaseResource):
         path = self._build_path("api", "v3", "contractor", str(contractor_id))
         response = await self._http.post(path, json_data=contractor_data)
         return self._parse_contractor_response(response["data"])
-
-    async def delete(self, contractor_id: int) -> None:
-        """Delete contractor.
-
-        Args:
-            contractor_id: Contractor identifier.
-        """
-        await self._delete_entity("contractor", contractor_id)
 
     async def iterate(
         self,

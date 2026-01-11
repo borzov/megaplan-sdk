@@ -72,8 +72,20 @@ class ProjectFullDetails(BaseModel):
     history: list[dict[str, Any]] | None = None
     auditors: list[Any] | None = None
     executors: list[Any] | None = None
-    milestones: list["Milestone"] | None = None
+    milestones: list[Milestone] | None = None
     responsible_details: Any | None = None
     owner_details: Any | None = None
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+
+# Rebuild models after Milestone is defined to resolve forward references
+def _rebuild_project_models() -> None:
+    """Rebuild ProjectFullDetails model after Milestone is imported."""
+    from megaplan_sdk.models.milestone import Milestone  # noqa: F401
+
+    ProjectFullDetails.model_rebuild()
+
+
+# Auto-rebuild on import
+_rebuild_project_models()
