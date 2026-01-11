@@ -419,7 +419,7 @@ class FilterBuilder:
         """
         if isinstance(value, bool):
             return self.field_bool(field).equals(value)
-        elif isinstance(value, (int, float)):
+        elif isinstance(value, int | float):
             return self.field_number(field).equals(value)
         elif isinstance(value, str):
             return self.field(field).equals(value)
@@ -497,7 +497,7 @@ class FilterBuilder:
         if operator_str == "in":
             return self.field_in(field, value if isinstance(value, list) else [value])
         elif operator_str == "between":
-            if isinstance(value, (tuple, list)) and len(value) == 2:
+            if isinstance(value, tuple | list) and len(value) == 2:
                 return self.field_number(field).between(value[0], value[1])
             else:
                 raise ValueError("between() requires tuple/list with 2 values")

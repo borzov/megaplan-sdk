@@ -83,7 +83,7 @@ def _rebuild_task_models() -> None:
     """Rebuild TaskFullDetails model after Milestone is imported."""
     from megaplan_sdk.models.milestone import Milestone  # noqa: F401
 
-    # Rebuild with force to ensure forward references are resolved
+    # Direct call needed because import must happen before rebuild
     TaskFullDetails.model_rebuild(force=True)
 
 

@@ -888,29 +888,35 @@ class BaseResource:
             # Return empty list if server error occurs
             return []
 
+    @staticmethod
     def _normalize_datetime_field(
-        self,
         data_dict: dict[str, Any],
         field_name: str = "date",
-    ) -> None:
+    ) -> dict[str, Any]:
         """Normalize DateTime field by converting string to DateTime object.
 
-        Modifies data_dict in-place by converting string date values to
-        DateTime object format expected by API.
+        Returns a new dictionary with normalized field. Does not mutate the input.
 
         Args:
             data_dict: Data dictionary to normalize.
             field_name: Name of the field to normalize (default: "date").
 
+        Returns:
+            New dictionary with normalized DateTime field.
+
         Examples:
             >>> data = {"date": "2026-03-15T10:00:00Z"}
-            >>> _normalize_datetime_field(data)
-            >>> data
+            >>> normalized = _normalize_datetime_field(data)
+            >>> normalized
             {"date": {"contentType": "DateTime", "value": "2026-03-15T10:00:00Z"}}
         """
         if field_name in data_dict and isinstance(data_dict[field_name], str):
             # API expects DateTime object with contentType and value
-            data_dict[field_name] = {"contentType": "DateTime", "value": data_dict[field_name]}
+            return {
+                **data_dict,
+                field_name: {"contentType": "DateTime", "value": data_dict[field_name]},
+            }
+        return data_dict
 
     async def _add_milestone_generic(
         self,
@@ -933,23 +939,19 @@ class BaseResource:
         """
         from megaplan_sdk.models.milestone import Milestone
 
-        # Convert to dict if needed
+        # 1. Convert to dict
         if isinstance(milestone_data, Milestone):
             data_dict = milestone_data.model_dump(by_alias=True, exclude_none=True, exclude={"id"})
-            # Normalize date field
-            self._normalize_datetime_field(data_dict, "date")
         else:
-            # Use dict as is, but ensure required fields are present
             data_dict = dict(milestone_data)
-            # Remove id if present (should not be set when creating)
             data_dict.pop("id", None)
-            # Ensure contentType is set
             if "contentType" not in data_dict:
                 data_dict["contentType"] = "Milestone"
 
-            # Normalize date field
-            self._normalize_datetime_field(data_dict, "date")
+        # 2. Normalize date field (unified for both cases)
+        data_dict = self._normalize_datetime_field(data_dict, "date")
 
+        # 3. Send request
         path = self._build_path("api", "v3", entity_type, str(entity_id), "milestones")
         response = await self._http.post(path, json_data=data_dict)
         data = response.get("data", response)
