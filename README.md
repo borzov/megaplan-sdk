@@ -42,6 +42,7 @@
 - [Автоматическая подгрузка связанных сущностей](#автоматическая-подгрузка-связанных-сущностей)
 - [Работа с фильтрами](#работа-с-фильтрами)
 - [Настройка HTTP-клиента](#настройка-http-клиента)
+- [Работа через прокси](#работа-через-прокси)
 - [Ручное управление токенами](#ручное-управление-токенами)
 
 ### Справочная информация
@@ -1369,6 +1370,48 @@ client = MegaplanClient(
     max_retries=5                              # int: Максимальное количество повторов при 5xx ошибках (по умолчанию 3)
 )
 ```
+
+### Работа через прокси
+
+SDK поддерживает работу через HTTP/HTTPS/SOCKS5 прокси-серверы. Это полезно для корпоративных сетей, где все запросы должны проходить через прокси.
+
+```python
+# HTTP прокси с аутентификацией
+async with MegaplanClient(
+    base_url="https://my.megaplan.ru",
+    username="user@example.com",
+    password="password",
+    proxy="http://login:pass@proxy.corp.local:8080",
+) as client:
+    tasks = await client.tasks.list()
+
+# HTTP прокси без аутентификации
+client = MegaplanClient(
+    base_url="https://my.megaplan.ru",
+    access_token="token",
+    proxy="http://proxy.corp.local:8080",
+)
+
+# HTTPS прокси
+client = MegaplanClient(
+    base_url="https://my.megaplan.ru",
+    access_token="token",
+    proxy="https://proxy.corp.local:8080",
+)
+
+# SOCKS5 прокси (требует httpx[socks])
+client = MegaplanClient(
+    base_url="https://my.megaplan.ru",
+    access_token="token",
+    proxy="socks5://user:pass@proxy.corp.local:1080",
+)
+```
+
+**Поддерживаемые форматы прокси:**
+- `http://proxy:port` - HTTP прокси без аутентификации
+- `http://user:password@proxy:port` - HTTP прокси с аутентификацией
+- `https://proxy:port` - HTTPS прокси
+- `socks5://user:password@proxy:port` - SOCKS5 прокси (требует `pip install httpx[socks]`)
 
 ### Ручное управление токенами
 

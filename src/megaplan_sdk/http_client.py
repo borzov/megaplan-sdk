@@ -28,6 +28,7 @@ class HTTPClient:
         timeout: float = 30.0,
         max_retries: int = 3,
         allow_http: bool = False,
+        proxy: str | None = None,
     ) -> None:
         """Initialize HTTP client.
 
@@ -37,6 +38,8 @@ class HTTPClient:
             timeout: Request timeout in seconds.
             max_retries: Maximum number of retry attempts for 5xx errors.
             allow_http: Allow HTTP connections (insecure, only for dev/test).
+            proxy: Proxy URL for HTTP requests (e.g., http://user:pass@proxy:8080).
+                Supports HTTP, HTTPS, and SOCKS5 proxies.
 
         Raises:
             ValueError: If base_url is not HTTPS and allow_http is False.
@@ -52,6 +55,7 @@ class HTTPClient:
         self._access_token: str | None = access_token
         self.timeout = timeout
         self.max_retries = max_retries
+        self._proxy = proxy
         self._client: httpx.AsyncClient | None = None
 
     @property
@@ -83,7 +87,8 @@ class HTTPClient:
                 timeout=self.timeout,
                 headers={"Content-Type": "application/json"},
                 limits=limits,
-                follow_redirects=True,  # Follow redirects automatically
+                follow_redirects=True,
+                proxy=self._proxy,
             )
 
     async def close(self) -> None:

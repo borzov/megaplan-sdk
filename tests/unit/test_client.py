@@ -70,3 +70,24 @@ async def test_client_passes_default_limits_to_resources():
     assert client.contractors._default_comments_limit is None
 
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_proxy_passed_to_http_client():
+    """Test that proxy is passed from MegaplanClient to HTTPClient."""
+    client = MegaplanClient(
+        base_url="https://example.megaplan.ru",
+        proxy="http://user:pass@proxy.corp:8080",
+    )
+    assert client._http._proxy == "http://user:pass@proxy.corp:8080"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_proxy_default_none_in_client():
+    """Test that proxy defaults to None in MegaplanClient."""
+    client = MegaplanClient(
+        base_url="https://example.megaplan.ru",
+    )
+    assert client._http._proxy is None
+    await client.close()

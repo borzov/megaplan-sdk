@@ -38,6 +38,7 @@ class MegaplanClient:
         cache_max_size: int = 1000,
         default_comments_limit: int | None = None,
         default_history_limit: int | None = None,
+        proxy: str | None = None,
     ) -> None:
         """Initialize Megaplan client.
 
@@ -60,6 +61,8 @@ class MegaplanClient:
             default_history_limit: Default limit for history in get_full_details().
                 None = use Megaplan API default (no explicit limit).
                 This value is used only if history_limit is not specified in method call.
+            proxy: Proxy URL for HTTP requests (e.g., http://user:pass@proxy:8080).
+                Supports HTTP, HTTPS, and SOCKS5 proxies.
 
         Security Note:
             For production use, it's recommended to use refresh tokens or pre-obtained
@@ -78,6 +81,7 @@ class MegaplanClient:
             timeout=timeout,
             max_retries=max_retries,
             allow_http=allow_http,
+            proxy=proxy,
         )
         self._auth_manager = AuthManager(self._http)
 

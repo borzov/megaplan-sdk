@@ -1,5 +1,7 @@
 """Unit tests for HTTP client."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 import respx
 from httpx import Response
@@ -88,3 +90,45 @@ async def test_retry_on_500():
     async with HTTPClient("https://example.com", max_retries=2) as client:
         response = await client.get("/api/v3/task")
         assert response["meta"]["status"] == 200
+
+
+def test_proxy_stored_in_client():
+    """Test that proxy is stored in HTTPClient."""
+    client = HTTPClient("https://example.com", proxy="http://proxy:8080")
+    assert client._proxy == "http://proxy:8080"
+
+
+def test_proxy_default_none():
+    """Test that proxy defaults to None."""
+    client = HTTPClient("https://example.com")
+    assert client._proxy is None
+
+
+@pytest.mark.asyncio
+async def test_proxy_passed_to_async_client():
+    """Test that proxy is passed to httpx.AsyncClient."""
+    with patch("megaplan_sdk.http_client.httpx.AsyncClient") as mock_async_client:
+        mock_instance = AsyncMock()
+        mock_async_client.return_value = mock_instance
+
+        client = HTTPClient("https://example.com", proxy="http://user:pass@proxy:8080")
+        await client._ensure_client()
+
+        mock_async_client.assert_called_once()
+        call_kwargs = mock_async_client.call_args.kwargs
+        assert call_kwargs["proxy"] == "http://user:pass@proxy:8080"
+
+
+@pytest.mark.asyncio
+async def test_proxy_none_passed_to_async_client():
+    """Test that None proxy is passed to httpx.AsyncClient when not specified."""
+    with patch("megaplan_sdk.http_client.httpx.AsyncClient") as mock_async_client:
+        mock_instance = AsyncMock()
+        mock_async_client.return_value = mock_instance
+
+        client = HTTPClient("https://example.com")
+        await client._ensure_client()
+
+        mock_async_client.assert_called_once()
+        call_kwargs = mock_async_client.call_args.kwargs
+        assert call_kwargs["proxy"] is None
