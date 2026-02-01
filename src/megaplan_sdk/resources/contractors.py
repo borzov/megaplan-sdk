@@ -7,6 +7,7 @@ from typing import Any
 
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.contractor import Contractor
+from megaplan_sdk.models.deal import Deal
 from megaplan_sdk.resources.base import BaseResource
 
 
@@ -176,3 +177,48 @@ class ContractorsResource(BaseResource):
             **kwargs,
         ):
             yield contractor
+
+    async def get_deals(
+        self,
+        contractor_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Deal]:
+        """Get deals associated with contractor.
+
+        Args:
+            contractor_id: Contractor identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of deals.
+
+        Examples:
+            >>> deals = await client.contractors.get_deals(contractor_id=123)
+            >>> for deal in deals:
+            ...     print(f"{deal.id}: {deal.name}")
+        """
+        path = self._build_path("api", "v3", "contractor", str(contractor_id), "deals")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+
+        return await self._get_list(path, Deal, params)

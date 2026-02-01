@@ -234,6 +234,56 @@ async def test_list_with_pagination():
         return True  # Not a critical failure
 
 
+async def test_get_contractor_deals():
+    """Test getting deals associated with contractor."""
+    print_header("TEST: Получение сделок контрагента")
+
+    load_env_file()
+    credentials = get_credentials()
+    if not credentials:
+        return False
+
+    base_url, username, password = credentials
+
+    try:
+        async with MegaplanClient(
+            base_url=base_url,
+            username=username,
+            password=password
+        ) as client:
+            # First get a contractor from list
+            contractors = await client.contractors.list(limit=5)
+            if not contractors:
+                print_warning("Нет доступных контрагентов для тестирования")
+                return False
+
+            # Try to find contractor with deals
+            contractor_id = contractors[0].id
+            print(f"\n⏳ Загрузка сделок для контрагента #{contractor_id}...")
+
+            deals = await client.contractors.get_deals(contractor_id, limit=10)
+            print_success(f"Загружено сделок: {len(deals)}")
+
+            if deals:
+                print(f"\n💼 Сделки контрагента #{contractor_id}:")
+                for i, deal in enumerate(deals[:5], 1):
+                    print(f"  {i}. [{deal.id}] {deal.name}")
+                    if deal.state:
+                        print(f"     Статус: {deal.state}")
+                    if deal.amount:
+                        print(f"     Сумма: {deal.amount}")
+            else:
+                print_warning("У данного контрагента нет сделок")
+
+            return True
+
+    except Exception as e:
+        print(f"\n❌ Ошибка при загрузке сделок контрагента: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 # NOTE: Contractor comments endpoint will be tested - any errors will be logged
 # The get_comments() and create_comment() methods have been removed from ContractorsResource
 # Use comments on related deals or tasks instead
@@ -330,7 +380,10 @@ async def run_all_tests():
     # Test 5: Pagination
     results.append(await test_list_with_pagination())
 
-    # Test 6: Get contractor comments - DISABLED
+    # Test 6: Get contractor deals
+    results.append(await test_get_contractor_deals())
+
+    # Test 7: Get contractor comments - DISABLED
     # Note: get_comments() method was removed from ContractorsResource due to API limitations
     # If method is re-added, test should be enabled and any errors logged with log_api_error()
     # results.append(await test_get_contractor_comments())

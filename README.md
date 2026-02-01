@@ -1451,11 +1451,37 @@ API возвращает ошибку 500 при попытке получить
 # comments = await client.contractors.get_comments(contractor_id=123)
 
 # Вместо этого используйте комментарии в сделках контрагента
-deals = await client.deals.list(
-    base_on={"contentType": "Contractor", "id": 123}
-)
+deals = await client.contractors.get_deals(contractor_id=123)
 for deal in deals:
     comments = await client.deals.get_comments(deal.id)
+```
+
+### Получение сделок контрагента
+
+SDK предоставляет удобный метод `get_deals()` для получения сделок контрагента:
+
+```python
+# Получить все сделки контрагента
+deals = await client.contractors.get_deals(
+    contractor_id=123,
+    limit=50  # Опционально
+)
+
+for deal in deals:
+    print(f"[{deal.id}] {deal.name}")
+    if deal.state:
+        print(f"  Статус: {deal.state}")
+```
+
+Это удобнее, чем использование `FilterBuilder`:
+
+```python
+# Альтернатива через FilterBuilder (более сложный способ)
+from megaplan_sdk import TradeFilterBuilder
+filter_obj = TradeFilterBuilder().field("contractor").equals(
+    {"contentType": "Contractor", "id": 123}
+).build()
+deals = await client.deals.list(filter=filter_obj)
 ```
 
 ### Поиск сотрудников
