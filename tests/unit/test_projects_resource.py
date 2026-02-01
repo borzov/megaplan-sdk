@@ -561,3 +561,81 @@ async def test_get_available_parents_empty_result():
 
         assert len(parents) == 0
         assert parents == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_all_participants():
+    """Test getting all participants of a project."""
+    respx.get("https://example.com/api/v3/project/123/allParticipants").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {"id": 1, "contentType": "Employee", "firstName": "John", "lastName": "Doe"},
+                    {"id": 2, "contentType": "Employee", "firstName": "Jane", "lastName": "Smith"},
+                ],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = ProjectsResource(http_client)
+        participants = await resource.get_all_participants(project_id=123)
+
+        assert len(participants) == 2
+        assert participants[0].id == 1
+        assert participants[0].content_type == "Employee"
+        assert participants[0].first_name == "John"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_all_participants_mixed_types():
+    """Test getting all participants with mixed types."""
+    respx.get("https://example.com/api/v3/project/456/allParticipants").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {"id": 1, "contentType": "Employee", "firstName": "John"},
+                    {"id": 2, "contentType": "ContractorHuman", "firstName": "Bob"},
+                    {"id": 3, "contentType": "Group", "name": "Team A"},
+                ],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = ProjectsResource(http_client)
+        participants = await resource.get_all_participants(project_id=456)
+
+        assert len(participants) == 3
+
+        from megaplan_sdk.models.employee import Employee
+        from megaplan_sdk.models.contractor import ContractorHuman
+        from megaplan_sdk.models.group import Group
+
+        assert isinstance(participants[0], Employee)
+        assert isinstance(participants[1], ContractorHuman)
+        assert isinstance(participants[2], Group)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_all_participants_empty():
+    """Test getting all participants when project has no participants."""
+    respx.get("https://example.com/api/v3/project/789/allParticipants").mock(
+        return_value=Response(
+            200,
+            json={"meta": {"status": 200}, "data": []},
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = ProjectsResource(http_client)
+        participants = await resource.get_all_participants(project_id=789)
+
+        assert len(participants) == 0

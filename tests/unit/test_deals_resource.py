@@ -273,3 +273,75 @@ async def test_apply_trigger():
 
         assert deal.id == 1
         assert deal.name == "Test Deal"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_all_participants():
+    """Test getting all participants of a deal."""
+    respx.get("https://example.com/api/v3/deal/123/allParticipants").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {"id": 1, "contentType": "Employee", "firstName": "John", "lastName": "Doe"},
+                    {"id": 2, "contentType": "Employee", "firstName": "Jane", "lastName": "Smith"},
+                ],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = DealsResource(http_client)
+        participants = await resource.get_all_participants(deal_id=123)
+
+        assert len(participants) == 2
+        assert participants[0].id == 1
+        assert participants[0].content_type == "Employee"
+        assert participants[0].first_name == "John"
+        assert participants[1].id == 2
+        assert participants[1].first_name == "Jane"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_all_participants_empty():
+    """Test getting all participants when deal has no participants."""
+    respx.get("https://example.com/api/v3/deal/789/allParticipants").mock(
+        return_value=Response(
+            200,
+            json={"meta": {"status": 200}, "data": []},
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = DealsResource(http_client)
+        participants = await resource.get_all_participants(deal_id=789)
+
+        assert len(participants) == 0
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_all_participants_with_pagination():
+    """Test getting all participants with pagination params."""
+    respx.get(
+        "https://example.com/api/v3/deal/123/allParticipants?"
+        "{%22limit%22:%2050}"
+    ).mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [{"id": 1, "contentType": "Employee", "firstName": "John"}],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = DealsResource(http_client)
+        participants = await resource.get_all_participants(deal_id=123, limit=50)
+
+        assert len(participants) == 1
+        assert participants[0].first_name == "John"

@@ -615,3 +615,115 @@ async def test_get_available_parents_empty_result():
 
         assert len(parents) == 0
         assert parents == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_all_participants_employees():
+    """Test getting all participants with Employee responses."""
+    respx.get("https://example.com/api/v3/task/123/allParticipants").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {"id": 1, "contentType": "Employee", "firstName": "John", "lastName": "Doe"},
+                    {"id": 2, "contentType": "Employee", "firstName": "Jane", "lastName": "Smith"},
+                ],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        participants = await resource.get_all_participants(task_id=123)
+
+        assert len(participants) == 2
+        assert participants[0].id == 1
+        assert participants[0].content_type == "Employee"
+        assert participants[0].first_name == "John"
+        assert participants[1].id == 2
+        assert participants[1].first_name == "Jane"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_all_participants_mixed_types():
+    """Test getting all participants with mixed types (Employee, ContractorHuman, Group)."""
+    respx.get("https://example.com/api/v3/task/456/allParticipants").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {"id": 1, "contentType": "Employee", "firstName": "John"},
+                    {"id": 2, "contentType": "ContractorHuman", "firstName": "Bob", "lastName": "Client"},
+                    {"id": 3, "contentType": "Group", "name": "Developers"},
+                ],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        participants = await resource.get_all_participants(task_id=456)
+
+        assert len(participants) == 3
+
+        # Check Employee
+        from megaplan_sdk.models.employee import Employee
+        assert isinstance(participants[0], Employee)
+        assert participants[0].first_name == "John"
+
+        # Check ContractorHuman
+        from megaplan_sdk.models.contractor import ContractorHuman
+        assert isinstance(participants[1], ContractorHuman)
+        assert participants[1].first_name == "Bob"
+
+        # Check Group
+        from megaplan_sdk.models.group import Group
+        assert isinstance(participants[2], Group)
+        assert participants[2].name == "Developers"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_all_participants_empty():
+    """Test getting all participants when task has no participants."""
+    respx.get("https://example.com/api/v3/task/789/allParticipants").mock(
+        return_value=Response(
+            200,
+            json={"meta": {"status": 200}, "data": []},
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        participants = await resource.get_all_participants(task_id=789)
+
+        assert len(participants) == 0
+        assert participants == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_all_participants_with_pagination():
+    """Test getting all participants with pagination params."""
+    respx.get(
+        "https://example.com/api/v3/task/123/allParticipants?"
+        "{%22limit%22:%2050}"
+    ).mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [{"id": 1, "contentType": "Employee", "firstName": "John"}],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        participants = await resource.get_all_participants(task_id=123, limit=50)
+
+        assert len(participants) == 1

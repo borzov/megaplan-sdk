@@ -15,6 +15,9 @@
 - Метод `get_deals()` для контрагентов — получение сделок контрагента через эндпоинт `GET /contractor/{id}/deals`
 - Методы `get_available_parents()` и `get_available_parents_for()` для задач — получение доступных надзадач и надпроектов
 - Методы `get_available_parents()` и `get_available_parents_for()` для проектов — получение доступных родительских проектов
+- Метод `get_all_participants()` для задач, проектов и сделок — получение всех участников сущности одним запросом
+- Модель `Group` — группа участников (отдел, роль)
+- Union type `Participant` и функции `parse_participant()`, `parse_participants()` для парсинга участников
 
 ## [0.2.0] - 2026-01-11
 

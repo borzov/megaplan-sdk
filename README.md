@@ -564,6 +564,28 @@ parents = await client.tasks.get_available_parents_for(
 
 **Примечание:** Методы возвращают смешанный список объектов `Task` и `Project`, так как задача может быть вложена как в другую задачу, так и в проект.
 
+### Получение всех участников задачи
+
+Метод `get_all_participants()` возвращает полный список участников задачи (ответственный, соисполнители, аудиторы, владелец) в одном запросе:
+
+```python
+participants = await client.tasks.get_all_participants(
+    task_id=123,
+    limit=None,                               # int: Количество элементов
+    # ... стандартные параметры пагинации
+)
+# Возвращает: list[Employee | ContractorHuman | Group]
+
+for participant in participants:
+    if hasattr(participant, 'display_name'):
+        print(participant.display_name())
+```
+
+**Типы участников:**
+- `Employee` — сотрудник организации
+- `ContractorHuman` — контрагент-физлицо
+- `Group` — группа участников (например, отдел)
+
 ### Получение задач на уровне дерева
 
 ```python
@@ -808,6 +830,21 @@ parents = await client.projects.get_available_parents_for(
 
 **Примечание:** В отличие от задач, проекты могут быть вложены только в другие проекты, поэтому возвращается список объектов `Project`.
 
+### Получение всех участников проекта
+
+Метод `get_all_participants()` возвращает полный список участников проекта в одном запросе:
+
+```python
+participants = await client.projects.get_all_participants(
+    project_id=123,
+    limit=None,                               # int: Количество элементов
+)
+# Возвращает: list[Employee | ContractorHuman | Group]
+
+for participant in participants:
+    print(f"{type(participant).__name__}: {participant.display_name()}")
+```
+
 ### Получение полной информации о проекте
 
 Метод `get_full_details()` для проектов поддерживает следующие специфичные параметры:
@@ -934,6 +971,23 @@ deal = await client.deals.apply_trigger(
 )
 # Возвращает: Deal - обновленная сделка
 ```
+
+### Получение всех участников сделки
+
+Метод `get_all_participants()` возвращает полный список участников сделки:
+
+```python
+participants = await client.deals.get_all_participants(
+    deal_id=200,
+    limit=None,                               # int: Количество элементов
+)
+# Возвращает: list[Employee]
+
+for employee in participants:
+    print(employee.display_name())
+```
+
+**Примечание:** В отличие от задач и проектов, сделки возвращают только сотрудников (`Employee`).
 
 ### Получение аудиторов сделки
 

@@ -8,6 +8,7 @@ from typing import Any, overload
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
+from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
 from megaplan_sdk.types import FilterType
@@ -741,3 +742,54 @@ class DealsResource(BaseResource, FullDetailsMixin):
             comments_limit=comments_limit,
             history_limit=history_limit,
         )
+
+    async def get_all_participants(
+        self,
+        deal_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Employee]:
+        """Get all participants of a deal.
+
+        Returns complete list of participants including responsible and
+        auditors in a single request.
+
+        Note: Unlike tasks and projects, deals only return Employee participants
+        (no ContractorHuman or Group).
+
+        Args:
+            deal_id: Deal identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of Employee participants.
+
+        Examples:
+            >>> participants = await client.deals.get_all_participants(deal_id=123)
+            >>> for employee in participants:
+            ...     print(employee.display_name())
+        """
+        path = self._build_path("api", "v3", "deal", str(deal_id), "allParticipants")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+
+        return await self._get_list(path, Employee, params if params else None)

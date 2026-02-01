@@ -14,3 +14,4 @@ class ContentType:
     CONTRACTOR_CATEGORY = "ContractorCategory"
     DEPARTMENT = "Department"
     COMMENT = "Comment"
+    GROUP = "Group"

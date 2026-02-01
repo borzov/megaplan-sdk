@@ -15,6 +15,7 @@ from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataCon
 
 if TYPE_CHECKING:
     from megaplan_sdk.models.milestone import Milestone
+    from megaplan_sdk.models.participant import Participant
 
 
 class ProjectsResource(BaseResource, FullDetailsMixin):
@@ -974,3 +975,57 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         )
 
         return await self._get_list(path, Project, params if params else None)
+
+    async def get_all_participants(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Participant]:
+        """Get all participants of a project.
+
+        Returns complete list of participants including responsible, executors,
+        auditors, and owner in a single request.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of participants (Employee, ContractorHuman, or Group).
+
+        Examples:
+            >>> participants = await client.projects.get_all_participants(project_id=123)
+            >>> for p in participants:
+            ...     if hasattr(p, 'display_name'):
+            ...         print(p.display_name())
+        """
+        from megaplan_sdk.models.participant import parse_participants
+
+        path = self._build_path("api", "v3", "project", str(project_id), "allParticipants")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+
+        response = await self._http.get(path, params=params if params else None)
+        data = self._parse_list_response(response)
+
+        return parse_participants(data)
