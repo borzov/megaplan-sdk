@@ -539,6 +539,31 @@ actual_subtasks = await client.tasks.get_actual_sub_tasks(
 # Возвращает: list[Task] - список актуальных подзадач
 ```
 
+### Получение доступных родителей
+
+Методы для получения доступных надзадач и надпроектов (для выбора родителя при создании или перемещении задачи):
+
+```python
+# Глобальный поиск доступных родителей для новой задачи
+# Возвращает список Task и Project объектов
+parents = await client.tasks.get_available_parents(
+    is_template=False,                        # bool: Фильтр по шаблонам
+    limit=10,                                 # int: Количество элементов
+)
+for parent in parents:
+    print(f"{type(parent).__name__}: {parent.name}")  # "Task: ..." или "Project: ..."
+
+# Доступные родители для существующей задачи
+# Исключает саму задачу и её потомков
+parents = await client.tasks.get_available_parents_for(
+    task_id=123,
+    is_template=False,
+    limit=10,
+)
+```
+
+**Примечание:** Методы возвращают смешанный список объектов `Task` и `Project`, так как задача может быть вложена как в другую задачу, так и в проект.
+
 ### Получение задач на уровне дерева
 
 ```python
@@ -758,6 +783,30 @@ actual_issues = await client.projects.get_actual_issues(
 )
 # Возвращает: list[Task] - список актуальных задач проекта
 ```
+
+### Получение доступных родителей
+
+Методы для получения доступных родительских проектов (для выбора родителя при создании или перемещении проекта):
+
+```python
+# Глобальный поиск доступных родительских проектов
+parents = await client.projects.get_available_parents(
+    is_template=False,                        # bool: Фильтр по шаблонам
+    limit=10,                                 # int: Количество элементов
+)
+for parent in parents:
+    print(f"Project: {parent.name}")
+
+# Доступные родители для существующего проекта
+# Исключает сам проект и его потомков
+parents = await client.projects.get_available_parents_for(
+    project_id=456,
+    is_template=False,
+    limit=10,
+)
+```
+
+**Примечание:** В отличие от задач, проекты могут быть вложены только в другие проекты, поэтому возвращается список объектов `Project`.
 
 ### Получение полной информации о проекте
 

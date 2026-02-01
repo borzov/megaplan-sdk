@@ -956,3 +956,55 @@ class BaseResource:
         response = await self._http.post(path, json_data=data_dict)
         data = response.get("data", response)
         return Milestone(**data) if isinstance(data, dict) else data
+
+    @staticmethod
+    def _parse_mixed_task_project_response(
+        data: list[dict[str, Any]],
+    ) -> list[Any]:
+        """Parse response containing mixed Task/Project entities.
+
+        Determines entity type by contentType field and creates appropriate model.
+
+        Args:
+            data: List of entity dictionaries from API response.
+
+        Returns:
+            List of Task or Project instances.
+
+        Examples:
+            >>> data = [
+            ...     {"contentType": "Task", "id": 1, "name": "Task 1"},
+            ...     {"contentType": "Project", "id": 2, "name": "Project 1"},
+            ... ]
+            >>> entities = BaseResource._parse_mixed_task_project_response(data)
+            >>> type(entities[0]).__name__
+            'Task'
+            >>> type(entities[1]).__name__
+            'Project'
+        """
+        from megaplan_sdk.models.project import Project
+        from megaplan_sdk.models.task import Task
+
+        result: list[Any] = []
+        for item in data:
+            if not isinstance(item, dict):
+                result.append(item)
+                continue
+
+            content_type = item.get("contentType", "")
+            if content_type == ContentType.TASK:
+                result.append(Task(**item))
+            elif content_type == ContentType.PROJECT:
+                result.append(Project(**item))
+            else:
+                # Unknown type - try Task first, then Project
+                try:
+                    result.append(Task(**item))
+                except Exception:
+                    try:
+                        result.append(Project(**item))
+                    except Exception:
+                        # If both fail, append raw dict
+                        result.append(item)
+
+        return result

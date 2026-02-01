@@ -456,3 +456,162 @@ async def test_add_milestone_model():
         assert milestone.name == "Phase 1"
         assert milestone.description == "First phase milestone"
         assert milestone.type == "reminder"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_available_parents():
+    """Test getting available parent tasks/projects for a new task."""
+    respx.get("https://example.com/api/v3/task/availableParents").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {"id": 1, "contentType": "Task", "name": "Parent Task 1"},
+                    {"id": 2, "contentType": "Project", "name": "Parent Project 1"},
+                    {"id": 3, "contentType": "Task", "name": "Parent Task 2"},
+                ],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        parents = await resource.get_available_parents()
+
+        assert len(parents) == 3
+        # First item is Task
+        assert parents[0].id == 1
+        assert parents[0].name == "Parent Task 1"
+        assert type(parents[0]).__name__ == "Task"
+        # Second item is Project
+        assert parents[1].id == 2
+        assert parents[1].name == "Parent Project 1"
+        assert type(parents[1]).__name__ == "Project"
+        # Third item is Task
+        assert parents[2].id == 3
+        assert type(parents[2]).__name__ == "Task"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_available_parents_with_limit():
+    """Test getting available parents with limit parameter."""
+    respx.get("https://example.com/api/v3/task/availableParents?{%22limit%22:%205}").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {"id": 1, "contentType": "Task", "name": "Parent Task 1"},
+                ],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        parents = await resource.get_available_parents(limit=5)
+
+        assert len(parents) == 1
+        assert parents[0].id == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_available_parents_with_template_filter():
+    """Test getting available parents with isTemplate filter."""
+    respx.get(
+        "https://example.com/api/v3/task/availableParents?{%22isTemplate%22:%20false}"
+    ).mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {"id": 1, "contentType": "Project", "name": "Regular Project"},
+                ],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        parents = await resource.get_available_parents(is_template=False)
+
+        assert len(parents) == 1
+        assert parents[0].name == "Regular Project"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_available_parents_for_task():
+    """Test getting available parents for a specific task."""
+    respx.get("https://example.com/api/v3/task/123/availableParents").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {"id": 10, "contentType": "Project", "name": "Project A"},
+                    {"id": 20, "contentType": "Task", "name": "Task B"},
+                ],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        parents = await resource.get_available_parents_for(123)
+
+        assert len(parents) == 2
+        assert parents[0].id == 10
+        assert type(parents[0]).__name__ == "Project"
+        assert parents[1].id == 20
+        assert type(parents[1]).__name__ == "Task"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_available_parents_for_task_with_params():
+    """Test getting available parents for task with all parameters."""
+    respx.get(
+        "https://example.com/api/v3/task/456/availableParents?"
+        "{%22limit%22:%2010,%20%22isTemplate%22:%20false}"
+    ).mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [{"id": 1, "contentType": "Task", "name": "Parent"}],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        parents = await resource.get_available_parents_for(
+            task_id=456, limit=10, is_template=False
+        )
+
+        assert len(parents) == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_available_parents_empty_result():
+    """Test getting available parents when none available."""
+    respx.get("https://example.com/api/v3/task/availableParents").mock(
+        return_value=Response(
+            200,
+            json={"meta": {"status": 200}, "data": []},
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        parents = await resource.get_available_parents()
+
+        assert len(parents) == 0
+        assert parents == []

@@ -1100,3 +1100,114 @@ class TasksResource(BaseResource, FullDetailsMixin):
             comments_limit=comments_limit,
             history_limit=history_limit,
         )
+
+    async def get_available_parents(
+        self,
+        is_template: bool | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Task | Any]:
+        """Get available parent tasks/projects for a new task.
+
+        Returns list of tasks and projects that can be set as parent
+        for a new task being created.
+
+        Args:
+            is_template: Filter by template status.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of Task or Project instances that can be parents.
+
+        Examples:
+            >>> # Get all available parents
+            >>> parents = await client.tasks.get_available_parents(limit=10)
+            >>> for parent in parents:
+            ...     print(f"{type(parent).__name__}: {parent.name}")
+            >>>
+            >>> # Get only non-template parents
+            >>> parents = await client.tasks.get_available_parents(is_template=False)
+        """
+        path = self._build_path("api", "v3", "task", "availableParents")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+            isTemplate=is_template,
+        )
+
+        response = await self._http.get(path, params=params if params else None)
+        data = self._parse_list_response(response)
+
+        return self._parse_mixed_task_project_response(data)
+
+    async def get_available_parents_for(
+        self,
+        task_id: int,
+        is_template: bool | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Task | Any]:
+        """Get available parent tasks/projects for an existing task.
+
+        Returns list of tasks and projects that can be set as parent
+        for the specified task.
+
+        Args:
+            task_id: Task identifier.
+            is_template: Filter by template status.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of Task or Project instances that can be parents.
+
+        Examples:
+            >>> # Get available parents for task #123
+            >>> parents = await client.tasks.get_available_parents_for(123)
+            >>> for parent in parents:
+            ...     print(f"{type(parent).__name__}: {parent.name}")
+        """
+        path = self._build_path("api", "v3", "task", str(task_id), "availableParents")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+            isTemplate=is_template,
+        )
+
+        response = await self._http.get(path, params=params if params else None)
+        data = self._parse_list_response(response)
+
+        return self._parse_mixed_task_project_response(data)

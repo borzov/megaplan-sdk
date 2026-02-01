@@ -869,3 +869,108 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             comments_limit=comments_limit,
             history_limit=history_limit,
         )
+
+    async def get_available_parents(
+        self,
+        is_template: bool | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Project]:
+        """Get available parent projects for a new project.
+
+        Returns list of projects that can be set as parent
+        for a new project being created.
+
+        Args:
+            is_template: Filter by template status.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of Project instances that can be parents.
+
+        Examples:
+            >>> # Get all available parent projects
+            >>> parents = await client.projects.get_available_parents(limit=10)
+            >>> for parent in parents:
+            ...     print(f"Project: {parent.name}")
+            >>>
+            >>> # Get only non-template parents
+            >>> parents = await client.projects.get_available_parents(is_template=False)
+        """
+        path = self._build_path("api", "v3", "project", "availableParents")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+            isTemplate=is_template,
+        )
+
+        return await self._get_list(path, Project, params if params else None)
+
+    async def get_available_parents_for(
+        self,
+        project_id: int,
+        is_template: bool | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Project]:
+        """Get available parent projects for an existing project.
+
+        Returns list of projects that can be set as parent
+        for the specified project.
+
+        Args:
+            project_id: Project identifier.
+            is_template: Filter by template status.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to include.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            List of Project instances that can be parents.
+
+        Examples:
+            >>> # Get available parents for project #123
+            >>> parents = await client.projects.get_available_parents_for(123)
+            >>> for parent in parents:
+            ...     print(f"Project: {parent.name}")
+        """
+        path = self._build_path("api", "v3", "project", str(project_id), "availableParents")
+
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+            isTemplate=is_template,
+        )
+
+        return await self._get_list(path, Project, params if params else None)

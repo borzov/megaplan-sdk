@@ -13,6 +13,8 @@
 
 - Поддержка HTTP/HTTPS/SOCKS5 прокси через параметр `proxy` в `MegaplanClient`
 - Метод `get_deals()` для контрагентов — получение сделок контрагента через эндпоинт `GET /contractor/{id}/deals`
+- Методы `get_available_parents()` и `get_available_parents_for()` для задач — получение доступных надзадач и надпроектов
+- Методы `get_available_parents()` и `get_available_parents_for()` для проектов — получение доступных родительских проектов
 
 ## [0.2.0] - 2026-01-11
 
