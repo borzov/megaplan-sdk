@@ -24,7 +24,7 @@ class Department(BaseEntity, TimestampMixin):
     parent: BaseEntity | None = None
     manager: BaseEntity | None = None
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     def __str__(self) -> str:
         """Return department name for display.

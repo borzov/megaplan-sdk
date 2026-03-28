@@ -639,3 +639,53 @@ async def test_get_all_participants_empty():
         participants = await resource.get_all_participants(project_id=789)
 
         assert len(participants) == 0
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_projects_with_filter():
+    """Test listing projects with a filter parameter."""
+    respx.get(
+        url__regex=r"https://example\.com/api/v3/project\?.*"
+    ).mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [{"id": 5, "contentType": "Project", "name": "Filtered Project"}],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = ProjectsResource(http_client)
+        from megaplan_sdk.filter_builder import ProjectFilterBuilder
+
+        f = ProjectFilterBuilder().field("name").contains("Filtered").build()
+        projects = await resource.list(filter=f)
+
+        assert len(projects) == 1
+        assert projects[0].id == 5
+        assert projects[0].name == "Filtered Project"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_projects_filter_none():
+    """Test that list() works without filter (backward compat)."""
+    respx.get("https://example.com/api/v3/project").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [{"id": 1, "contentType": "Project", "name": "Project A"}],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = ProjectsResource(http_client)
+        projects = await resource.list()
+
+        assert len(projects) == 1
+        assert projects[0].name == "Project A"

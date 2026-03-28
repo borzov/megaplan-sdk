@@ -69,7 +69,7 @@ async def test_apply_transition():
 @respx.mock
 async def test_get_full_details():
     """Test getting full deal details with related entities."""
-    # Mock main deal
+        # Mock main deal
     respx.get("https://example.com/api/v3/deal/1").mock(
         return_value=Response(
             200,
@@ -79,7 +79,7 @@ async def test_get_full_details():
                     "id": 1,
                     "contentType": "Deal",
                     "name": "Test Deal",
-                    "responsible": {"id": 10, "contentType": "Employee"},
+                    "manager": {"id": 10, "contentType": "Employee"},
                     "contractor": {"id": 20, "contentType": "Contractor"},
                 },
             },
@@ -169,7 +169,7 @@ async def test_get_full_details():
             include_history=True,
             include_status_history=True,
             include_auditors=True,
-            include_responsible_details=True,
+            include_manager_details=True,
             include_contractor_details=True,
             include_related_tasks=True,
         )
@@ -192,8 +192,8 @@ async def test_get_full_details():
         assert full_details.auditors is not None
         assert len(full_details.auditors) == 1
 
-        assert full_details.responsible_details is not None
-        assert full_details.responsible_details.first_name == "John"
+        assert full_details.manager_details is not None
+        assert full_details.manager_details.first_name == "John"
 
         assert full_details.contractor_details is not None
         assert full_details.contractor_details.name == "Test Contractor"

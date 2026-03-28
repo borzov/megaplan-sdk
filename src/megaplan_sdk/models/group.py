@@ -25,7 +25,7 @@ class Group(BaseEntity):
     children: list[BaseEntity] | None = None
     children_count: int | None = Field(alias="childrenCount", default=None)
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     def display_name(self) -> str:
         """Get display name for the group.

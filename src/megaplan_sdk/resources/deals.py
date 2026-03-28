@@ -49,10 +49,10 @@ class DealsResource(BaseResource, FullDetailsMixin):
             RelatedDataConfig("status_history", "include_status_history", "get_status_history"),
             RelatedDataConfig("auditors", "include_auditors", "get_auditors"),
             RelatedDataConfig(
-                "responsible_details",
-                "include_responsible_details",
+                "manager_details",
+                "include_manager_details",
                 None,
-                entity_field="responsible",
+                entity_field="manager",
                 entity_type="employee",
             ),
             RelatedDataConfig(
@@ -190,11 +190,14 @@ class DealsResource(BaseResource, FullDetailsMixin):
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
-            fields: Additional fields to include.
+            fields: Additional fields to request from the API.
+                Must use actual API field names: ``manager``, ``price``,
+                ``timeCreated``, ``timeUpdated``, ``number``, ``cost``, ``debt``,
+                ``result``, ``shortDescription``, ``stateTimeUpdated``.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
-            expand: List of fields to expand (e.g., ["responsible", "contractor"]).
-                Supported values: "responsible", "contractor".
+            expand: List of fields to expand (e.g., ["manager", "contractor"]).
+                Supported values: "manager", "contractor".
                 If provided, returns list[DealFullDetails] instead of list[Deal].
 
         Returns:
@@ -204,13 +207,13 @@ class DealsResource(BaseResource, FullDetailsMixin):
             >>> # Get deals without expansion
             >>> deals = await client.deals.list(limit=10)
             >>>
-            >>> # Get deals with expanded responsible and contractor
+            >>> # Get deals with expanded manager and contractor
             >>> deals_full = await client.deals.list(
-            ...     limit=10, expand=["responsible", "contractor"]
+            ...     limit=10, expand=["manager", "contractor"]
             ... )
             >>> for deal_full in deals_full:
-            ...     if deal_full.responsible_details:
-            ...         print(deal_full.responsible_details.display_name())
+            ...     if deal_full.manager_details:
+            ...         print(deal_full.manager_details.display_name())
             ...     if deal_full.contractor_details:
             ...         print(deal_full.contractor_details.display_name())
         """
@@ -258,22 +261,22 @@ class DealsResource(BaseResource, FullDetailsMixin):
         from megaplan_sdk.models.employee import Employee
 
         expand_config: dict[str, tuple[str, type, str]] = {
-            "responsible": ("employee", Employee, ContentType.EMPLOYEE),
+            "manager": ("employee", Employee, ContentType.EMPLOYEE),
             "contractor": ("contractor", Contractor, ContentType.CONTRACTOR),
         }
 
         expanded = await self._expand_list_entities(deals, expand, expand_config)
-        responsible_map = expanded.get("responsible", {})
+        manager_map = expanded.get("manager", {})
         contractor_map = expanded.get("contractor", {})
 
         # 4. Build DealFullDetails objects
         results = []
         for deal in deals:
-            resp_details = None
+            mgr_details = None
             contr_details = None
 
-            if deal.responsible and deal.responsible.id in responsible_map:
-                resp_details = responsible_map[deal.responsible.id]
+            if deal.manager and deal.manager.id in manager_map:
+                mgr_details = manager_map[deal.manager.id]
 
             if deal.contractor and deal.contractor.id in contractor_map:
                 contr_details = contractor_map[deal.contractor.id]
@@ -281,7 +284,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
             results.append(
                 DealFullDetails(
                     deal=deal,
-                    responsible_details=resp_details,
+                    manager_details=mgr_details,
                     contractor_details=contr_details,
                 )
             )
@@ -683,7 +686,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         include_history: bool = False,
         include_status_history: bool = False,
         include_auditors: bool = False,
-        include_responsible_details: bool = False,
+        include_manager_details: bool = False,
         include_contractor_details: bool = False,
         include_related_tasks: bool = False,
         comments_limit: int | None = None,
@@ -700,7 +703,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
             include_history: Load change history.
             include_status_history: Load status change history.
             include_auditors: Load auditors list.
-            include_responsible_details: Load full responsible (Employee) details.
+            include_manager_details: Load full manager (responsible Employee) details.
             include_contractor_details: Load full contractor details.
             include_related_tasks: Load tasks related to this deal.
             comments_limit: Limit for comments (if included).
@@ -736,7 +739,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
             include_history=include_history,
             include_status_history=include_status_history,
             include_auditors=include_auditors,
-            include_responsible_details=include_responsible_details,
+            include_manager_details=include_manager_details,
             include_contractor_details=include_contractor_details,
             include_related_tasks=include_related_tasks,
             comments_limit=comments_limit,

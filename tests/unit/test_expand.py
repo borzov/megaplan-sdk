@@ -24,7 +24,7 @@ async def test_expand_valid_fields():
                         "id": 1,
                         "contentType": "Deal",
                         "name": "Deal 1",
-                        "responsible": {"id": 10, "contentType": "Employee"},
+                        "manager": {"id": 10, "contentType": "Employee"},
                         "contractor": {"id": 20, "contentType": "Contractor"},
                     },
                 ],
@@ -61,12 +61,12 @@ async def test_expand_valid_fields():
 
     async with HTTPClient("https://example.com", access_token="token") as http_client:
         resource = DealsResource(http_client)
-        deals = await resource.list(expand=["responsible", "contractor"])
+        deals = await resource.list(expand=["manager", "contractor"])
 
         assert len(deals) == 1
         assert deals[0].deal.id == 1
-        assert deals[0].responsible_details is not None
-        assert deals[0].responsible_details.first_name == "John"
+        assert deals[0].manager_details is not None
+        assert deals[0].manager_details.first_name == "John"
         assert deals[0].contractor_details is not None
         assert deals[0].contractor_details.name == "Test Corp"
 

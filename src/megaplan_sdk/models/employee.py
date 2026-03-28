@@ -54,7 +54,7 @@ class Employee(BaseEntity, TimestampMixin):
     access_role: BaseEntity | None = Field(alias="accessRole", default=None)
     custom_fields: dict[str, Any] | None = Field(alias="customFields", default=None)
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     def full_name(self, include_middle: bool = True) -> str:
         """Get full name of the employee.

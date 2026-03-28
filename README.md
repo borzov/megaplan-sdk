@@ -282,7 +282,7 @@ entity = await client.{resource}.update(
 ```python
 task = await client.tasks.update(task_id=42, task_data={"status": "completed"})
 project = await client.projects.update(project_id=5, project_data={"name": "Новое название"})
-deal = await client.deals.update(deal_id=200, deal_data={"sum_base": 60000.0})
+deal = await client.deals.update(deal_id=200, deal_data={"price": {"currency": "RUB", "value": 60000}})
 ```
 
 #### Удаление (`delete`)
@@ -485,8 +485,8 @@ tasks = await client.tasks.list(filter=filter_obj)
 - `tags: list[BaseEntity]` - Теги
 - `attaches: list[BaseEntity]` - Вложения (файлы)
 - `todos: list[BaseEntity]` - Подзадачи-чеклисты
-- `created_at: str` - Дата создания
-- `updated_at: str` - Дата обновления
+- `time_created: str` - Дата создания (API поле `timeCreated`)
+- `time_updated: str` - Дата обновления (API поле `timeUpdated`)
 
 ### Упрощенные методы создания
 
@@ -743,8 +743,8 @@ milestone = await client.projects.add_milestone(
 - `tags: list[BaseEntity]` - Теги
 - `attaches: list[BaseEntity]` - Вложения
 - `todos: list[BaseEntity]` - Подзадачи-чеклисты
-- `created_at: str` - Дата создания
-- `updated_at: str` - Дата обновления
+- `time_created: str` - Дата создания (API поле `timeCreated`)
+- `time_updated: str` - Дата обновления (API поле `timeUpdated`)
 
 ### Упрощенные методы создания
 
@@ -935,18 +935,26 @@ deals = await client.deals.list(filter=filter_obj)
 ### Поля модели Deal
 - `id: int` - Идентификатор сделки
 - `name: str` - Название сделки
+- `number: str` - Номер сделки
+- `short_description: str` - Краткое описание
 - `program: BaseEntity` - Программа (схема сделки)
 - `state: ProgramState` - Текущий статус в программе
 - `contractor: BaseEntity` - Контрагент (ContractorCompany/ContractorHuman)
-- `responsible: BaseEntity` - Ответственный (Employee)
-- `sum_base: float` - Сумма сделки
+- `manager: BaseEntity` - Ответственный (Employee, API поле `manager`)
+- `price: Money` - Сумма сделки (объект с полями `currency`, `value`)
+- `cost: Money` - Стоимость
+- `debt: Money` - Долг
+- `result: str` - Результат (`"positive"`, `"negative"`, `null`)
 - `currency: BaseEntity` - Валюта
 - `deadline: str` - Срок
-- `description: str` - Описание
+- `description: str` - Описание (только в `deals.get()`, не в списке)
 - `tags: list[BaseEntity]` - Теги
 - `attaches: list[BaseEntity]` - Вложения
-- `created_at: str` - Дата создания
-- `updated_at: str` - Дата обновления
+- `time_created: str` - Дата создания (API поле `timeCreated`)
+- `time_updated: str` - Дата обновления (API поле `timeUpdated`)
+- `state_time_updated: str` - Дата последнего изменения статуса
+
+> **Примечание:** Поля `description`, `deadline` и пользовательские поля доступны только при запросе отдельной сделки через `deals.get(id)`, но не в списке.
 
 **Важно:** При создании сделки обязательно указывать поле `program` (программа/схема сделки).
 
@@ -1031,7 +1039,7 @@ details = await client.deals.get_full_details(
     include_history=True,                  # Загрузить историю изменений
     include_status_history=True,           # Загрузить историю статусов
     include_auditors=True,                  # Загрузить список аудиторов
-    include_responsible_details=True,      # Загрузить полные данные ответственного
+    include_manager_details=True,          # Загрузить полные данные ответственного
     include_contractor_details=True,       # Загрузить полные данные контрагента
     include_related_tasks=True,            # Загрузить связанные задачи
     comments_limit=50,                     # Лимит комментариев (опционально)
@@ -1045,7 +1053,7 @@ details = await client.deals.get_full_details(
 - `history: list[dict] | None` - История изменений
 - `status_history: list[dict] | None` - История статусов
 - `auditors: list[dict] | None` - Аудиторы
-- `responsible_details: Employee | None` - Полные данные ответственного
+- `manager_details: Employee | None` - Полные данные ответственного
 - `contractor_details: Contractor | None` - Полные данные контрагента
 - `related_tasks: list[Task] | None` - Связанные задачи
 
@@ -1246,14 +1254,14 @@ for task_full in tasks_full:
 ### Использование expand в сделках
 
 ```python
-deals_full = await client.deals.list(limit=10, expand=["responsible", "contractor"])
+deals_full = await client.deals.list(limit=10, expand=["manager", "contractor"])
 
 for deal_full in deals_full:
     deal = deal_full.deal
     print(f"Сделка: {deal.name}")
 
-    if deal_full.responsible_details:
-        print(f"Ответственный: {deal_full.responsible_details.display_name()}")
+    if deal_full.manager_details:
+        print(f"Ответственный: {deal_full.manager_details.display_name()}")
 
     if deal_full.contractor_details:
         print(f"Контрагент: {deal_full.contractor_details.display_name()}")
@@ -1264,7 +1272,7 @@ for deal_full in deals_full:
 ```
 
 **Поддерживаемые поля для expand в сделках:**
-- `responsible` - ответственный сотрудник
+- `manager` - ответственный сотрудник
 - `contractor` - контрагент
 
 ### Использование expand в проектах
