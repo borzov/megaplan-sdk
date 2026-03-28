@@ -50,7 +50,7 @@ class File(BaseModel):
     name: str | None = None
     size: int | None = None
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 class DateTime(BaseModel):
@@ -66,7 +66,37 @@ class DateTime(BaseModel):
     content_type: str = Field(alias="contentType", default="DateTime")
     value: str
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+
+class Money(BaseModel):
+    """Money model for monetary value fields.
+
+    Megaplan API returns monetary values as structured objects with
+    currency, value, and optional exchange rate information.
+
+    Attributes:
+        content_type: Always "Money".
+        currency: ISO 4217 currency code (e.g., "RUB", "USD").
+        value: Amount in the original currency.
+        value_in_main: Amount converted to the main company currency.
+        rate: Exchange rate relative to the main currency.
+
+    Example:
+        >>> money = Money(contentType="Money", currency="RUB", value=18055000)
+        >>> money.value
+        18055000
+        >>> money.currency
+        'RUB'
+    """
+
+    content_type: str = Field(alias="contentType", default="Money")
+    currency: str = ""
+    value: float | int | None = None
+    value_in_main: float | int | None = Field(None, alias="valueInMain")
+    rate: float | None = None
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 class SortField(BaseModel):
@@ -84,10 +114,13 @@ class SortField(BaseModel):
 class TimestampMixin(BaseModel):
     """Mixin for entities with creation and update timestamps.
 
+    Megaplan API returns timestamps using the field names ``timeCreated``
+    and ``timeUpdated`` (not ``createdAt``/``updatedAt``).
+
     Attributes:
-        created_at: Entity creation timestamp.
-        updated_at: Entity last update timestamp.
+        time_created: Entity creation timestamp (API field: ``timeCreated``).
+        time_updated: Entity last update timestamp (API field: ``timeUpdated``).
     """
 
-    created_at: str | DateTime | None = Field(alias="createdAt", default=None)
-    updated_at: str | DateTime | None = Field(alias="updatedAt", default=None)
+    time_created: str | DateTime | None = Field(alias="timeCreated", default=None)
+    time_updated: str | DateTime | None = Field(alias="timeUpdated", default=None)

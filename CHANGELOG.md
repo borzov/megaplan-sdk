@@ -7,6 +7,43 @@
 
 ## [Не выпущено]
 
+## [0.2.2] - 2026-03-28
+
+### Исправлено
+
+- **[КРИТИЧНО]** Модель `Deal`: поле `responsible` переименовано в `manager` — теперь корректно соответствует полю `manager` в ответах Megaplan API (старое поле всегда возвращало `None`)
+- **[КРИТИЧНО]** Модель `Deal`: поле `sum_base` (alias `sumBase`) заменено на `price: Money` — API возвращает объект `Money`, а не число
+- **[КРИТИЧНО]** Модели `Deal`, `Project`, `Task`: поля `created_at`/`updated_at` (alias `createdAt`/`updatedAt`) переименованы в `time_created`/`time_updated` с алиасами `timeCreated`/`timeUpdated` — приведено в соответствие с реальными именами полей API
+- **[КРИТИЧНО]** `DealsResource.list(fields=[...])`: параметр `fields` теперь документирован с реальными именами полей API (`manager`, `price`, `timeCreated` и др.), что предотвращает HTTP 422 ошибки при передаче старых имён
+
+### Добавлено
+
+- Модель `Money` (`contentType`, `currency`, `value`, `value_in_main`, `rate`) для корректного парсинга денежных полей API
+- Новые поля в модели `Deal`: `number`, `short_description` (alias `shortDescription`), `cost: Money`, `debt: Money`, `result`, `state_time_updated` (alias `stateTimeUpdated`)
+- Поле `name: str | None` в `BaseEntity` — API часто возвращает имена в ссылочных объектах, теперь они доступны (напр. `deal.program.name`)
+- Параметр `filter` в `ProjectsResource.list()` и `ProjectsResource.iterate()` — `ProjectFilterBuilder` теперь полностью подключён к ресурсу проектов
+- `Money` экспортируется из `megaplan_sdk` в `__all__`
+
+### Изменено
+
+- Все модели SDK: `extra="ignore"` → `extra="allow"` — неизвестные поля из API сохраняются в `model_extra` вместо молчаливого удаления, что обеспечивает прямую совместимость и помогает диагностировать несоответствия
+- `DealFullDetails.responsible_details` переименовано в `manager_details` (соответствует переименованию `Deal.responsible` → `Deal.manager`)
+- `DealsResource.get_full_details()`: параметр `include_responsible_details` переименован в `include_manager_details`
+- `DealsResource.list(expand=...)`: поле `"responsible"` в expand заменено на `"manager"`
+
+### BREAKING CHANGES
+
+| Старое | Новое |
+|--------|-------|
+| `deal.responsible` | `deal.manager` |
+| `deal.sum_base` | `deal.price` (тип `Money`) |
+| `deal.created_at` / `deal.updated_at` | `deal.time_created` / `deal.time_updated` |
+| `project.created_at` / `project.updated_at` | `project.time_created` / `project.time_updated` |
+| `task.created_at` / `task.updated_at` | `task.time_created` / `task.time_updated` |
+| `DealFullDetails.responsible_details` | `DealFullDetails.manager_details` |
+| `get_full_details(include_responsible_details=...)` | `get_full_details(include_manager_details=...)` |
+| `deals.list(expand=["responsible", ...])` | `deals.list(expand=["manager", ...])` |
+
 ## [0.2.1] - 2026-02-02
 
 ### Добавлено

@@ -40,4 +40,4 @@ class Comment(BaseEntity, TimestampMixin):
     is_dropped: bool | None = Field(alias="isDropped", default=None)
     completed: int | None = None
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")

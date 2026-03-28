@@ -45,7 +45,7 @@ class Task(TimestampMixin):
     attaches: list[BaseEntity] | None = None
     todos: list[BaseEntity] | None = None
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 class TaskFullDetails(BaseModel):
@@ -75,7 +75,7 @@ class TaskFullDetails(BaseModel):
     responsible_details: Any | None = None
     owner_details: Any | None = None
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 # Rebuild models after Milestone is defined to resolve forward references

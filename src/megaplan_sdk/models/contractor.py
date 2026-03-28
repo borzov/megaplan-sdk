@@ -40,7 +40,7 @@ class Contractor(BaseEntity, TimestampMixin):
     tags: list[BaseEntity | str] | None = None  # Can be Tag entities or strings
     custom_fields: dict[str, Any] | None = Field(alias="customFields", default=None)
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     def display_name(self) -> str:
         """Get display name for contractor.

@@ -21,7 +21,7 @@ class BaseFilter(BaseModel):
     name: str | None = None
     config: dict[str, Any] | None = None
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 class TaskFilter(BaseFilter):
@@ -57,7 +57,7 @@ class FilterExport(BaseModel):
 
     file: BaseEntity | None = None
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 class UserSetting(BaseModel):

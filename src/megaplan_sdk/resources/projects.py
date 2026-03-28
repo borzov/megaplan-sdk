@@ -12,6 +12,7 @@ from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
+from megaplan_sdk.types import FilterType
 
 if TYPE_CHECKING:
     from megaplan_sdk.models.milestone import Milestone
@@ -172,6 +173,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
     async def list(
         self,
         *,
+        filter: FilterType | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -186,6 +188,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
     async def list(
         self,
         *,
+        filter: FilterType | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -198,6 +201,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
 
     async def list(
         self,
+        filter: FilterType | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -210,6 +214,16 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         """Get list of projects.
 
         Args:
+            filter: Project filter (``ProjectFilterBuilder`` result or filter config dict).
+                Use ``ProjectFilterBuilder`` for fluent filter construction:
+
+                .. code-block:: python
+
+                    from megaplan_sdk import ProjectFilterBuilder
+
+                    f = ProjectFilterBuilder().field_date("timeCreated").greater_than("2025-01-01").build()
+                    projects = await client.projects.list(filter=f)
+
             limit: Number of items per page.
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
@@ -228,6 +242,11 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             >>> # Get projects without expansion
             >>> projects = await client.projects.list(limit=10)
             >>>
+            >>> # Get projects with filter
+            >>> from megaplan_sdk import ProjectFilterBuilder
+            >>> f = ProjectFilterBuilder().field("name").contains("SDK").build()
+            >>> projects = await client.projects.list(filter=f)
+            >>>
             >>> # Get projects with expanded responsible and owner
             >>> projects_full = await client.projects.list(
             ...     limit=10, expand=["responsible", "owner"]
@@ -240,6 +259,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
 
         # Use base method to build params (DRY)
         params = self._build_list_params(
+            filter=filter,
             limit=limit,
             page_after=page_after,
             page_before=page_before,

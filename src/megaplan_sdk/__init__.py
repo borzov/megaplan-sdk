@@ -26,7 +26,7 @@ from megaplan_sdk.helpers import (
 )
 from megaplan_sdk.logging_config import setup_logging
 from megaplan_sdk.models.comment import Comment
-from megaplan_sdk.models.common import DateTime
+from megaplan_sdk.models.common import DateTime, Money
 from megaplan_sdk.models.contractor import Contractor, ContractorCompany, ContractorHuman
 from megaplan_sdk.models.deal import Deal, DealFullDetails
 from megaplan_sdk.models.department import Department
@@ -66,6 +66,7 @@ __all__ = [
     "Deal",
     "DealFullDetails",
     "Comment",
+    "Money",
     "Contractor",
     "ContractorCompany",
     "ContractorHuman",
@@ -102,4 +103,4 @@ __all__ = [
     "ProjectFilterBuilder",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.2"
