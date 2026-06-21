@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from megaplan_sdk._knowledge_links import extract_article_ids
+from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.knowledge import (
     KnowledgeArticle,
@@ -15,6 +16,9 @@ from megaplan_sdk.models.knowledge import (
 )
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.knowledge_article import KnowledgeArticleResource
+
+if TYPE_CHECKING:
+    from megaplan_sdk.cache import EntityCache
 
 
 class KnowledgeBaseResource(BaseResource):
@@ -31,8 +35,8 @@ class KnowledgeBaseResource(BaseResource):
 
     def __init__(
         self,
-        http_client: Any,
-        cache: Any = None,
+        http_client: HTTPClient,
+        cache: EntityCache | None = None,
         article_resource: KnowledgeArticleResource | None = None,
     ) -> None:
         super().__init__(http_client, cache=cache)

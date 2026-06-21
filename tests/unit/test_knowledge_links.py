@@ -26,3 +26,8 @@ def test_handles_relative_urls():
 def test_handles_empty_and_none():
     assert extract_article_ids("") == []
     assert extract_article_ids(None) == []
+
+
+def test_three_segment_path_takes_second_segment_as_article():
+    # /knowledge/<section>/<article>/<extra> — extra segment is ignored
+    assert extract_article_ids("/knowledge/1/2/3") == [2]
