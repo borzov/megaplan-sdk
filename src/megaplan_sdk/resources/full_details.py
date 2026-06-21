@@ -71,6 +71,21 @@ class FullDetailsMixin:
         getter = getattr(self, entity_getter)
         main_entity = await getter(entity_id)
 
+        # Guard: a *_limit without its include_* flag silently does nothing (#2).
+        # Reject it with a clear error instead of returning empty/stub data.
+        # This guard runs BEFORE the global-defaults block so that a client-level
+        # default (injected below) never triggers a false-positive error here.
+        for item_config in config:
+            limit_param = item_config.limit_param
+            if limit_param is None:
+                continue
+            if kwargs.get(limit_param) is not None and not kwargs.get(item_config.include_flag):
+                raise ValueError(
+                    f"'{limit_param}' was provided but '{item_config.include_flag}' is False. "
+                    f"Pass '{item_config.include_flag}=True' to load this data, "
+                    f"or omit '{limit_param}'."
+                )
+
         # Apply global defaults for limit parameters if not explicitly provided
         # Note: parameters are always in kwargs (even if None), so check value instead of presence
         if hasattr(self, "_default_comments_limit") and kwargs.get("comments_limit") is None:

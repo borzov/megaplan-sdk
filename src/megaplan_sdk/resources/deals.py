@@ -710,10 +710,17 @@ class DealsResource(BaseResource, FullDetailsMixin):
                 None = use global default (from MegaplanClient) or API default.
                 Explicit value overrides global default.
                 Example: comments_limit=50 returns max 50 comments.
+                Requires the matching include_* flag to be True; passing a
+                limit without it raises ValueError.
+                Note: the API caps a single comments page (~100); requesting
+                more returns at most one server page. Use client.comments.iterate
+                for full pagination.
             history_limit: Limit for history (if included).
                 None = use global default (from MegaplanClient) or API default.
                 Explicit value overrides global default.
                 Example: history_limit=100 returns max 100 history entries.
+                Requires the matching include_* flag to be True; passing a
+                limit without it raises ValueError.
 
         Returns:
             DealFullDetails object with all requested data.

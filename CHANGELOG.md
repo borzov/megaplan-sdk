@@ -7,6 +7,31 @@
 
 ## [Не выпущено]
 
+## [0.2.3] — 2026-06-21
+
+### Исправлено
+- `client.comments.create/list/iterate` теперь принимают `entity_type` (default `"task"`)
+  и строят путь `/api/v3/<entity_type>/<id>/comments` вместо хардкода `/todo/` —
+  убран тихий 404 для комментариев задач (журнал #1).
+- `get_full_details` теперь кидает `ValueError`, если передан `comments_limit`/`history_limit`
+  без соответствующего `include_*=True`, вместо тихого игнорирования (журнал #2).
+
+### Добавлено
+- В модель `Task` добавлены временные поля: `activity`, `last_comment_time_created`,
+  `status_change_time`, `actual_start`, `last_view` (журнал #7).
+- Понятная ошибка вместо сырого 422 при `tasks.list(sort_by=[{"fieldName": "timeUpdated"}])`
+  с подсказкой использовать `activity` (журнал #7).
+- Экспортируемая константа `DEFAULT_TASK_LIST_FIELDS` для запроса date-полей в `tasks.list`,
+  плюс предупреждение в документации (журнал #8).
+- `comments.list(expand=["owner"])` — батч-подгрузка авторов-сотрудников с кэшированием (журнал #3).
+
+### Известные ограничения (серверные / отложено)
+- Эндпоинт `/api/v3/task/<id>/comments` не раскрывает `owner` ни при каком `fields`/`expand` —
+  это поведение API Мегаплана. SDK обходит через `expand=["owner"]` (доп. запросы, кэшируются).
+  Однозапросный батч `employees.list(filter={"id":[...]})` возможен после проверки фильтра по id на API.
+- Knowledge Base (`knowledgeBase`/`knowledgeArticle`): фильтр `parent` игнорируется сервером,
+  публичного листинга статей нет (журнал #4/#5). Ресурсы SDK для KB запланированы в 0.3.0 (журнал #6).
+
 ## [0.2.2] - 2026-03-28
 
 ### Исправлено

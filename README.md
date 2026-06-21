@@ -41,6 +41,7 @@
 - [Глобальные дефолтные лимиты](#глобальные-дефолтные-лимиты)
 - [Автоматическая подгрузка связанных сущностей](#автоматическая-подгрузка-связанных-сущностей)
 - [Работа с фильтрами](#работа-с-фильтрами)
+- [Работа с комментариями](#работа-с-комментариями)
 - [Настройка HTTP-клиента](#настройка-http-клиента)
 - [Работа через прокси](#работа-через-прокси)
 - [Ручное управление токенами](#ручное-управление-токенами)
@@ -397,7 +398,7 @@ print(details.deal.name)      # для сделок
 # Связанные данные
 if details.comments:
     for comment in details.comments:
-        print(comment.text)
+        print(comment.content)
 
 if details.history:
     print(f"Записей в истории: {len(details.history)}")
@@ -487,6 +488,37 @@ tasks = await client.tasks.list(filter=filter_obj)
 - `todos: list[BaseEntity]` - Подзадачи-чеклисты
 - `time_created: str` - Дата создания (API поле `timeCreated`)
 - `time_updated: str` - Дата обновления (API поле `timeUpdated`)
+- `activity: str | None` - Дата последней активности (API поле `activity`)
+- `last_comment_time_created: str | None` - Время последнего комментария (API поле `lastCommentTimeCreated`)
+- `status_change_time: str | None` - Время смены статуса (API поле `statusChangeTime`)
+- `actual_start: str | None` - Фактическое время начала (API поле `actualStart`)
+- `last_view: str | None` - Время последнего просмотра (API поле `lastView`)
+
+### Фильтрация задач по временным полям
+
+Временны́е поля (`activity`, `lastCommentTimeCreated` и др.) не возвращаются в `tasks.list()` по умолчанию.
+Используйте константу `DEFAULT_TASK_LIST_FIELDS`, чтобы запросить их явно:
+
+```python
+from megaplan_sdk import DEFAULT_TASK_LIST_FIELDS
+
+# Запросить задачи с временными полями (activity, lastCommentTimeCreated и др.)
+tasks = await client.tasks.list(
+    limit=50,
+    fields=list(DEFAULT_TASK_LIST_FIELDS),
+)
+for task in tasks:
+    print(f"{task.name}: активность {task.activity}")
+```
+
+> **Примечание:** Сортировка по `"timeUpdated"` не поддерживается API — используйте `"activity"`:
+>
+> ```python
+> tasks = await client.tasks.list(
+>     sort_by=[{"fieldName": "activity", "order": "desc"}],
+>     fields=list(DEFAULT_TASK_LIST_FIELDS),
+> )
+> ```
 
 ### Упрощенные методы создания
 
@@ -1469,6 +1501,56 @@ updated = await client.filters.update("task", filter_id=123, filter_config={...}
 # Экспортировать фильтр
 export_data = await client.filters.export("task", filter_id=123)
 ```
+
+### Работа с комментариями
+
+Комментарии доступны для задач, проектов и сделок через `client.comments`.
+
+#### Получение комментариев
+
+```python
+# Комментарии задачи (entity_type по умолчанию "task")
+comments = await client.comments.list(entity_id=42)
+
+# Комментарии проекта
+comments = await client.comments.list(entity_id=5, entity_type="project")
+
+# Комментарии сделки
+comments = await client.comments.list(entity_id=200, entity_type="deal")
+
+# Автоматическая пагинация
+async for comment in client.comments.iterate(entity_id=42):
+    print(comment.content)
+```
+
+#### Подгрузка авторов через expand
+
+API Мегаплана не раскрывает поле `owner` (автор комментария) в списке комментариев.
+Используйте `expand=["owner"]`, чтобы SDK дозагрузил авторов отдельными запросами (с кэшированием):
+
+```python
+# Комментарии задачи с именами авторов
+comments = await client.comments.list(entity_id=42, expand=["owner"])
+for comment in comments:
+    author_name = comment.owner.name if comment.owner else "неизвестен"
+    print(f"{author_name}: {comment.content}")
+```
+
+#### Создание комментария
+
+```python
+# Комментарий к задаче
+comment = await client.comments.create(entity_id=42, comment_data={"text": "Текст комментария"})
+
+# Комментарий к проекту
+comment = await client.comments.create(entity_id=5, comment_data={"text": "Текст"}, entity_type="project")
+
+# Комментарий к сделке
+comment = await client.comments.create(entity_id=200, comment_data={"text": "Текст"}, entity_type="deal")
+```
+
+> **Ограничение:** Комментарии контрагентов не поддерживаются API (возвращает 500).
+> Используйте комментарии в связанных сделках или задачах.
 
 ### Настройка HTTP-клиента
 

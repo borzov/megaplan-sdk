@@ -721,3 +721,38 @@ async def test_none_default_does_not_add_limit():
         assert "limit" not in str(comments_request.url) or '{"limit":null}' not in str(
             comments_request.url
         )
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_full_details_limit_without_include_raises():
+    """Test that passing a *_limit without matching include_* raises ValueError."""
+    respx.get("https://example.com/api/v3/task/123").mock(
+        return_value=Response(
+            200,
+            json={"meta": {"status": 200}, "data": {"contentType": "Task", "id": 123}},
+        )
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        with pytest.raises(ValueError, match="include_comments"):
+            await resource.get_full_details(123, comments_limit=200)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_full_details_limit_with_include_ok():
+    """Test that passing a *_limit together with include_*=True works without error."""
+    respx.get("https://example.com/api/v3/task/123").mock(
+        return_value=Response(
+            200,
+            json={"meta": {"status": 200}, "data": {"contentType": "Task", "id": 123}},
+        )
+    )
+    respx.get("https://example.com/api/v3/task/123/comments").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        details = await resource.get_full_details(123, include_comments=True, comments_limit=200)
+    assert details.task.id == 123

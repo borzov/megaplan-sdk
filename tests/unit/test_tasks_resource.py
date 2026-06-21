@@ -727,3 +727,73 @@ async def test_get_all_participants_with_pagination():
         participants = await resource.get_all_participants(task_id=123, limit=50)
 
         assert len(participants) == 1
+
+
+def test_task_parses_activity_and_time_fields():
+    """Test that Task model parses activity and time fields from API camelCase keys."""
+    from megaplan_sdk.models.task import Task
+
+    task = Task(
+        **{
+            "contentType": "Task",
+            "id": 1,
+            "activity": "2026-06-20T10:00:00+00:00",
+            "lastCommentTimeCreated": "2026-06-19T09:00:00+00:00",
+            "statusChangeTime": "2026-06-18T08:00:00+00:00",
+            "actualStart": "2026-06-17T07:00:00+00:00",
+            "lastView": "2026-06-21T06:00:00+00:00",
+        }
+    )
+    assert task.activity == "2026-06-20T10:00:00+00:00"
+    assert task.last_comment_time_created == "2026-06-19T09:00:00+00:00"
+    assert task.status_change_time == "2026-06-18T08:00:00+00:00"
+    assert task.actual_start == "2026-06-17T07:00:00+00:00"
+    assert task.last_view == "2026-06-21T06:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_list_rejects_time_updated_sort_with_suggestion():
+    """Test that sorting by timeUpdated raises ValueError with suggestion."""
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        with pytest.raises(ValueError) as exc:
+            await resource.list(sort_by=[{"fieldName": "timeUpdated", "desc": "true"}])
+    assert "timeUpdated" in str(exc.value)
+    assert "activity" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_list_rejects_updated_at_sort_with_suggestion():
+    """Test that sorting by updatedAt raises ValueError with suggestion."""
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        with pytest.raises(ValueError) as exc:
+            await resource.list(sort_by=[{"fieldName": "updatedAt", "desc": "true"}])
+    assert "updatedAt" in str(exc.value)
+    assert "activity" in str(exc.value)
+
+
+def test_default_task_list_fields_exported():
+    """Test that DEFAULT_TASK_LIST_FIELDS is exported from megaplan_sdk."""
+    import megaplan_sdk
+
+    fields = megaplan_sdk.DEFAULT_TASK_LIST_FIELDS
+    assert isinstance(fields, tuple)
+    # Confirmed-valid task fields from the bug journal #7/#8.
+    for required in ("timeCreated", "activity", "lastCommentTimeCreated", "status"):
+        assert required in fields
+    # Must NOT include the API-rejected field (regression guard against #7).
+    assert "timeUpdated" not in fields
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_allows_valid_sort_field():
+    """Test that a valid/custom sort field is NOT rejected by the deny-map."""
+    respx.get("https://example.com/api/v3/task").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        result = await resource.list(sort_by=[{"fieldName": "activity", "desc": True}])
+    assert result == []

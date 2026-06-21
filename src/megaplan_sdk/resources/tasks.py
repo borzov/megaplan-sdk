@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, overload
 
-from megaplan_sdk.constants import ContentType
+from megaplan_sdk.constants import UNSUPPORTED_TASK_SORT_FIELDS, ContentType
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.resources.base import BaseResource
@@ -219,6 +219,13 @@ class TasksResource(BaseResource, FullDetailsMixin):
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
             fields: Additional fields to include.
+                **Important:** list endpoints do NOT return date fields
+                (timeCreated, activity, lastCommentTimeCreated, ...) unless
+                requested here. To filter by a time window, pass:
+                    from megaplan_sdk import DEFAULT_TASK_LIST_FIELDS
+                    tasks = await client.tasks.list(fields=list(DEFAULT_TASK_LIST_FIELDS))
+                Without this, those fields are None and time-window filters
+                silently match nothing.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["responsible", "owner"]).
@@ -259,6 +266,18 @@ class TasksResource(BaseResource, FullDetailsMixin):
                     f"Invalid task status values: {invalid_statuses}. "
                     f"Valid values: {sorted(VALID_TASK_STATUSES)}"
                 )
+
+        # Validate sort_by against fields the API rejects with a raw 422 (#7).
+        if sort_by:
+            for rule in sort_by:
+                field_name = rule.get("fieldName")
+                if field_name in UNSUPPORTED_TASK_SORT_FIELDS:
+                    suggestion = UNSUPPORTED_TASK_SORT_FIELDS[field_name]
+                    raise ValueError(
+                        f"Task cannot be sorted by '{field_name}' (API returns 422). "
+                        f"Use '{suggestion}' instead — e.g. "
+                        f'sort_by=[{{"fieldName": "{suggestion}", "desc": True}}].'
+                    )
 
         # Convert filter ID to object format if needed
         processed_filter = filter
@@ -1064,10 +1083,17 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 None = use global default (from MegaplanClient) or API default.
                 Explicit value overrides global default.
                 Example: comments_limit=50 returns max 50 comments.
+                Requires the matching include_* flag to be True; passing a
+                limit without it raises ValueError.
+                Note: the API caps a single comments page (~100); requesting
+                more returns at most one server page. Use client.comments.iterate
+                for full pagination.
             history_limit: Limit for history (if included).
                 None = use global default (from MegaplanClient) or API default.
                 Explicit value overrides global default.
                 Example: history_limit=100 returns max 100 history entries.
+                Requires the matching include_* flag to be True; passing a
+                limit without it raises ValueError.
 
         Returns:
             TaskFullDetails object with all requested data.
