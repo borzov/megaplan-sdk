@@ -12,7 +12,12 @@ from megaplan_sdk.resources.base import BaseResource
 class CommentsResource(BaseResource):
     """Resource for working with comments."""
 
-    async def create(self, entity_id: int, comment_data: dict[str, Any]) -> Comment:
+    async def create(
+        self,
+        entity_id: int,
+        comment_data: dict[str, Any],
+        entity_type: str = "task",
+    ) -> Comment:
         """Create a new comment for an entity.
 
         Args:
@@ -20,6 +25,9 @@ class CommentsResource(BaseResource):
             comment_data: Comment data dictionary.
                 Required: text
                 Optional: work (hours), attaches (file IDs)
+            entity_type: Entity type segment for the API path.
+                Allowed values: ``"task"`` | ``"project"`` | ``"deal"``.
+                Defaults to ``"task"``.
 
         Returns:
             Created comment.
@@ -30,14 +38,21 @@ class CommentsResource(BaseResource):
             ...     entity_id=123,
             ...     comment_data={"text": "Comment text", "work": 2.5}
             ... )
+            >>> # Create comment for project #55
+            >>> comment = await client.comments.create(
+            ...     entity_id=55,
+            ...     comment_data={"text": "Project note"},
+            ...     entity_type="project",
+            ... )
         """
-        path = self._build_path("api", "v3", "todo", str(entity_id), "comments")
+        path = self._build_path("api", "v3", entity_type, str(entity_id), "comments")
         response = await self._http.post(path, json_data=comment_data)
         return Comment(**response["data"])
 
     async def list(
         self,
         entity_id: int,
+        entity_type: str = "task",
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -50,6 +65,9 @@ class CommentsResource(BaseResource):
 
         Args:
             entity_id: Parent entity ID (task, project, deal, etc.).
+            entity_type: Entity type segment for the API path.
+                Allowed values: ``"task"`` | ``"project"`` | ``"deal"``.
+                Defaults to ``"task"``.
             limit: Number of items per page.
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
@@ -64,8 +82,10 @@ class CommentsResource(BaseResource):
         Examples:
             >>> # Get all comments for task #123
             >>> comments = await client.comments.list(entity_id=123)
+            >>> # Get all comments for project #55
+            >>> comments = await client.comments.list(entity_id=55, entity_type="project")
         """
-        path = self._build_path("api", "v3", "todo", str(entity_id), "comments")
+        path = self._build_path("api", "v3", entity_type, str(entity_id), "comments")
 
         # Use base method to build params (DRY)
         params = self._build_list_params(
@@ -119,6 +139,7 @@ class CommentsResource(BaseResource):
     async def iterate(
         self,
         entity_id: int,
+        entity_type: str = "task",
         limit: int = 100,
         **kwargs: Any,
     ) -> AsyncIterator[Comment]:
@@ -126,6 +147,9 @@ class CommentsResource(BaseResource):
 
         Args:
             entity_id: Parent entity ID (task, project, deal, etc.).
+            entity_type: Entity type segment for the API path.
+                Allowed values: ``"task"`` | ``"project"`` | ``"deal"``.
+                Defaults to ``"task"``.
             limit: Number of items per page.
             **kwargs: Additional parameters to pass to list().
 
@@ -136,6 +160,9 @@ class CommentsResource(BaseResource):
             >>> # Iterate over all comments for task #123
             >>> async for comment in client.comments.iterate(entity_id=123):
             ...     print(comment.content)
+            >>> # Iterate over all comments for project #55
+            >>> async for comment in client.comments.iterate(entity_id=55, entity_type="project"):
+            ...     print(comment.content)
         """
         comment: Comment
         async for comment in self._iterate_generic(  # type: ignore[valid-type]
@@ -143,6 +170,7 @@ class CommentsResource(BaseResource):
             self.list,
             limit,
             entity_id=entity_id,
+            entity_type=entity_type,
             **kwargs,
         ):
             yield comment
