@@ -398,7 +398,7 @@ print(details.deal.name)      # для сделок
 # Связанные данные
 if details.comments:
     for comment in details.comments:
-        print(comment.text)
+        print(comment.content)
 
 if details.history:
     print(f"Записей в истории: {len(details.history)}")
