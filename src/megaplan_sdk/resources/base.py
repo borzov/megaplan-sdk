@@ -521,6 +521,8 @@ class BaseResource:
             "contractorCompany": ContentType.CONTRACTOR_COMPANY,
             "contractorHuman": ContentType.CONTRACTOR_HUMAN,
             "comment": ContentType.COMMENT,
+            "knowledgeBase": ContentType.KNOWLEDGE_BASE,
+            "knowledgeArticle": ContentType.KNOWLEDGE_ARTICLE,
         }
 
         result = mapping.get(entity_type)

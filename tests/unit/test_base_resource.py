@@ -408,3 +408,19 @@ async def test_fetch_details_parallel_empty():
         results = await resource._fetch_details_parallel({})
 
         assert results == {}
+
+
+def test_knowledge_content_types_defined():
+    """Test that KnowledgeBase and KnowledgeArticle ContentType constants are defined."""
+    from megaplan_sdk.constants import ContentType
+
+    assert ContentType.KNOWLEDGE_BASE == "KnowledgeBase"
+    assert ContentType.KNOWLEDGE_ARTICLE == "KnowledgeArticle"
+
+
+def test_entity_type_maps_knowledge_segments():
+    """Test that knowledgeBase and knowledgeArticle map to correct ContentTypes."""
+    from megaplan_sdk.resources.base import BaseResource
+
+    assert BaseResource._entity_type_to_content_type("knowledgeBase") == "KnowledgeBase"
+    assert BaseResource._entity_type_to_content_type("knowledgeArticle") == "KnowledgeArticle"

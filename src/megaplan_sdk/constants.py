@@ -15,6 +15,8 @@ class ContentType:
     DEPARTMENT = "Department"
     COMMENT = "Comment"
     GROUP = "Group"
+    KNOWLEDGE_BASE = "KnowledgeBase"
+    KNOWLEDGE_ARTICLE = "KnowledgeArticle"
 
 
 # Task fields users commonly try to sort by that the Megaplan API rejects (422).
