@@ -44,6 +44,13 @@ class Task(TimestampMixin):
     tags: list[BaseEntity] | None = None
     attaches: list[BaseEntity] | None = None
     todos: list[BaseEntity] | None = None
+    activity: str | DateTime | None = None
+    last_comment_time_created: str | DateTime | None = Field(
+        alias="lastCommentTimeCreated", default=None
+    )
+    status_change_time: str | DateTime | None = Field(alias="statusChangeTime", default=None)
+    actual_start: str | DateTime | None = Field(alias="actualStart", default=None)
+    last_view: str | DateTime | None = Field(alias="lastView", default=None)
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 

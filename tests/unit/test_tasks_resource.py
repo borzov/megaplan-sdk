@@ -727,3 +727,25 @@ async def test_get_all_participants_with_pagination():
         participants = await resource.get_all_participants(task_id=123, limit=50)
 
         assert len(participants) == 1
+
+
+def test_task_parses_activity_and_time_fields():
+    """Test that Task model parses activity and time fields from API camelCase keys."""
+    from megaplan_sdk.models.task import Task
+
+    task = Task(
+        **{
+            "contentType": "Task",
+            "id": 1,
+            "activity": "2026-06-20T10:00:00+00:00",
+            "lastCommentTimeCreated": "2026-06-19T09:00:00+00:00",
+            "statusChangeTime": "2026-06-18T08:00:00+00:00",
+            "actualStart": "2026-06-17T07:00:00+00:00",
+            "lastView": "2026-06-21T06:00:00+00:00",
+        }
+    )
+    assert task.activity == "2026-06-20T10:00:00+00:00"
+    assert task.last_comment_time_created == "2026-06-19T09:00:00+00:00"
+    assert task.status_change_time == "2026-06-18T08:00:00+00:00"
+    assert task.actual_start == "2026-06-17T07:00:00+00:00"
+    assert task.last_view == "2026-06-21T06:00:00+00:00"
