@@ -94,8 +94,6 @@ class CommentsResource(BaseResource):
             >>> comments = await client.comments.list(entity_id=123, expand=["owner"])
             >>> print(comments[0].owner.name)  # "Иван Петров"
         """
-        from megaplan_sdk.models.employee import Employee
-
         path = self._build_path("api", "v3", entity_type, str(entity_id), "comments")
 
         # Use base method to build params (DRY)
@@ -113,6 +111,8 @@ class CommentsResource(BaseResource):
 
         if not expand or "owner" not in expand or not comments:
             return comments
+
+        from megaplan_sdk.models.employee import Employee
 
         # Only Employee owners are resolvable via the employee endpoint.
         employee_owners = [

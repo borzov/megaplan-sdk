@@ -168,3 +168,17 @@ async def test_list_without_expand_returns_stub_owner():
     assert comments[0].owner.id == 1000037
     # name is not populated because no expand was requested
     assert not hasattr(comments[0].owner, "name") or comments[0].owner.name is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_iterate_respects_entity_type():
+    """Test that iterate() threads entity_type to the correct API path."""
+    route = respx.get("https://example.com/api/v3/project/55/comments").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = CommentsResource(http_client)
+        results = [c async for c in resource.iterate(entity_id=55, entity_type="project")]
+    assert route.called
+    assert results == []

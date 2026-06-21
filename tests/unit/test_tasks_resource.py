@@ -784,3 +784,16 @@ def test_default_task_list_fields_exported():
         assert required in fields
     # Must NOT include the API-rejected field (regression guard against #7).
     assert "timeUpdated" not in fields
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_allows_valid_sort_field():
+    """Test that a valid/custom sort field is NOT rejected by the deny-map."""
+    respx.get("https://example.com/api/v3/task").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        result = await resource.list(sort_by=[{"fieldName": "activity", "desc": True}])
+    assert result == []

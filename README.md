@@ -1510,17 +1510,17 @@ export_data = await client.filters.export("task", filter_id=123)
 
 ```python
 # Комментарии задачи (entity_type по умолчанию "task")
-comments = await client.comments.list(task_id=42)
+comments = await client.comments.list(entity_id=42)
 
 # Комментарии проекта
-comments = await client.comments.list(task_id=5, entity_type="project")
+comments = await client.comments.list(entity_id=5, entity_type="project")
 
 # Комментарии сделки
-comments = await client.comments.list(task_id=200, entity_type="trade")
+comments = await client.comments.list(entity_id=200, entity_type="deal")
 
 # Автоматическая пагинация
-async for comment in client.comments.iterate(task_id=42):
-    print(comment.text)
+async for comment in client.comments.iterate(entity_id=42):
+    print(comment.content)
 ```
 
 #### Подгрузка авторов через expand
@@ -1529,26 +1529,24 @@ API Мегаплана не раскрывает поле `owner` (автор к
 Используйте `expand=["owner"]`, чтобы SDK дозагрузил авторов отдельными запросами (с кэшированием):
 
 ```python
-from megaplan_sdk import DEFAULT_TASK_LIST_FIELDS
-
 # Комментарии задачи с именами авторов
-comments = await client.comments.list(task_id=42, expand=["owner"])
+comments = await client.comments.list(entity_id=42, expand=["owner"])
 for comment in comments:
-    author_name = comment.owner.display_name() if comment.owner else "неизвестен"
-    print(f"{author_name}: {comment.text}")
+    author_name = comment.owner.name if comment.owner else "неизвестен"
+    print(f"{author_name}: {comment.content}")
 ```
 
 #### Создание комментария
 
 ```python
 # Комментарий к задаче
-comment = await client.comments.create(task_id=42, text="Текст комментария")
+comment = await client.comments.create(entity_id=42, comment_data={"text": "Текст комментария"})
 
 # Комментарий к проекту
-comment = await client.comments.create(task_id=5, text="Текст", entity_type="project")
+comment = await client.comments.create(entity_id=5, comment_data={"text": "Текст"}, entity_type="project")
 
 # Комментарий к сделке
-comment = await client.comments.create(task_id=200, text="Текст", entity_type="trade")
+comment = await client.comments.create(entity_id=200, comment_data={"text": "Текст"}, entity_type="deal")
 ```
 
 > **Ограничение:** Комментарии контрагентов не поддерживаются API (возвращает 500).
