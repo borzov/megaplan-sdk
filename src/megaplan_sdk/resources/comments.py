@@ -60,6 +60,7 @@ class CommentsResource(BaseResource):
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
+        expand: list[str] | None = None,
     ) -> list[Comment]:
         """Get list of comments for an entity.
 
@@ -75,6 +76,11 @@ class CommentsResource(BaseResource):
             fields: Additional fields to include.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
+            expand: Fields to expand. Supported values: ``"owner"``.
+                When ``"owner"`` is included, resolves Employee comment authors
+                to full Employee objects via batch parallel requests (cached).
+                The API never returns populated owners, so this is the only
+                resolution path.
 
         Returns:
             List of comments.
@@ -84,7 +90,12 @@ class CommentsResource(BaseResource):
             >>> comments = await client.comments.list(entity_id=123)
             >>> # Get all comments for project #55
             >>> comments = await client.comments.list(entity_id=55, entity_type="project")
+            >>> # Resolve comment authors to full Employee objects
+            >>> comments = await client.comments.list(entity_id=123, expand=["owner"])
+            >>> print(comments[0].owner.name)  # "Иван Петров"
         """
+        from megaplan_sdk.models.employee import Employee
+
         path = self._build_path("api", "v3", entity_type, str(entity_id), "comments")
 
         # Use base method to build params (DRY)
@@ -98,7 +109,25 @@ class CommentsResource(BaseResource):
             only_requested_fields=only_requested_fields,
         )
 
-        return await self._get_list(path, Comment, params)
+        comments = await self._get_list(path, Comment, params)
+
+        if not expand or "owner" not in expand or not comments:
+            return comments
+
+        # Only Employee owners are resolvable via the employee endpoint.
+        employee_owners = [
+            c.owner for c in comments if c.owner is not None and c.owner.content_type == "Employee"
+        ]
+        owner_map = await self._load_related_entities(employee_owners, "employee", Employee)
+        for comment in comments:
+            if (
+                comment.owner is not None
+                and comment.owner.content_type == "Employee"
+                and comment.owner.id in owner_map
+            ):
+                comment.owner = owner_map[comment.owner.id]
+
+        return comments
 
     async def get(self, comment_id: int) -> Comment:
         """Get comment by ID.

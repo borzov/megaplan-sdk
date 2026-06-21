@@ -95,3 +95,76 @@ async def test_create_respects_entity_type():
         )
 
     assert route.called
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_expand_owner_resolves_names():
+    """Test that list(expand=['owner']) batch-loads Employee owners."""
+    respx.get("https://example.com/api/v3/task/123/comments").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {
+                        "contentType": "Comment",
+                        "id": 1,
+                        "content": "hi",
+                        "owner": {"contentType": "Employee", "id": 1000037},
+                    }
+                ],
+            },
+        )
+    )
+    respx.get("https://example.com/api/v3/employee/1000037").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {
+                    "contentType": "Employee",
+                    "id": 1000037,
+                    "name": "Иван Петров",
+                },
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = CommentsResource(http_client)
+        comments = await resource.list(entity_id=123, expand=["owner"])
+
+    assert comments[0].owner is not None
+    assert comments[0].owner.name == "Иван Петров"  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_without_expand_returns_stub_owner():
+    """Test that list() without expand leaves owner as a stub BaseEntity."""
+    respx.get("https://example.com/api/v3/task/123/comments").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {
+                        "contentType": "Comment",
+                        "id": 1,
+                        "content": "hi",
+                        "owner": {"contentType": "Employee", "id": 1000037},
+                    }
+                ],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = CommentsResource(http_client)
+        comments = await resource.list(entity_id=123)
+
+    assert comments[0].owner is not None
+    assert comments[0].owner.id == 1000037
+    # name is not populated because no expand was requested
+    assert not hasattr(comments[0].owner, "name") or comments[0].owner.name is None
