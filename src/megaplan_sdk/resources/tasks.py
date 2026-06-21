@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, overload
 
-from megaplan_sdk.constants import ContentType
+from megaplan_sdk.constants import UNSUPPORTED_TASK_SORT_FIELDS, ContentType
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.resources.base import BaseResource
@@ -259,6 +259,18 @@ class TasksResource(BaseResource, FullDetailsMixin):
                     f"Invalid task status values: {invalid_statuses}. "
                     f"Valid values: {sorted(VALID_TASK_STATUSES)}"
                 )
+
+        # Validate sort_by against fields the API rejects with a raw 422 (#7).
+        if sort_by:
+            for rule in sort_by:
+                field_name = rule.get("fieldName")
+                if field_name in UNSUPPORTED_TASK_SORT_FIELDS:
+                    suggestion = UNSUPPORTED_TASK_SORT_FIELDS[field_name]
+                    raise ValueError(
+                        f"Task cannot be sorted by '{field_name}' (API returns 422). "
+                        f"Use '{suggestion}' instead — e.g. "
+                        f'sort_by=[{{"fieldName": "{suggestion}", "desc": True}}].'
+                    )
 
         # Convert filter ID to object format if needed
         processed_filter = filter

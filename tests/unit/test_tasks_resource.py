@@ -749,3 +749,25 @@ def test_task_parses_activity_and_time_fields():
     assert task.status_change_time == "2026-06-18T08:00:00+00:00"
     assert task.actual_start == "2026-06-17T07:00:00+00:00"
     assert task.last_view == "2026-06-21T06:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_list_rejects_time_updated_sort_with_suggestion():
+    """Test that sorting by timeUpdated raises ValueError with suggestion."""
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        with pytest.raises(ValueError) as exc:
+            await resource.list(sort_by=[{"fieldName": "timeUpdated", "desc": "true"}])
+    assert "timeUpdated" in str(exc.value)
+    assert "activity" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_list_rejects_updated_at_sort_with_suggestion():
+    """Test that sorting by updatedAt raises ValueError with suggestion."""
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        with pytest.raises(ValueError) as exc:
+            await resource.list(sort_by=[{"fieldName": "updatedAt", "desc": "true"}])
+    assert "updatedAt" in str(exc.value)
+    assert "activity" in str(exc.value)
