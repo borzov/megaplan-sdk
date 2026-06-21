@@ -42,6 +42,11 @@ from megaplan_sdk.models.filter import (
     UserSetting,
 )
 from megaplan_sdk.models.group import Group
+from megaplan_sdk.models.knowledge import (
+    KnowledgeArticle,
+    KnowledgeBase,
+    KnowledgeSectionWithArticles,
+)
 from megaplan_sdk.models.milestone import Milestone
 from megaplan_sdk.models.participant import Participant, parse_participant, parse_participants
 from megaplan_sdk.models.project import Project, ProjectFullDetails
@@ -75,6 +80,9 @@ __all__ = [
     "Department",
     "Group",
     "Milestone",
+    "KnowledgeBase",
+    "KnowledgeArticle",
+    "KnowledgeSectionWithArticles",
     "Participant",
     "parse_participant",
     "parse_participants",

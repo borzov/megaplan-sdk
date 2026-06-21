@@ -111,3 +111,16 @@ async def test_get_with_articles_toc_section_returns_empty():
         result = await resource.get_with_articles(11)
 
     assert result.articles == []
+
+
+@pytest.mark.asyncio
+async def test_client_wires_knowledge_resources():
+    from megaplan_sdk.client import MegaplanClient
+    from megaplan_sdk.resources.knowledge_article import KnowledgeArticleResource as KAR
+    from megaplan_sdk.resources.knowledge_base import KnowledgeBaseResource as KBR
+
+    async with MegaplanClient(base_url="https://example.com", access_token="token") as client:
+        assert isinstance(client.knowledge_base, KBR)
+        assert isinstance(client.knowledge_article, KAR)
+        # get_with_articles must reuse the client's article resource instance
+        assert client.knowledge_base._article_resource is client.knowledge_article

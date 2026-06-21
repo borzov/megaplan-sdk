@@ -61,3 +61,11 @@ def test_section_with_articles_composite():
     assert composite.section.id == 2
     assert len(composite.articles) == 1
     assert composite.articles[0].id == 33
+
+
+def test_knowledge_models_exported_from_package():
+    import megaplan_sdk
+
+    assert megaplan_sdk.KnowledgeBase is not None
+    assert megaplan_sdk.KnowledgeArticle is not None
+    assert megaplan_sdk.KnowledgeSectionWithArticles is not None
