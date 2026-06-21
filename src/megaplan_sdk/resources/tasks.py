@@ -219,6 +219,13 @@ class TasksResource(BaseResource, FullDetailsMixin):
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
             fields: Additional fields to include.
+                **Important:** list endpoints do NOT return date fields
+                (timeCreated, activity, lastCommentTimeCreated, ...) unless
+                requested here. To filter by a time window, pass:
+                    from megaplan_sdk import DEFAULT_TASK_LIST_FIELDS
+                    tasks = await client.tasks.list(fields=list(DEFAULT_TASK_LIST_FIELDS))
+                Without this, those fields are None and time-window filters
+                silently match nothing.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["responsible", "owner"]).

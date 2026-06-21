@@ -771,3 +771,16 @@ async def test_list_rejects_updated_at_sort_with_suggestion():
             await resource.list(sort_by=[{"fieldName": "updatedAt", "desc": "true"}])
     assert "updatedAt" in str(exc.value)
     assert "activity" in str(exc.value)
+
+
+def test_default_task_list_fields_exported():
+    """Test that DEFAULT_TASK_LIST_FIELDS is exported from megaplan_sdk."""
+    import megaplan_sdk
+
+    fields = megaplan_sdk.DEFAULT_TASK_LIST_FIELDS
+    assert isinstance(fields, tuple)
+    # Confirmed-valid task fields from the bug journal #7/#8.
+    for required in ("timeCreated", "activity", "lastCommentTimeCreated", "status"):
+        assert required in fields
+    # Must NOT include the API-rejected field (regression guard against #7).
+    assert "timeUpdated" not in fields
