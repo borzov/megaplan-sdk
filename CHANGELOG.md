@@ -7,6 +7,23 @@
 
 ## [Не выпущено]
 
+## [0.3.0] — 2026-06-21
+
+### Добавлено
+- Ресурсы Базы знаний: `client.knowledge_base` (`get` / `list` / `iterate`) и
+  `client.knowledge_article` (`get`). Модели `KnowledgeBase`, `KnowledgeArticle`,
+  `KnowledgeSectionWithArticles` экспортируются из `megaplan_sdk` (журнал #6).
+- Экспериментальный helper `knowledge_base.get_with_articles(section_id)` —
+  дискавери статей раздела через парсинг HTML-ссылок в `content` с кросс-проверкой
+  по `KnowledgeArticle.base.id`.
+
+### Известные ограничения (серверная сторона API)
+- `GET /api/v3/knowledgeArticle` отсутствует (404) — нативного листинга статей нет
+  (журнал #5); дискавери только через `get_with_articles` (парсинг HTML, хрупко).
+- Фильтр `parent` на `GET /api/v3/knowledgeBase` игнорируется, а разделы плоские —
+  иерархии разделов нет (журнал #4). Реальная связь — раздел → статьи через
+  `KnowledgeArticle.base` (поле `parent` у статьи всегда `null`).
+
 ## [0.2.3] — 2026-06-21
 
 ### Исправлено

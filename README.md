@@ -35,6 +35,7 @@
 - [Задачи](#работа-с-задачами)
 - [Проекты](#работа-с-проектами)
 - [Сделки](#работа-со-сделками)
+- [База знаний](#работа-с-базой-знаний)
 
 ### Продвинутые возможности
 - [Кэширование сущностей](#кэширование-сущностей)
@@ -1090,6 +1091,45 @@ details = await client.deals.get_full_details(
 - `related_tasks: list[Task] | None` - Связанные задачи
 
 > **Примечание:** Общее описание метода `get_full_details()` и примеры использования см. в разделе [Общие паттерны работы с сущностями](#общие-паттерны-работы-с-сущностями).
+
+## Работа с базой знаний
+
+SDK предоставляет доступ к разделам и статьям Базы знаний Мегаплана через два ресурса: `client.knowledge_base` (разделы) и `client.knowledge_article` (статьи).
+
+```python
+# Список разделов Базы знаний (плоский)
+sections = await client.knowledge_base.list()
+for s in sections:
+    print(s.id, s.name)
+
+# Один раздел с HTML-содержимым
+section = await client.knowledge_base.get(11)
+print(section.content)
+
+# Итерация по всем разделам с автопагинацией
+async for section in client.knowledge_base.iterate():
+    print(section.id, section.name)
+
+# Статья по ID (parent всегда None — используйте base)
+article = await client.knowledge_article.get(33)
+print(article.name, "→ раздел:", article.base.name if article.base else None)
+
+# Экспериментально: раздел вместе со статьями (через парсинг HTML-ссылок)
+bundle = await client.knowledge_base.get_with_articles(2)
+for a in bundle.articles:
+    print(a.id, a.name)
+```
+
+> **Известные ограничения API (серверная сторона):**
+>
+> - **Нет листинга статей:** эндпоинт `GET /api/v3/knowledgeArticle` отсутствует (возвращает 404).
+>   Единственный способ обнаружения статей в разделе — метод `get_with_articles()`, который
+>   парсит HTML-ссылки из поля `content` раздела. Это **экспериментальный** и хрупкий метод —
+>   формат ссылок может измениться на стороне сервера.
+> - **Фильтр `parent` не работает:** `knowledge_base.list()` всегда возвращает плоский список
+>   всех разделов; передача `parent` в фильтре игнорируется сервером. Иерархии разделов нет.
+> - **Поле `parent` у статьи всегда `null`:** для определения принадлежности статьи к разделу
+>   используйте `article.base` (не `article.parent`).
 
 ## Продвинутые возможности
 
