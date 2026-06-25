@@ -345,3 +345,37 @@ async def test_get_all_participants_with_pagination():
 
         assert len(participants) == 1
         assert participants[0].first_name == "John"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_defaults_to_timecreated_desc():
+    """Test that list() defaults to timeCreated DESC sorting."""
+    import json
+    import urllib.parse
+
+    route = respx.get("https://example.com/api/v3/deal").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await DealsResource(http).list(limit=5)
+    query_str = route.calls.last.request.url.query.decode()
+    sent = json.loads(urllib.parse.unquote(query_str))
+    assert sent["sortBy"] == [
+        {"contentType": "SortField", "fieldName": "timeCreated", "desc": True}
+    ]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_empty_sort_opts_out():
+    """Test that sort_by=[] opts out of default sorting."""
+    import urllib.parse
+
+    route = respx.get("https://example.com/api/v3/deal").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await DealsResource(http).list(limit=5, sort_by=[])
+    query_str = route.calls.last.request.url.query.decode()
+    assert "sortBy" not in urllib.parse.unquote(query_str)

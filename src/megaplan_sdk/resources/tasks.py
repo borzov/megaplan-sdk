@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, overload
 
-from megaplan_sdk.constants import UNSUPPORTED_TASK_SORT_FIELDS, ContentType
+from megaplan_sdk.constants import (
+    DEFAULT_SORT_RECENT,
+    UNSUPPORTED_TASK_SORT_FIELDS,
+    ContentType,
+)
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.resources.base import BaseResource
@@ -257,6 +261,11 @@ class TasksResource(BaseResource, FullDetailsMixin):
             ...         print(task_full.responsible_details.display_name())
         """
         path = self._build_path("api", "v3", "task")
+
+        # #14: bare list order is not by date; default to newest-first.
+        # sort_by=[] is an explicit opt-out (keeps server's native order).
+        if sort_by is None:
+            sort_by = DEFAULT_SORT_RECENT
 
         # Validate statuses if provided
         if statuses:

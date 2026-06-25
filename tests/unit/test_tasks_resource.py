@@ -30,10 +30,8 @@ async def test_create_task():
 @respx.mock
 async def test_list_tasks():
     """Test listing tasks."""
-    # httpx URL-encodes the JSON query params
-    # _build_list_params now filters None values from extra_params
-    # So statuses=None won't be included in URL
-    respx.get("https://example.com/api/v3/task?{%22limit%22:%2010}").mock(
+    # list() adds default sortBy — use regex to match any query string
+    respx.get(url__regex=r"https://example\.com/api/v3/task\?.*").mock(
         return_value=Response(
             200,
             json={
@@ -55,9 +53,8 @@ async def test_list_tasks():
 @respx.mock
 async def test_list_tasks_with_q():
     """Test listing tasks with q parameter."""
-    # q parameter is included in params via extra_params
-    # None values are filtered, so statuses=None won't be in URL
-    respx.get("https://example.com/api/v3/task?{%22limit%22:%2010,%20%22q%22:%20%22test%22}").mock(
+    # list() adds default sortBy — use regex to match any query string
+    respx.get(url__regex=r"https://example\.com/api/v3/task\?.*").mock(
         return_value=Response(
             200,
             json={
@@ -797,3 +794,37 @@ async def test_list_allows_valid_sort_field():
         resource = TasksResource(http_client)
         result = await resource.list(sort_by=[{"fieldName": "activity", "desc": True}])
     assert result == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_defaults_to_timecreated_desc():
+    """Test that list() defaults to timeCreated DESC sorting."""
+    import json
+    import urllib.parse
+
+    route = respx.get("https://example.com/api/v3/task").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await TasksResource(http).list(limit=5)
+    query_str = route.calls.last.request.url.query.decode()
+    sent = json.loads(urllib.parse.unquote(query_str))
+    assert sent["sortBy"] == [
+        {"contentType": "SortField", "fieldName": "timeCreated", "desc": True}
+    ]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_empty_sort_opts_out():
+    """Test that sort_by=[] opts out of default sorting."""
+    import urllib.parse
+
+    route = respx.get("https://example.com/api/v3/task").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await TasksResource(http).list(limit=5, sort_by=[])
+    query_str = route.calls.last.request.url.query.decode()
+    assert "sortBy" not in urllib.parse.unquote(query_str)

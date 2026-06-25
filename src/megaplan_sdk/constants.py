@@ -1,5 +1,7 @@
 """Constants for Megaplan SDK."""
 
+from typing import Any
+
 
 class ContentType:
     """Content type constants for Megaplan API entities."""
@@ -42,3 +44,11 @@ DEFAULT_TASK_LIST_FIELDS: tuple[str, ...] = (
     "responsible",
     "commentsCount",
 )
+
+# Default sort for list endpoints: newest first by creation time.
+# Megaplan's bare list order is an internal index (not date) — see #14.
+# Matches the Megaplan UI, which always shows the freshest items on top.
+# Pass sort_by=[] to a list() method to opt out of any sorting.
+DEFAULT_SORT_RECENT: list[dict[str, Any]] = [
+    {"contentType": "SortField", "fieldName": "timeCreated", "desc": True}
+]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any, overload
 
-from megaplan_sdk.constants import ContentType
+from megaplan_sdk.constants import DEFAULT_SORT_RECENT, ContentType
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
 from megaplan_sdk.models.employee import Employee
@@ -218,6 +218,10 @@ class DealsResource(BaseResource, FullDetailsMixin):
             ...         print(deal_full.contractor_details.display_name())
         """
         path = self._build_path("api", "v3", "deal")
+
+        # #14: default to newest-first; sort_by=[] opts out.
+        if sort_by is None:
+            sort_by = DEFAULT_SORT_RECENT
 
         # Convert filter ID to object format if needed
         processed_filter = filter
