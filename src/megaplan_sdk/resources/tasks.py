@@ -265,7 +265,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         # #14: bare list order is not by date; default to newest-first.
         # sort_by=[] is an explicit opt-out (keeps server's native order).
         if sort_by is None:
-            sort_by = DEFAULT_SORT_RECENT
+            sort_by = list(DEFAULT_SORT_RECENT)
 
         # Validate statuses if provided
         if statuses:

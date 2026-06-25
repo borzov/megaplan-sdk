@@ -221,7 +221,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
 
         # #14: default to newest-first; sort_by=[] opts out.
         if sort_by is None:
-            sort_by = DEFAULT_SORT_RECENT
+            sort_by = list(DEFAULT_SORT_RECENT)
 
         # Convert filter ID to object format if needed
         processed_filter = filter
