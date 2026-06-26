@@ -169,7 +169,17 @@ class EmployeesResource(BaseResource):
 
         Returns:
             Employee details.
+
+        Note:
+            Use get_current() for the current user; get("me") raises ValueError.
         """
+        # #10: `/employee/me` exists only for DELETE → confusing 405.
+        if isinstance(employee_id, str) and employee_id.lower() == "me":
+            raise ValueError(
+                "To get the current user, use `employees.get_current()` "
+                "(calls /api/v3/currentUser)."
+            )
+
         return await self._get_entity("employee", employee_id, Employee)
 
     async def update(self, employee_id: int, employee_data: dict[str, Any]) -> Employee:
