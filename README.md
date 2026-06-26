@@ -247,8 +247,6 @@ deal = await client.deals.get(deal_id=200)
 Метод `get_many()` загружает несколько сущностей за один запрос и возвращает словарь `{id: сущность}`:
 
 ```python
-from megaplan_sdk import DEFAULT_SORT_RECENT
-
 # Загрузить несколько задач по списку ID
 tasks_map = await client.tasks.get_many([101, 102, 103])
 # Возвращает: dict[int, Task]
@@ -980,6 +978,9 @@ deals = await client.deals.list(
 
 > **Поведение с 0.4.0:** без `sort_by` сделки сортируются по `timeCreated DESC`.
 > Используйте `sort_by=[]` для отключения сортировки по умолчанию.
+>
+> Параметр `q` теперь отправляется серверу как фильтр по полю `name`. Значение `q_in`
+> расширяет список полей поиска. Поля `description` и `subject` сервером не поддерживаются → `NotImplementedError`.
 
 **Примеры использования фильтров:**
 
