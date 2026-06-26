@@ -219,4 +219,4 @@ def test_employee_status_fields():
     assert e.is_working is True
     assert e.fire_in_progress is False
     assert e.can_login is True
-    assert not hasattr(Employee.model_fields, "isDropped")
+    assert "isDropped" not in Employee.model_fields
