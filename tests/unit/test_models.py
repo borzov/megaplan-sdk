@@ -206,3 +206,17 @@ def test_program_state_str_fallback():
     """Test ProgramState __str__ falls back to State#id when name is absent."""
     state = ProgramState(id=126, contentType="ProgramState")
     assert str(state) == "State#126"
+
+
+def test_employee_status_fields():
+    """Test Employee status fields: isWorking, fireInProgress, canLogin (#13)."""
+    from megaplan_sdk.models.employee import Employee
+
+    e = Employee.model_validate(
+        {"contentType": "Employee", "id": 1, "isWorking": True,
+         "fireInProgress": False, "canLogin": True}
+    )
+    assert e.is_working is True
+    assert e.fire_in_progress is False
+    assert e.can_login is True
+    assert not hasattr(Employee.model_fields, "isDropped")

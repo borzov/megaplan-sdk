@@ -29,10 +29,18 @@ class Employee(BaseEntity, TimestampMixin):
         avatar: Avatar image entity.
         is_admin: Whether employee has admin rights.
         is_client: Whether this is a client account.
+        is_working: Whether the employee is currently working (not fired/dismissed).
+        fire_in_progress: Whether a dismissal process has been initiated.
+        can_login: Whether the employee can log in to the system.
         access_role: Access role entity.
         created_at: Creation timestamp.
         updated_at: Last update timestamp.
         custom_fields: Custom field values.
+
+    Note:
+        Employee has NO `isDropped` field (unlike Task/Deal/Project; the API
+        returns 422 for fields=["isDropped"]). Use `is_working`,
+        `fire_in_progress`, `can_login`, or `status.name` ("В штате") instead.
     """
 
     content_type: str = Field(alias="contentType", default="Employee")
@@ -51,6 +59,9 @@ class Employee(BaseEntity, TimestampMixin):
     avatar: BaseEntity | None = None
     is_admin: bool | None = Field(alias="isAdmin", default=None)
     is_client: bool | None = Field(alias="isClient", default=None)
+    is_working: bool | None = Field(alias="isWorking", default=None)
+    fire_in_progress: bool | None = Field(alias="fireInProgress", default=None)
+    can_login: bool | None = Field(alias="canLogin", default=None)
     access_role: BaseEntity | None = Field(alias="accessRole", default=None)
     custom_fields: dict[str, Any] | None = Field(alias="customFields", default=None)
 
