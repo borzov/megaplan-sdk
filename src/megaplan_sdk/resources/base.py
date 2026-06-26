@@ -594,7 +594,7 @@ class BaseResource:
         )
         result: dict[int, T] = {}
         for entity_id, entity in zip(unique, fetched, strict=True):
-            if not isinstance(entity, BaseException):
+            if not isinstance(entity, Exception):
                 result[entity_id] = entity
         return result
 

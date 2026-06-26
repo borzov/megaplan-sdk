@@ -873,7 +873,7 @@ async def test_q_with_filter_raises():
 @respx.mock
 async def test_get_many_returns_dict_by_id_and_drops_missing():
     """get_many returns dict[id->Task]; ids absent from response are dropped."""
-    respx.post("https://example.com/api/v3/bulk/getEntitiesByLinks").mock(
+    route = respx.post("https://example.com/api/v3/bulk/getEntitiesByLinks").mock(
         return_value=Response(
             200,
             json={
@@ -889,3 +889,29 @@ async def test_get_many_returns_dict_by_id_and_drops_missing():
         result = await TasksResource(http).get_many([1006174, 1006206, 99999999])
     assert set(result.keys()) == {1006174, 1006206}
     assert result[1006174].name == "A"
+    body = json.loads(route.calls.last.request.content)
+    assert isinstance(body, list)
+    assert {"contentType": "Task", "id": "1006174"} in body
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_many_cache_hit_skips_bulk_post():
+    """When all requested ids are already cached, get_many must NOT issue a bulk POST."""
+    from megaplan_sdk.cache import EntityCache
+
+    cache = EntityCache(max_size=100, ttl=300)
+    task_dict = {"contentType": "Task", "id": 1006174, "name": "Cached Task"}
+    cache.set("Task", 1006174, task_dict)
+
+    route = respx.post("https://example.com/api/v3/bulk/getEntitiesByLinks").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        resource = TasksResource(http, cache=cache)
+        result = await resource.get_many([1006174])
+
+    assert 1006174 in result
+    assert result[1006174].name == "Cached Task"
+    assert not route.called

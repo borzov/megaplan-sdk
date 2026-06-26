@@ -424,7 +424,7 @@ async def test_q_with_filter_raises():
 @respx.mock
 async def test_get_many_returns_dict_by_id_and_drops_missing():
     """get_many returns dict[id->Deal]; ids absent from response are dropped."""
-    respx.post("https://example.com/api/v3/bulk/getEntitiesByLinks").mock(
+    route = respx.post("https://example.com/api/v3/bulk/getEntitiesByLinks").mock(
         return_value=Response(
             200,
             json={
@@ -440,3 +440,6 @@ async def test_get_many_returns_dict_by_id_and_drops_missing():
         result = await DealsResource(http).get_many([2001001, 2001002, 99999999])
     assert set(result.keys()) == {2001001, 2001002}
     assert result[2001001].name == "Deal A"
+    body = json.loads(route.calls.last.request.content)
+    assert isinstance(body, list)
+    assert {"contentType": "Deal", "id": "2001001"} in body
