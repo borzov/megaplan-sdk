@@ -520,6 +520,84 @@ class BaseResource:
 
         return result
 
+    async def _bulk_get_entities_by_links(
+        self, links: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """POST /api/v3/bulk/getEntitiesByLinks (raw, internal).
+
+        Body is a plain JSON array of ``{"contentType", "id"}`` links.
+        The endpoint silently drops inaccessible entities and does NOT
+        preserve order. Do NOT use for Employee — the server 500s (#FR-1).
+        """
+        path = self._build_path("api", "v3", "bulk", "getEntitiesByLinks")
+        response = await self._http.post(path, json_data=links)
+        data: list[dict[str, Any]] = response.get("data", [])
+        return data
+
+    async def _get_many_via_bulk(
+        self,
+        content_type: str,
+        ids: list[int],
+        model_class: type[T],
+        use_cache: bool = True,
+    ) -> dict[int, T]:
+        """Batch-fetch entities by id via the bulk endpoint, keyed by id.
+
+        Missing/inaccessible ids are absent from the result. Cache is read
+        and populated. Order is irrelevant since the result is a dict.
+        """
+        result: dict[int, T] = {}
+        missing: list[int] = []
+        for entity_id in dict.fromkeys(ids):  # de-dupe, preserve order
+            if use_cache and self._cache:
+                cached = self._cache.get(content_type, entity_id)
+                if cached is not None:
+                    result[entity_id] = (
+                        model_class(**cached) if isinstance(cached, dict) else cached
+                    )
+                    continue
+            missing.append(entity_id)
+
+        if missing:
+            links = [{"contentType": content_type, "id": str(i)} for i in missing]
+            for item in await self._bulk_get_entities_by_links(links):
+                entity = model_class(**item)
+                entity_id = int(item["id"])
+                result[entity_id] = entity
+                if use_cache and self._cache:
+                    self._cache.set(
+                        content_type,
+                        entity_id,
+                        entity.model_dump(by_alias=True),  # type: ignore[attr-defined]
+                    )
+        return result
+
+    async def _get_many_sequential(
+        self,
+        entity_type: str,
+        ids: list[int],
+        model_class: type[T],
+        use_cache: bool = True,
+    ) -> dict[int, T]:
+        """Fetch entities by id via parallel single gets, keyed by id.
+
+        Fallback for entity types the bulk endpoint cannot handle (Employee
+        500s — #FR-1). Inaccessible ids are dropped.
+        """
+        unique = list(dict.fromkeys(ids))
+        fetched = await asyncio.gather(
+            *(
+                self._get_entity_cached(entity_type, i, model_class, use_cache=use_cache)
+                for i in unique
+            ),
+            return_exceptions=True,
+        )
+        result: dict[int, T] = {}
+        for entity_id, entity in zip(unique, fetched, strict=True):
+            if not isinstance(entity, BaseException):
+                result[entity_id] = entity
+        return result
+
     @staticmethod
     def _entity_type_to_content_type(entity_type: str) -> str:
         """Convert API entity type to contentType.

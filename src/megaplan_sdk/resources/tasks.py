@@ -335,6 +335,22 @@ class TasksResource(BaseResource, FullDetailsMixin):
         """
         return await self._get_entity("task", task_id, Task)
 
+    async def get_many(self, ids: list[int], use_cache: bool = True) -> dict[int, Task]:
+        """Batch-fetch tasks by id via the bulk endpoint (#FR-1).
+
+        Args:
+            ids: Task ids to load (duplicates ignored).
+            use_cache: Read/populate the entity cache (default: True).
+
+        Returns:
+            Dict mapping id -> Task. Inaccessible ids are absent.
+
+        Examples:
+            >>> tasks = await client.tasks.get_many([1006174, 1006175])
+            >>> tasks[1006174].name
+        """
+        return await self._get_many_via_bulk(ContentType.TASK, ids, Task, use_cache)
+
     async def update(self, task_id: int, task_data: dict[str, Any]) -> Task:
         """Update task.
 

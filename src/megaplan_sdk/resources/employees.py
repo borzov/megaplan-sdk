@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from megaplan_sdk.constants import ContentType
+from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.resources.base import BaseResource
 
@@ -219,6 +220,22 @@ class EmployeesResource(BaseResource):
         path = self._build_path("api", "v3", "currentUser")
         response = await self._http.get(path)
         return Employee(**response["data"])
+
+    async def get_many(self, ids: list[int], use_cache: bool = True) -> dict[int, Employee]:
+        """Batch-fetch employees by id (#FR-1).
+
+        The bulk endpoint 500s on Employee links (server bug), so this falls
+        back to parallel single gets. Inaccessible ids are absent.
+
+        Args:
+            ids: Employee ids to load (duplicates ignored).
+            use_cache: Read/populate the entity cache (default: True).
+
+        Returns:
+            Dict mapping id -> Employee.
+        """
+        logger.debug("bulk endpoint 500s for Employee; using sequential gets for get_many")
+        return await self._get_many_sequential("employee", ids, Employee, use_cache)
 
     async def iterate(
         self,

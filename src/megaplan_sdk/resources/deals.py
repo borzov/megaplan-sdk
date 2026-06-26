@@ -294,6 +294,18 @@ class DealsResource(BaseResource, FullDetailsMixin):
         """
         return await self._get_entity("deal", deal_id, Deal)
 
+    async def get_many(self, ids: list[int], use_cache: bool = True) -> dict[int, Deal]:
+        """Batch-fetch deals by id via the bulk endpoint (#FR-1).
+
+        Args:
+            ids: Deal ids to load (duplicates ignored).
+            use_cache: Read/populate the entity cache (default: True).
+
+        Returns:
+            Dict mapping id -> Deal. Inaccessible ids are absent.
+        """
+        return await self._get_many_via_bulk(ContentType.DEAL, ids, Deal, use_cache)
+
     async def update(self, deal_id: int, deal_data: dict[str, Any]) -> Deal:
         """Update deal.
 

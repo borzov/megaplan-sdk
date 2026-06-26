@@ -867,3 +867,25 @@ async def test_q_with_filter_raises():
     async with HTTPClient("https://example.com", access_token="token") as http:
         with pytest.raises(ValueError):
             await TasksResource(http).list(q="x", filter="incoming")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_many_returns_dict_by_id_and_drops_missing():
+    """get_many returns dict[id->Task]; ids absent from response are dropped."""
+    respx.post("https://example.com/api/v3/bulk/getEntitiesByLinks").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200, "errors": [], "pagination": []},
+                "data": [
+                    {"contentType": "Task", "id": "1006174", "name": "A"},
+                    {"contentType": "Task", "id": "1006206", "name": "B"},
+                ],
+            },
+        )  # note: requested 99999999 is absent
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        result = await TasksResource(http).get_many([1006174, 1006206, 99999999])
+    assert set(result.keys()) == {1006174, 1006206}
+    assert result[1006174].name == "A"
