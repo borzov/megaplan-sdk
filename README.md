@@ -242,6 +242,32 @@ project = await client.projects.get(project_id=5)
 deal = await client.deals.get(deal_id=200)
 ```
 
+#### Батч-загрузка по ID (`get_many`)
+
+Метод `get_many()` загружает несколько сущностей за один запрос и возвращает словарь `{id: сущность}`:
+
+```python
+from megaplan_sdk import DEFAULT_SORT_RECENT
+
+# Загрузить несколько задач по списку ID
+tasks_map = await client.tasks.get_many([101, 102, 103])
+# Возвращает: dict[int, Task]
+for task_id, task in tasks_map.items():
+    print(f"[{task_id}] {task.name}")
+
+# Аналогично для сделок
+deals_map = await client.deals.get_many([201, 202])
+# Возвращает: dict[int, Deal]
+
+# И для сотрудников (через параллельные одиночные запросы)
+employees_map = await client.employees.get_many([301, 302, 303])
+# Возвращает: dict[int, Employee]
+```
+
+> **Примечание:** `tasks.get_many` и `deals.get_many` используют батч-эндпоинт
+> `POST /api/v3/bulk/getEntitiesByLinks`. `employees.get_many` выполняет параллельные
+> одиночные запросы (bulk-эндпоинт для Employee не поддерживается сервером).
+
 #### Создание (`create`)
 
 ```python
@@ -424,9 +450,20 @@ if details.history:
 tasks = await client.tasks.list(
     filter=None,              # TaskFilter: ID фильтра (int/str) или FilterBuilder объект
     statuses=None,            # list[str]: Статусы задач для фильтрации
+    q=None,                   # str: Поиск по полю name (с 0.4.0 — реальный серверный фильтр)
+    q_in=None,                # list[str]: Поля поиска, по умолчанию ["name"] (например, ["name", "statement"])
+    sort_by=None,             # list[dict]: Сортировка; по умолчанию — timeCreated DESC (используйте sort_by=[] для отключения)
     # ... остальные параметры из общих паттернов
 )
 ```
+
+> **Поведение с 0.4.0:** без `sort_by` задачи сортируются по `timeCreated DESC` (как в UI).
+> Чтобы убрать сортировку: `sort_by=[]`. Константа `DEFAULT_SORT_RECENT` из `megaplan_sdk`
+> содержит значение по умолчанию.
+>
+> Параметр `q` теперь отправляется серверу как фильтр по полю `name`. Значение `q_in`
+> расширяет список полей поиска (например, `q_in=["name", "statement"]`). Поля
+> `description` и `subject` сервером не поддерживаются → `NotImplementedError`.
 
 **Примеры использования фильтров:**
 
@@ -934,9 +971,15 @@ deals = await client.deals.list(
     filter=None,              # TradeFilter: ID фильтра (int/str) или FilterBuilder объект
     status=None,              # ProgramState: Статус программы для фильтрации
     base_on=None,             # BaseEntity: Базовая сущность для фильтрации
+    q=None,                   # str: Поиск по полю name (с 0.4.0 — реальный серверный фильтр)
+    q_in=None,                # list[str]: Поля поиска, по умолчанию ["name"]
+    sort_by=None,             # list[dict]: Сортировка; по умолчанию — timeCreated DESC (sort_by=[] для отключения)
     # ... остальные параметры из общих паттернов
 )
 ```
+
+> **Поведение с 0.4.0:** без `sort_by` сделки сортируются по `timeCreated DESC`.
+> Используйте `sort_by=[]` для отключения сортировки по умолчанию.
 
 **Примеры использования фильтров:**
 
@@ -1719,16 +1762,21 @@ deals = await client.deals.list(filter=filter_obj)
 
 ### Поиск сотрудников
 
-Поиск сотрудников по имени или телефону может работать некорректно и возвращать 0 результатов. Для надежного поиска используйте точный email:
+Параметры `q` и `filter` у `employees.list()` **не поддерживаются сервером** (API молча игнорирует
+фильтр на эндпоинте `/employee`). Начиная с 0.4.0 SDK выбрасывает `NotImplementedError` при их
+передаче. Для поиска используйте альтернативы:
 
 ```python
-# Может не работать
-employees = await client.employees.list(q="Иван Иванов")
+# Вызовет NotImplementedError начиная с 0.4.0
+# employees = await client.employees.list(q="Иван Иванов")
 
-# Рекомендуется - поиск по точному email
-employees = await client.employees.list(q="ivan@example.com")
+# Рекомендуется: загрузить всех и фильтровать локально
+async for emp in client.employees.iterate():
+    if "Иван" in emp.first_name:
+        print(emp.display_name())
 
-# Или загрузите всех сотрудников и фильтруйте локально
+# Или get_many по известным ID
+employees_map = await client.employees.get_many([123, 456])
 ```
 
 ### Проверка существования сделки (check_exists)
