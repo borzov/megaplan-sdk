@@ -192,6 +192,7 @@ async def test_iterate_respects_entity_type():
 @pytest.mark.asyncio
 @respx.mock
 async def test_create_with_content_kwarg():
+    """Test that create() with content kwarg sends correct JSON body."""
     route = respx.post("https://example.com/api/v3/task/123/comments").mock(
         return_value=Response(200, json={"meta": {"status": 200},
                                          "data": {"contentType": "Comment", "id": 1,
@@ -206,7 +207,8 @@ async def test_create_with_content_kwarg():
 @pytest.mark.asyncio
 @respx.mock
 async def test_create_legacy_text_remapped_with_warning():
-    respx.post("https://example.com/api/v3/task/123/comments").mock(
+    """Test that create() remaps comment_data['text'] to 'content' and emits DeprecationWarning."""
+    route = respx.post("https://example.com/api/v3/task/123/comments").mock(
         return_value=Response(200, json={"meta": {"status": 200},
                                          "data": {"contentType": "Comment", "id": 1,
                                                   "content": "hi"}})
@@ -216,3 +218,22 @@ async def test_create_legacy_text_remapped_with_warning():
             await CommentsResource(http).create(
                 entity_id=123, comment_data={"text": "hi"}
             )
+    assert json.loads(route.calls.last.request.content) == {"content": "hi"}
+
+
+@pytest.mark.asyncio
+async def test_create_both_content_and_data_raises():
+    """Test that passing both content and comment_data raises ValueError."""
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.raises(ValueError):
+            await CommentsResource(http).create(
+                entity_id=1, content="x", comment_data={"content": "x"}
+            )
+
+
+@pytest.mark.asyncio
+async def test_create_neither_content_nor_data_raises():
+    """Test that passing neither content nor comment_data raises ValueError."""
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.raises(ValueError):
+            await CommentsResource(http).create(entity_id=1)
