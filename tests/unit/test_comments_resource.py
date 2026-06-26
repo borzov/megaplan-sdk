@@ -1,5 +1,8 @@
 """Unit tests for CommentsResource."""
 
+import json
+import warnings
+
 import pytest
 import respx
 from httpx import Response
@@ -69,7 +72,8 @@ async def test_create_defaults_to_task_path():
 
     async with HTTPClient("https://example.com", access_token="token") as http_client:
         resource = CommentsResource(http_client)
-        await resource.create(entity_id=123, comment_data={"text": "Hello"})
+        with pytest.warns(DeprecationWarning):
+            await resource.create(entity_id=123, comment_data={"text": "Hello"})
 
     assert route.called
 
@@ -90,9 +94,10 @@ async def test_create_respects_entity_type():
 
     async with HTTPClient("https://example.com", access_token="token") as http_client:
         resource = CommentsResource(http_client)
-        await resource.create(
-            entity_id=77, comment_data={"text": "Project comment"}, entity_type="project"
-        )
+        with pytest.warns(DeprecationWarning):
+            await resource.create(
+                entity_id=77, comment_data={"text": "Project comment"}, entity_type="project"
+            )
 
     assert route.called
 
@@ -182,3 +187,32 @@ async def test_iterate_respects_entity_type():
         results = [c async for c in resource.iterate(entity_id=55, entity_type="project")]
     assert route.called
     assert results == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_with_content_kwarg():
+    route = respx.post("https://example.com/api/v3/task/123/comments").mock(
+        return_value=Response(200, json={"meta": {"status": 200},
+                                         "data": {"contentType": "Comment", "id": 1,
+                                                  "content": "hi"}})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await CommentsResource(http).create(entity_id=123, content="hi")
+    body = json.loads(route.calls.last.request.content)
+    assert body == {"content": "hi"}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_legacy_text_remapped_with_warning():
+    respx.post("https://example.com/api/v3/task/123/comments").mock(
+        return_value=Response(200, json={"meta": {"status": 200},
+                                         "data": {"contentType": "Comment", "id": 1,
+                                                  "content": "hi"}})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.warns(DeprecationWarning):
+            await CommentsResource(http).create(
+                entity_id=123, comment_data={"text": "hi"}
+            )
