@@ -106,6 +106,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         filter: FilterType | None = None,
         status: ProgramState | None = None,
         q: str | None = None,
+        q_in: list[str] | None = None,
         base_on: dict[str, Any] | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
@@ -124,6 +125,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         filter: FilterType | None = None,
         status: ProgramState | None = None,
         q: str | None = None,
+        q_in: list[str] | None = None,
         base_on: dict[str, Any] | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
@@ -140,6 +142,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         filter: FilterType | None = None,
         status: ProgramState | None = None,
         q: str | None = None,
+        q_in: list[str] | None = None,
         base_on: dict[str, Any] | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
@@ -155,33 +158,13 @@ class DealsResource(BaseResource, FullDetailsMixin):
         Args:
             filter: Trade filter (ID or config).
             status: Program state to filter by.
-            q: Search query.
-                **Note:** This parameter may not work properly in Megaplan API
-                (returns empty results). For text search, use FilterBuilder instead:
-                ```python
-                from megaplan_sdk import FilterBuilder
-
-                # Simple text search
-                filter_obj = FilterBuilder("TradeFilter").field("name").contains("Leader").build()
-                deals = await client.deals.list(filter=filter_obj)
-
-                # Multiple conditions with different types
-                filter_obj = (
-                    FilterBuilder("TradeFilter")
-                    .field("name").contains("Leader")
-                    .and_()
-                    .field_number("amount").between(1000, 5000)
-                    .and_()
-                    .field_enum("status").in_list(["active", "pending"])
-                    .build()
-                )
-                deals = await client.deals.list(filter=filter_obj)
-
-                # Using specialized builder
-                from megaplan_sdk import TradeFilterBuilder
-                filter_obj = TradeFilterBuilder().field("name").contains("Leader").build()
-                deals = await client.deals.list(filter=filter_obj)
-                ```
+            q: Text search by name (converted to a server-side name filter; #11).
+                Use q_in=["name", "statement"] to also match statement.
+                Other fields are silently ignored by the API.
+                Cannot be combined with ``filter`` — raises ValueError.
+            q_in: Fields to search within when ``q`` is provided (default: ["name"]).
+                Allowed values: "name", "statement".
+                Other values raise NotImplementedError (silently ignored by server).
             base_on: Base entity for filtering.
                 Warning: This parameter may return 422 ValidationError due to API limitations.
                 Format: {"contentType": "Contractor", "id": 123} (id should be int, not string).
@@ -223,6 +206,13 @@ class DealsResource(BaseResource, FullDetailsMixin):
         if sort_by is None:
             sort_by = list(DEFAULT_SORT_RECENT)
 
+        # #11: raw `q` is ignored server-side; convert to a real name filter.
+        if q is not None:
+            if filter is not None:
+                raise ValueError("Pass either `q` or `filter`, not both.")
+            filter = self._q_to_filter("TradeFilter", q, q_in or ["name"])
+            q = None
+
         # Convert filter ID to object format if needed
         processed_filter = filter
         if filter is not None and isinstance(filter, int | str) and not isinstance(filter, dict):
@@ -235,8 +225,6 @@ class DealsResource(BaseResource, FullDetailsMixin):
             extra_params["status"] = (
                 status.model_dump(by_alias=True) if hasattr(status, "model_dump") else status
             )
-        if q:
-            extra_params["q"] = q
         if base_on:
             extra_params["baseOn"] = base_on
 

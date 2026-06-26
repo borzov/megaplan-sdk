@@ -125,6 +125,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         filter: FilterType | None = None,
         statuses: list[str] | None = None,
         q: str | None = None,
+        q_in: list[str] | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -142,6 +143,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         filter: FilterType | None = None,
         statuses: list[str] | None = None,
         q: str | None = None,
+        q_in: list[str] | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -157,6 +159,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         filter: FilterType | None = None,
         statuses: list[str] | None = None,
         q: str | None = None,
+        q_in: list[str] | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -177,47 +180,13 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 "rejected", "cancelled", "expired", "delayed", "template", "overdue".
                 Invalid status values will cause 422 ValidationError.
                 The array is serialized as JSON in query string: {"statuses": ["assigned", "accepted"]}
-            q: Text search query (searches in task name and description).
-                **Note:** This parameter may not work properly in Megaplan API
-                (returns empty results). For text search, use FilterBuilder instead:
-                ```python
-                from megaplan_sdk import FilterBuilder
-
-                # Simple text search
-                filter_obj = FilterBuilder("TaskFilter").field("name").contains("договор").build()
-                tasks = await client.tasks.list(filter=filter_obj)
-
-                # Multiple conditions with different types
-                filter_obj = (
-                    FilterBuilder("TaskFilter")
-                    .field("name").contains("договор")
-                    .and_()
-                    .field_number("amount").greater_than(1000)
-                    .and_()
-                    .field_enum("status").in_list(["active", "pending"])
-                    .build()
-                )
-                tasks = await client.tasks.list(filter=filter_obj)
-
-                # Nested groups
-                filter_obj = (
-                    FilterBuilder("TaskFilter")
-                    .field("name").contains("договор")
-                    .and_()
-                    .group()
-                        .field("status").equals("active")
-                        .or_()
-                        .field("priority").equals("high")
-                    .end_group()
-                    .build()
-                )
-                tasks = await client.tasks.list(filter=filter_obj)
-
-                # Using specialized builder
-                from megaplan_sdk import TaskFilterBuilder
-                filter_obj = TaskFilterBuilder().field("name").contains("договор").build()
-                tasks = await client.tasks.list(filter=filter_obj)
-                ```
+            q: Text search by name (converted to a server-side name filter; #11).
+                Use q_in=["name", "statement"] to also match statement.
+                Other fields are silently ignored by the API.
+                Cannot be combined with ``filter`` — raises ValueError.
+            q_in: Fields to search within when ``q`` is provided (default: ["name"]).
+                Allowed values: "name", "statement".
+                Other values raise NotImplementedError (silently ignored by server).
             limit: Number of items per page.
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
@@ -267,6 +236,13 @@ class TasksResource(BaseResource, FullDetailsMixin):
         if sort_by is None:
             sort_by = list(DEFAULT_SORT_RECENT)
 
+        # #11: raw `q` is ignored server-side; convert to a real name filter.
+        if q is not None:
+            if filter is not None:
+                raise ValueError("Pass either `q` or `filter`, not both.")
+            filter = self._q_to_filter("TaskFilter", q, q_in or ["name"])
+            q = None
+
         # Validate statuses if provided
         if statuses:
             invalid_statuses = [s for s in statuses if s not in VALID_TASK_STATUSES]
@@ -305,7 +281,6 @@ class TasksResource(BaseResource, FullDetailsMixin):
             sort_by=sort_by,
             only_requested_fields=only_requested_fields,
             statuses=statuses,  # Extra param specific to tasks
-            q=q,  # Extra param specific to tasks - text search
         )
 
         # 1. Fetch tasks

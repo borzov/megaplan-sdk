@@ -163,6 +163,42 @@ class BaseResource:
 
         return params if params else {}
 
+    _Q_ALLOWED_FIELDS = ("name", "statement")
+
+    def _q_to_filter(self, filter_content_type: str, q: str, q_in: list[str]) -> dict[str, Any]:
+        """Convert a free-text query into a FilterBuilder filter.
+
+        Megaplan ignores a raw ``q`` param (it is not in the RAML), so a
+        ``q=`` that the user expects to search silently returns 0 (#11).
+        Only ``name`` and ``statement`` are filterable server-side; other
+        text fields (``description``/``subject``/...) are silently ignored.
+
+        Args:
+            filter_content_type: e.g. ``"TaskFilter"`` / ``"TradeFilter"``.
+            q: Search needle.
+            q_in: Fields to search; subset of ``name``/``statement``.
+
+        Returns:
+            A filter dict ready for the ``filter`` query param.
+
+        Raises:
+            NotImplementedError: If ``q_in`` contains a non-filterable field.
+        """
+        from megaplan_sdk.filter_builder import FilterBuilder
+
+        invalid = [f for f in q_in if f not in self._Q_ALLOWED_FIELDS]
+        if invalid:
+            raise NotImplementedError(
+                f"Server-side text filter on {invalid} is silently ignored by "
+                f"Megaplan; only {list(self._Q_ALLOWED_FIELDS)} work. (#11)"
+            )
+        builder = FilterBuilder(filter_content_type)
+        for i, field_name in enumerate(q_in):
+            if i:
+                builder.or_()
+            builder.field(field_name).contains(q)
+        return builder.build()
+
     async def _iterate_generic(
         self,
         content_type: str,
