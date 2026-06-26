@@ -163,6 +163,42 @@ class BaseResource:
 
         return params if params else {}
 
+    _Q_ALLOWED_FIELDS = ("name", "statement")
+
+    def _q_to_filter(self, filter_content_type: str, q: str, q_in: list[str]) -> dict[str, Any]:
+        """Convert a free-text query into a FilterBuilder filter.
+
+        Megaplan ignores a raw ``q`` param (it is not in the RAML), so a
+        ``q=`` that the user expects to search silently returns 0 (#11).
+        Only ``name`` and ``statement`` are filterable server-side; other
+        text fields (``description``/``subject``/...) are silently ignored.
+
+        Args:
+            filter_content_type: e.g. ``"TaskFilter"`` / ``"TradeFilter"``.
+            q: Search needle.
+            q_in: Fields to search; subset of ``name``/``statement``.
+
+        Returns:
+            A filter dict ready for the ``filter`` query param.
+
+        Raises:
+            NotImplementedError: If ``q_in`` contains a non-filterable field.
+        """
+        from megaplan_sdk.filter_builder import FilterBuilder
+
+        invalid = [f for f in q_in if f not in self._Q_ALLOWED_FIELDS]
+        if invalid:
+            raise NotImplementedError(
+                f"Server-side text filter on {invalid} is silently ignored by "
+                f"Megaplan; only {list(self._Q_ALLOWED_FIELDS)} work. (#11)"
+            )
+        builder = FilterBuilder(filter_content_type)
+        for i, field_name in enumerate(q_in):
+            if i:
+                builder.or_()
+            builder.field(field_name).contains(q)
+        return builder.build()
+
     async def _iterate_generic(
         self,
         content_type: str,
@@ -482,6 +518,84 @@ class BaseResource:
                     result[entity_id] = entity  # type: ignore[assignment]
                 # Ignore exceptions during batch loading
 
+        return result
+
+    async def _bulk_get_entities_by_links(
+        self, links: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """POST /api/v3/bulk/getEntitiesByLinks (raw, internal).
+
+        Body is a plain JSON array of ``{"contentType", "id"}`` links.
+        The endpoint silently drops inaccessible entities and does NOT
+        preserve order. Do NOT use for Employee — the server 500s (#FR-1).
+        """
+        path = self._build_path("api", "v3", "bulk", "getEntitiesByLinks")
+        response = await self._http.post(path, json_data=links)
+        data: list[dict[str, Any]] = response.get("data", [])
+        return data
+
+    async def _get_many_via_bulk(
+        self,
+        content_type: str,
+        ids: list[int],
+        model_class: type[T],
+        use_cache: bool = True,
+    ) -> dict[int, T]:
+        """Batch-fetch entities by id via the bulk endpoint, keyed by id.
+
+        Missing/inaccessible ids are absent from the result. Cache is read
+        and populated. Order is irrelevant since the result is a dict.
+        """
+        result: dict[int, T] = {}
+        missing: list[int] = []
+        for entity_id in dict.fromkeys(ids):  # de-dupe, preserve order
+            if use_cache and self._cache:
+                cached = self._cache.get(content_type, entity_id)
+                if cached is not None:
+                    result[entity_id] = (
+                        model_class(**cached) if isinstance(cached, dict) else cached
+                    )
+                    continue
+            missing.append(entity_id)
+
+        if missing:
+            links = [{"contentType": content_type, "id": str(i)} for i in missing]
+            for item in await self._bulk_get_entities_by_links(links):
+                entity = model_class(**item)
+                entity_id = int(item["id"])
+                result[entity_id] = entity
+                if use_cache and self._cache:
+                    self._cache.set(
+                        content_type,
+                        entity_id,
+                        entity.model_dump(by_alias=True),  # type: ignore[attr-defined]
+                    )
+        return result
+
+    async def _get_many_sequential(
+        self,
+        entity_type: str,
+        ids: list[int],
+        model_class: type[T],
+        use_cache: bool = True,
+    ) -> dict[int, T]:
+        """Fetch entities by id via parallel single gets, keyed by id.
+
+        Fallback for entity types the bulk endpoint cannot handle (Employee
+        500s — #FR-1). Inaccessible ids are dropped.
+        """
+        unique = list(dict.fromkeys(ids))
+        fetched = await asyncio.gather(
+            *(
+                self._get_entity_cached(entity_type, i, model_class, use_cache=use_cache)
+                for i in unique
+            ),
+            return_exceptions=True,
+        )
+        result: dict[int, T] = {}
+        for entity_id, entity in zip(unique, fetched, strict=True):
+            if not isinstance(entity, Exception):
+                result[entity_id] = entity
         return result
 
     @staticmethod

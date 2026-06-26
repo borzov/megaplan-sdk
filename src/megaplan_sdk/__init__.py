@@ -1,7 +1,7 @@
 """Megaplan Python SDK - Professional SDK for Megaplan API v3."""
 
 from megaplan_sdk.client import MegaplanClient
-from megaplan_sdk.constants import DEFAULT_TASK_LIST_FIELDS
+from megaplan_sdk.constants import DEFAULT_SORT_RECENT, DEFAULT_TASK_LIST_FIELDS
 from megaplan_sdk.exceptions import (
     AuthenticationError,
     AuthorizationError,
@@ -111,7 +111,8 @@ __all__ = [
     "TradeFilterBuilder",
     "ProjectFilterBuilder",
     # Constants
+    "DEFAULT_SORT_RECENT",
     "DEFAULT_TASK_LIST_FIELDS",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

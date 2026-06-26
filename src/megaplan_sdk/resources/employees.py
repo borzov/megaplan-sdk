@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from megaplan_sdk.constants import ContentType
+from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.resources.base import BaseResource
 
@@ -37,6 +38,7 @@ class EmployeesResource(BaseResource):
 
     async def list(
         self,
+        filter: Any | None = None,  # noqa: A002
         q: str | None = None,
         department_id: int | None = None,
         status: str | None = None,
@@ -52,9 +54,12 @@ class EmployeesResource(BaseResource):
         """Get list of employees.
 
         Args:
-            q: Search query (name, email, phone).
-                NOTE: Search may not work properly in Megaplan API,
-                use exact email for best results.
+            filter: NOT SUPPORTED — raises NotImplementedError.
+                The server accepts filter= with 200 OK but silently ignores it.
+                Fetch `.list(limit=500)` and filter client-side. (#13)
+            q: NOT SUPPORTED — raises NotImplementedError.
+                Text search on /api/v3/employee is silently ignored server-side.
+                Fetch `.list(limit=500)` and filter client-side. (#13)
             department_id: Filter by department ID.
             status: Filter by status (active, fired, etc.).
             limit: Number of items per page.
@@ -72,6 +77,10 @@ class EmployeesResource(BaseResource):
         Returns:
             List of employees (with expanded fields if requested).
 
+        Raises:
+            NotImplementedError: If `filter` or `q` is provided (server silently
+                ignores them — raise loudly to prevent silent wrong results).
+
         Examples:
             >>> # Get all active employees
             >>> employees = await client.employees.list(status="active")
@@ -84,12 +93,26 @@ class EmployeesResource(BaseResource):
             ...     if employee.department and hasattr(employee.department, 'name'):
             ...         print(f"{employee.display_name()} - {employee.department.name}")
         """
+        # #13: /api/v3/employee accepts filter/q with 200 OK but SILENTLY
+        # ignores them (verified 2026-06-24 against ruvents.megaplan.ru) —
+        # raise loudly instead of returning a wrong subset.
+        if filter is not None:
+            raise NotImplementedError(
+                "Server-side filter on /api/v3/employee is accepted (200 OK) "
+                "but silently ignored. Fetch `.list(limit=500)` and filter "
+                "client-side. (#13)"
+            )
+        if q is not None:
+            raise NotImplementedError(
+                "Text search `q` on /api/v3/employee is silently ignored "
+                "server-side. Fetch `.list(limit=500)` and filter "
+                "client-side. (#13)"
+            )
+
         path = self._build_path("api", "v3", "employee")
 
         # Prepare employee-specific parameters
         extra_params: dict[str, Any] = {}
-        if q:
-            extra_params["q"] = q
         if department_id:
             extra_params["department"] = {
                 "id": department_id,
@@ -147,7 +170,17 @@ class EmployeesResource(BaseResource):
 
         Returns:
             Employee details.
+
+        Note:
+            Use get_current() for the current user; get("me") raises ValueError.
         """
+        # #10: `/employee/me` exists only for DELETE → confusing 405.
+        if isinstance(employee_id, str) and employee_id.lower() == "me":
+            raise ValueError(
+                "To get the current user, use `employees.get_current()` "
+                "(calls /api/v3/currentUser)."
+            )
+
         return await self._get_entity("employee", employee_id, Employee)
 
     async def update(self, employee_id: int, employee_data: dict[str, Any]) -> Employee:
@@ -187,6 +220,22 @@ class EmployeesResource(BaseResource):
         path = self._build_path("api", "v3", "currentUser")
         response = await self._http.get(path)
         return Employee(**response["data"])
+
+    async def get_many(self, ids: list[int], use_cache: bool = True) -> dict[int, Employee]:
+        """Batch-fetch employees by id (#FR-1).
+
+        The bulk endpoint 500s on Employee links (server bug), so this falls
+        back to parallel single gets. Inaccessible ids are absent.
+
+        Args:
+            ids: Employee ids to load (duplicates ignored).
+            use_cache: Read/populate the entity cache (default: True).
+
+        Returns:
+            Dict mapping id -> Employee.
+        """
+        logger.debug("bulk endpoint 500s for Employee; using sequential gets for get_many")
+        return await self._get_many_sequential("employee", ids, Employee, use_cache)
 
     async def iterate(
         self,

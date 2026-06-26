@@ -1,5 +1,7 @@
 """Unit tests for DealsResource."""
 
+import json
+
 import pytest
 import respx
 from httpx import Response
@@ -345,3 +347,99 @@ async def test_get_all_participants_with_pagination():
 
         assert len(participants) == 1
         assert participants[0].first_name == "John"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_defaults_to_timecreated_desc():
+    """Test that list() defaults to timeCreated DESC sorting."""
+    import json
+    import urllib.parse
+
+    route = respx.get("https://example.com/api/v3/deal").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await DealsResource(http).list(limit=5)
+    query_str = route.calls.last.request.url.query.decode()
+    sent = json.loads(urllib.parse.unquote(query_str))
+    assert sent["sortBy"] == [
+        {"contentType": "SortField", "fieldName": "timeCreated", "desc": True}
+    ]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_empty_sort_opts_out():
+    """Test that sort_by=[] opts out of default sorting."""
+    import urllib.parse
+
+    route = respx.get("https://example.com/api/v3/deal").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await DealsResource(http).list(limit=5, sort_by=[])
+    query_str = route.calls.last.request.url.query.decode()
+    assert "sortBy" not in urllib.parse.unquote(query_str)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_q_is_converted_to_name_filter():
+    """Test that q= is converted to a FilterBuilder name filter, never sent raw."""
+    import urllib.parse
+
+    route = respx.get("https://example.com/api/v3/deal").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await DealsResource(http).list(q="ДВФМ", limit=5)
+    query_str = route.calls.last.request.url.query.decode()
+    unquoted = urllib.parse.unquote(query_str)
+    assert '"q"' not in unquoted  # raw q must never be sent
+    parsed = json.loads(unquoted)
+    term = parsed["filter"]["config"]["termGroup"]["terms"][0]
+    assert term["field"] == "name"
+    assert term["comparison"] == "contains"
+    assert term["value"] == "ДВФМ"
+
+
+@pytest.mark.asyncio
+async def test_q_in_description_raises():
+    """Test that q_in with unsupported field raises NotImplementedError."""
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.raises(NotImplementedError):
+            await DealsResource(http).list(q="x", q_in=["description"])
+
+
+@pytest.mark.asyncio
+async def test_q_with_filter_raises():
+    """Test that passing both q and filter raises ValueError."""
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.raises(ValueError):
+            await DealsResource(http).list(q="x", filter="incoming")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_many_returns_dict_by_id_and_drops_missing():
+    """get_many returns dict[id->Deal]; ids absent from response are dropped."""
+    route = respx.post("https://example.com/api/v3/bulk/getEntitiesByLinks").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200, "errors": [], "pagination": []},
+                "data": [
+                    {"contentType": "Deal", "id": "2001001", "name": "Deal A"},
+                    {"contentType": "Deal", "id": "2001002", "name": "Deal B"},
+                ],
+            },
+        )  # note: requested 99999999 is absent
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        result = await DealsResource(http).get_many([2001001, 2001002, 99999999])
+    assert set(result.keys()) == {2001001, 2001002}
+    assert result[2001001].name == "Deal A"
+    body = json.loads(route.calls.last.request.content)
+    assert isinstance(body, list)
+    assert {"contentType": "Deal", "id": "2001001"} in body

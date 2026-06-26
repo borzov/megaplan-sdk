@@ -54,3 +54,23 @@ class KnowledgeSectionWithArticles(BaseModel):
     articles: list[KnowledgeArticle]
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    @property
+    def id(self) -> int | None:
+        """Delegate to the underlying section id (#12)."""
+        return self.section.id
+
+    @property
+    def name(self) -> str | None:
+        """Delegate to the underlying section name (#12)."""
+        return self.section.name
+
+    @property
+    def content(self) -> str | None:
+        """Delegate to the underlying section HTML content (#12)."""
+        return self.section.content
+
+    @property
+    def last_updated(self) -> DateTime | None:
+        """Delegate to the underlying section last_updated (#12)."""
+        return self.section.last_updated

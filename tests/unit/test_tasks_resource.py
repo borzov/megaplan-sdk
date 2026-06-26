@@ -1,5 +1,7 @@
 """Unit tests for TasksResource."""
 
+import json
+
 import pytest
 import respx
 from httpx import Response
@@ -30,10 +32,8 @@ async def test_create_task():
 @respx.mock
 async def test_list_tasks():
     """Test listing tasks."""
-    # httpx URL-encodes the JSON query params
-    # _build_list_params now filters None values from extra_params
-    # So statuses=None won't be included in URL
-    respx.get("https://example.com/api/v3/task?{%22limit%22:%2010}").mock(
+    # list() adds default sortBy — use regex to match any query string
+    respx.get(url__regex=r"https://example\.com/api/v3/task\?.*").mock(
         return_value=Response(
             200,
             json={
@@ -55,9 +55,8 @@ async def test_list_tasks():
 @respx.mock
 async def test_list_tasks_with_q():
     """Test listing tasks with q parameter."""
-    # q parameter is included in params via extra_params
-    # None values are filtered, so statuses=None won't be in URL
-    respx.get("https://example.com/api/v3/task?{%22limit%22:%2010,%20%22q%22:%20%22test%22}").mock(
+    # list() adds default sortBy — use regex to match any query string
+    respx.get(url__regex=r"https://example\.com/api/v3/task\?.*").mock(
         return_value=Response(
             200,
             json={
@@ -797,3 +796,122 @@ async def test_list_allows_valid_sort_field():
         resource = TasksResource(http_client)
         result = await resource.list(sort_by=[{"fieldName": "activity", "desc": True}])
     assert result == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_defaults_to_timecreated_desc():
+    """Test that list() defaults to timeCreated DESC sorting."""
+    import json
+    import urllib.parse
+
+    route = respx.get("https://example.com/api/v3/task").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await TasksResource(http).list(limit=5)
+    query_str = route.calls.last.request.url.query.decode()
+    sent = json.loads(urllib.parse.unquote(query_str))
+    assert sent["sortBy"] == [
+        {"contentType": "SortField", "fieldName": "timeCreated", "desc": True}
+    ]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_empty_sort_opts_out():
+    """Test that sort_by=[] opts out of default sorting."""
+    import urllib.parse
+
+    route = respx.get("https://example.com/api/v3/task").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await TasksResource(http).list(limit=5, sort_by=[])
+    query_str = route.calls.last.request.url.query.decode()
+    assert "sortBy" not in urllib.parse.unquote(query_str)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_q_is_converted_to_name_filter():
+    """Test that q= is converted to a FilterBuilder name filter, never sent raw."""
+    import urllib.parse
+
+    route = respx.get("https://example.com/api/v3/task").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await TasksResource(http).list(q="ДВФМ", limit=5)
+    query_str = route.calls.last.request.url.query.decode()
+    unquoted = urllib.parse.unquote(query_str)
+    assert '"q"' not in unquoted  # raw q must never be sent
+    parsed = json.loads(unquoted)
+    term = parsed["filter"]["config"]["termGroup"]["terms"][0]
+    assert term["field"] == "name"
+    assert term["comparison"] == "contains"
+    assert term["value"] == "ДВФМ"
+
+
+@pytest.mark.asyncio
+async def test_q_in_description_raises():
+    """Test that q_in with unsupported field raises NotImplementedError."""
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.raises(NotImplementedError):
+            await TasksResource(http).list(q="x", q_in=["description"])
+
+
+@pytest.mark.asyncio
+async def test_q_with_filter_raises():
+    """Test that passing both q and filter raises ValueError."""
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.raises(ValueError):
+            await TasksResource(http).list(q="x", filter="incoming")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_many_returns_dict_by_id_and_drops_missing():
+    """get_many returns dict[id->Task]; ids absent from response are dropped."""
+    route = respx.post("https://example.com/api/v3/bulk/getEntitiesByLinks").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200, "errors": [], "pagination": []},
+                "data": [
+                    {"contentType": "Task", "id": "1006174", "name": "A"},
+                    {"contentType": "Task", "id": "1006206", "name": "B"},
+                ],
+            },
+        )  # note: requested 99999999 is absent
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        result = await TasksResource(http).get_many([1006174, 1006206, 99999999])
+    assert set(result.keys()) == {1006174, 1006206}
+    assert result[1006174].name == "A"
+    body = json.loads(route.calls.last.request.content)
+    assert isinstance(body, list)
+    assert {"contentType": "Task", "id": "1006174"} in body
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_many_cache_hit_skips_bulk_post():
+    """When all requested ids are already cached, get_many must NOT issue a bulk POST."""
+    from megaplan_sdk.cache import EntityCache
+
+    cache = EntityCache(max_size=100, ttl=300)
+    task_dict = {"contentType": "Task", "id": 1006174, "name": "Cached Task"}
+    cache.set("Task", 1006174, task_dict)
+
+    route = respx.post("https://example.com/api/v3/bulk/getEntitiesByLinks").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        resource = TasksResource(http, cache=cache)
+        result = await resource.get_many([1006174])
+
+    assert 1006174 in result
+    assert result[1006174].name == "Cached Task"
+    assert not route.called

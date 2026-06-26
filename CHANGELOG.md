@@ -7,6 +7,36 @@
 
 ## [Не выпущено]
 
+## [0.4.0] — 2026-06-25
+
+### ⚠️ Изменения поведения (breaking)
+- **#14** `tasks.list()` / `deals.list()` без `sort_by` теперь сортируют по
+  `timeCreated DESC` (как в UI Мегаплана). Раньше порядок был не определён.
+  Отключить: `sort_by=[]`. Добавлена константа `DEFAULT_SORT_RECENT`.
+- **#11** Параметр `q` у `tasks.list()` / `deals.list()` теперь
+  преобразуется в серверный фильтр по полю `name` (раньше молча
+  игнорировался и возвращал 0). `q_in=["name","statement"]` расширяет поиск;
+  `description`/`subject` недоступны на сервере → `NotImplementedError`.
+
+### Added
+- **#FR-1** `tasks.get_many(ids)` / `deals.get_many(ids)` — батч-загрузка
+  через `POST /api/v3/bulk/getEntitiesByLinks`, возвращают `dict[id -> сущность]`.
+  `employees.get_many(ids)` — через параллельные одиночные get (bulk 500 для
+  Employee). Сырой bulk-эндпоинт намеренно не публичный.
+- **#9** Типизированный `comments.create(entity_id, *, content=..., work=...,
+  attaches=...)`. Dict-форма `comment_data=` помечена deprecated.
+- **#13** В модель `Employee` добавлены `is_working` / `fire_in_progress` /
+  `can_login`.
+
+### Changed / Fixed
+- **#13** `employees.list(filter=...)` / `list(q=...)` теперь кидают
+  `NotImplementedError` (сервер молча игнорирует фильтр на `/employee`).
+- **#12** `KnowledgeSectionWithArticles` получил делегаты `id`/`name`/
+  `content`/`last_updated` → ведёт себя как обычный `get`.
+- **#10** `employees.get("me")` кидает понятный `ValueError` с указанием на
+  `get_current()` (раньше — мутный 405).
+- **#9** Исправлен docstring `comments.create` (`text` → `content`).
+
 ## [0.3.0] — 2026-06-21
 
 ### Добавлено

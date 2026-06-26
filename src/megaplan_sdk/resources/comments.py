@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Literal, overload
 
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.resources.base import BaseResource
@@ -12,41 +13,92 @@ from megaplan_sdk.resources.base import BaseResource
 class CommentsResource(BaseResource):
     """Resource for working with comments."""
 
+    @overload
+    async def create(
+        self,
+        entity_id: int,
+        *,
+        content: str,
+        entity_type: Literal["task", "deal", "project", "contractor", "doc", "todo"] = "task",
+        work: float | None = None,
+        attaches: list[dict[str, Any]] | None = None,
+    ) -> Comment: ...
+
+    @overload
     async def create(
         self,
         entity_id: int,
         comment_data: dict[str, Any],
         entity_type: str = "task",
+    ) -> Comment: ...
+
+    async def create(
+        self,
+        entity_id: int,
+        comment_data: dict[str, Any] | None = None,
+        entity_type: str = "task",
+        *,
+        content: str | None = None,
+        work: float | None = None,
+        attaches: list[dict[str, Any]] | None = None,
     ) -> Comment:
-        """Create a new comment for an entity.
+        """Create a comment for an entity.
+
+        Preferred form is the typed keyword API; the API field is ``content``
+        (not ``text`` — that was the old docstring's bug, #9):
+
+            >>> await client.comments.create(entity_id=123, content="Note")
+            >>> await client.comments.create(
+            ...     entity_id=55, content="Done", entity_type="project", work=2.5
+            ... )
 
         Args:
-            entity_id: Parent entity ID (task, project, deal, etc.).
-            comment_data: Comment data dictionary.
-                Required: text
-                Optional: work (hours), attaches (file IDs)
-            entity_type: Entity type segment for the API path.
-                Allowed values: ``"task"`` | ``"project"`` | ``"deal"``.
-                Defaults to ``"task"``.
+            entity_id: Parent entity ID (task, project, deal, ...).
+            comment_data: DEPRECATED raw dict body. Use ``content=`` instead.
+            entity_type: Path segment: "task" | "deal" | "project" |
+                "contractor" | "doc" | "todo". Defaults to "task".
+            content: Comment body (preferred).
+            work: Hours worked (time tracking). Serialized as
+                ``{"contentType": "DateInterval", "value": int(work * 3600)}``.
+                The server quantizes to whole minutes.
+            attaches: File attachment descriptors.
 
         Returns:
             Created comment.
 
-        Examples:
-            >>> # Create comment for task #123
-            >>> comment = await client.comments.create(
-            ...     entity_id=123,
-            ...     comment_data={"text": "Comment text", "work": 2.5}
-            ... )
-            >>> # Create comment for project #55
-            >>> comment = await client.comments.create(
-            ...     entity_id=55,
-            ...     comment_data={"text": "Project note"},
-            ...     entity_type="project",
-            ... )
+        Raises:
+            ValueError: If both or neither of ``content``/``comment_data`` given.
         """
+        if comment_data is not None and content is not None:
+            raise ValueError("Pass either `content=` (preferred) or `comment_data=`, not both.")
+
+        if comment_data is not None:
+            warnings.warn(
+                "`comment_data` dict is deprecated; use `content=...`.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            data = dict(comment_data)
+            if "content" not in data and "text" in data:
+                warnings.warn(
+                    "Comment field is `content`, not `text`; remapping (#9).",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                data["content"] = data.pop("text")
+        elif content is not None:
+            data = {"content": content}
+            if work is not None:
+                # Server silently ignores `seconds`; the correct field is `value` in seconds.
+                # The server quantizes to whole minutes (e.g. 150 s → 120 s).
+                data["workTime"] = {"contentType": "DateInterval", "value": int(work * 3600)}
+            if attaches:
+                data["attaches"] = attaches
+        else:
+            raise ValueError("Provide `content=...`.")
+
         path = self._build_path("api", "v3", entity_type, str(entity_id), "comments")
-        response = await self._http.post(path, json_data=comment_data)
+        response = await self._http.post(path, json_data=data)
         return Comment(**response["data"])
 
     async def list(

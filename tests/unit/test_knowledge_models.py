@@ -63,6 +63,15 @@ def test_section_with_articles_composite():
     assert composite.articles[0].id == 33
 
 
+def test_section_with_articles_delegates_to_section():
+    section = KnowledgeBase(id=11, name="Раздел", content="<p>x</p>")
+    composite = KnowledgeSectionWithArticles(section=section, articles=[])
+    assert composite.id == 11
+    assert composite.name == "Раздел"
+    assert composite.content == "<p>x</p>"
+    assert composite.last_updated == section.last_updated
+
+
 def test_knowledge_models_exported_from_package():
     import megaplan_sdk
 

@@ -1,5 +1,8 @@
 """Unit tests for CommentsResource."""
 
+import json
+import warnings
+
 import pytest
 import respx
 from httpx import Response
@@ -69,7 +72,8 @@ async def test_create_defaults_to_task_path():
 
     async with HTTPClient("https://example.com", access_token="token") as http_client:
         resource = CommentsResource(http_client)
-        await resource.create(entity_id=123, comment_data={"text": "Hello"})
+        with pytest.warns(DeprecationWarning):
+            await resource.create(entity_id=123, comment_data={"text": "Hello"})
 
     assert route.called
 
@@ -90,9 +94,10 @@ async def test_create_respects_entity_type():
 
     async with HTTPClient("https://example.com", access_token="token") as http_client:
         resource = CommentsResource(http_client)
-        await resource.create(
-            entity_id=77, comment_data={"text": "Project comment"}, entity_type="project"
-        )
+        with pytest.warns(DeprecationWarning):
+            await resource.create(
+                entity_id=77, comment_data={"text": "Project comment"}, entity_type="project"
+            )
 
     assert route.called
 
@@ -182,3 +187,78 @@ async def test_iterate_respects_entity_type():
         results = [c async for c in resource.iterate(entity_id=55, entity_type="project")]
     assert route.called
     assert results == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_with_content_kwarg():
+    """Test that create() with content kwarg sends correct JSON body."""
+    route = respx.post("https://example.com/api/v3/task/123/comments").mock(
+        return_value=Response(200, json={"meta": {"status": 200},
+                                         "data": {"contentType": "Comment", "id": 1,
+                                                  "content": "hi"}})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await CommentsResource(http).create(entity_id=123, content="hi")
+    body = json.loads(route.calls.last.request.content)
+    assert body == {"content": "hi"}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_legacy_text_remapped_with_warning():
+    """Test that create() remaps comment_data['text'] to 'content' and emits DeprecationWarning."""
+    route = respx.post("https://example.com/api/v3/task/123/comments").mock(
+        return_value=Response(200, json={"meta": {"status": 200},
+                                         "data": {"contentType": "Comment", "id": 1,
+                                                  "content": "hi"}})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.warns(DeprecationWarning):
+            await CommentsResource(http).create(
+                entity_id=123, comment_data={"text": "hi"}
+            )
+    assert json.loads(route.calls.last.request.content) == {"content": "hi"}
+
+
+@pytest.mark.asyncio
+async def test_create_both_content_and_data_raises():
+    """Test that passing both content and comment_data raises ValueError."""
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.raises(ValueError):
+            await CommentsResource(http).create(
+                entity_id=1, content="x", comment_data={"content": "x"}
+            )
+
+
+@pytest.mark.asyncio
+async def test_create_neither_content_nor_data_raises():
+    """Test that passing neither content nor comment_data raises ValueError."""
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.raises(ValueError):
+            await CommentsResource(http).create(entity_id=1)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_work_serialized_as_value_in_seconds():
+    """Test that work= is sent as DateInterval value in seconds (not seconds field).
+
+    Empirically verified 2026-06-26: the server silently ignores the ``seconds``
+    field and records 0 hours. The correct field is ``value``.
+    For work=2.5 hours: int(2.5 * 3600) = 9000 seconds.
+    """
+    route = respx.post("https://example.com/api/v3/task/123/comments").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {"contentType": "Comment", "id": 7, "content": "x"},
+            },
+        )
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await CommentsResource(http).create(entity_id=123, content="x", work=2.5)
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["workTime"] == {"contentType": "DateInterval", "value": 9000}
