@@ -237,3 +237,28 @@ async def test_create_neither_content_nor_data_raises():
     async with HTTPClient("https://example.com", access_token="token") as http:
         with pytest.raises(ValueError):
             await CommentsResource(http).create(entity_id=1)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_work_serialized_as_value_in_seconds():
+    """Test that work= is sent as DateInterval value in seconds (not seconds field).
+
+    Empirically verified 2026-06-26: the server silently ignores the ``seconds``
+    field and records 0 hours. The correct field is ``value``.
+    For work=2.5 hours: int(2.5 * 3600) = 9000 seconds.
+    """
+    route = respx.post("https://example.com/api/v3/task/123/comments").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": {"contentType": "Comment", "id": 7, "content": "x"},
+            },
+        )
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await CommentsResource(http).create(entity_id=123, content="x", work=2.5)
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["workTime"] == {"contentType": "DateInterval", "value": 9000}

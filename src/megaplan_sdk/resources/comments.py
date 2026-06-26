@@ -58,7 +58,9 @@ class CommentsResource(BaseResource):
             entity_type: Path segment: "task" | "deal" | "project" |
                 "contractor" | "doc" | "todo". Defaults to "task".
             content: Comment body (preferred).
-            work: Hours worked (time tracking); serialized as a DateInterval.
+            work: Hours worked (time tracking). Serialized as
+                ``{"contentType": "DateInterval", "value": int(work * 3600)}``.
+                The server quantizes to whole minutes.
             attaches: File attachment descriptors.
 
         Returns:
@@ -87,7 +89,9 @@ class CommentsResource(BaseResource):
         elif content is not None:
             data = {"content": content}
             if work is not None:
-                data["workTime"] = {"contentType": "DateInterval", "seconds": int(work * 3600)}
+                # Server silently ignores `seconds`; the correct field is `value` in seconds.
+                # The server quantizes to whole minutes (e.g. 150 s → 120 s).
+                data["workTime"] = {"contentType": "DateInterval", "value": int(work * 3600)}
             if attaches:
                 data["attaches"] = attaches
         else:
