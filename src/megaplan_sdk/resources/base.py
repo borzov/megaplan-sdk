@@ -44,6 +44,11 @@ class BaseResource:
         self._default_comments_limit = default_comments_limit
         self._default_history_limit = default_history_limit
 
+    # Default contentType for pagination refs (page_after/before/with). Resource
+    # subclasses override this so a bare int id can be wrapped into the entity
+    # link {contentType, id} the server requires (#23). None = unknown.
+    _page_content_type: str | None = None
+
     def _build_path(self, *parts: str) -> str:
         """Build API path from parts.
 
@@ -102,16 +107,61 @@ class BaseResource:
 
         return entity
 
+    def _coerce_page_ref(
+        self,
+        value: Any,
+        default_content_type: str | None = None,
+    ) -> Any:
+        """Normalize a pagination ref to the server's ``{contentType, id}`` link (#23).
+
+        The server requires an entity link, not a bare id or a full model dump.
+        Accepts an ``int`` id, a Pydantic model / object with ``id``, or a dict;
+        fills in ``contentType`` from the model or the resource default when the
+        caller did not supply it.
+
+        Args:
+            value: ``int`` id, entity/model, dict link, or None.
+            default_content_type: Fallback contentType (resource's entity type).
+
+        Returns:
+            A clean ``{"contentType": ..., "id": int}`` dict, or the value
+            unchanged if it cannot be interpreted.
+        """
+        if value is None:
+            return None
+        ct = default_content_type or self._page_content_type
+        # Entity / Pydantic model with an id → clean link (NOT a full dump, which
+        # carries extra fields the server rejects with 422).
+        if not isinstance(value, dict | int) and hasattr(value, "id"):
+            model_ct = getattr(value, "content_type", None) or getattr(value, "contentType", None)
+            return {"contentType": model_ct or ct, "id": value.id}
+        if isinstance(value, bool):  # guard: bool is an int subclass
+            return value
+        if isinstance(value, int):
+            return {"contentType": ct, "id": value}
+        if isinstance(value, dict):
+            link = dict(value)
+            if "id" in link and isinstance(link["id"], str):
+                try:
+                    link["id"] = int(link["id"])
+                except (ValueError, TypeError):
+                    pass
+            if "contentType" not in link and ct:
+                link["contentType"] = ct
+            return link
+        return value
+
     def _build_list_params(
         self,
         filter: Any | None = None,
         limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
+        page_after: Any | None = None,
+        page_before: Any | None = None,
+        page_with: Any | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
+        page_content_type: str | None = None,
         **extra_params: Any,
     ) -> dict[str, Any]:
         """Build standard list parameters for pagination and filtering.
@@ -136,13 +186,12 @@ class BaseResource:
             params["filter"] = filter
         if limit is not None:
             params["limit"] = limit
-        if page_after:
-            # Normalize BaseEntity for pagination
-            params["pageAfter"] = self._normalize_base_entity(page_after)
-        if page_before:
-            params["pageBefore"] = self._normalize_base_entity(page_before)
-        if page_with:
-            params["pageWith"] = self._normalize_base_entity(page_with)
+        if page_after is not None:
+            params["pageAfter"] = self._coerce_page_ref(page_after, page_content_type)
+        if page_before is not None:
+            params["pageBefore"] = self._coerce_page_ref(page_before, page_content_type)
+        if page_with is not None:
+            params["pageWith"] = self._coerce_page_ref(page_with, page_content_type)
         if fields is not None:
             params["fields"] = fields
         if sort_by:

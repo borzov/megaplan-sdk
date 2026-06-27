@@ -19,6 +19,8 @@ class ContractorsResource(BaseResource):
         Use action history or other entities for tracking contractor-related notes.
     """
 
+    _page_content_type = ContentType.CONTRACTOR
+
     async def create(self, contractor_data: dict[str, Any]) -> Contractor:
         """Create a new contractor.
 

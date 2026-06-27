@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 class ProjectsResource(BaseResource, FullDetailsMixin):
     """Resource for working with projects."""
 
+    _page_content_type = ContentType.PROJECT
+
     _full_details_config = [
         RelatedDataConfig("deals", "include_deals", "get_deals"),
         RelatedDataConfig("issues", "include_issues", "get_issues"),

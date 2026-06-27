@@ -915,3 +915,75 @@ async def test_get_many_cache_hit_skips_bulk_post():
     assert 1006174 in result
     assert result[1006174].name == "Cached Task"
     assert not route.called
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_comment_encodes_work_as_value_seconds():
+    """#21/#22: create_comment must serialize work as DateInterval.value (seconds).
+
+    Regression: the old helper wrote {"seconds": ...}, which the server silently
+    dropped (workTime stored 0). It must match comments.create exactly:
+    {"contentType": "DateInterval", "value": int(work * 3600)}.
+    """
+    route = respx.post("https://example.com/api/v3/task/1/comments").mock(
+        return_value=Response(
+            200,
+            json={"meta": {"status": 200}, "data": {"id": 7, "contentType": "Comment"}},
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        await resource.create_comment(task_id=1, text="x", work=1.0)
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["content"] == "x"
+    assert body["workTime"] == {"contentType": "DateInterval", "value": 3600}
+    assert "seconds" not in body["workTime"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_iterate_forwards_fields_to_list():
+    """#24: iterate() forwards fields/sort_by/expand kwargs to list()."""
+    route = respx.get(url__regex=r"https://example\.com/api/v3/task\?.*").mock(
+        return_value=Response(
+            200,
+            json={
+                "meta": {"status": 200},
+                "data": [
+                    {
+                        "id": 1,
+                        "contentType": "Task",
+                        "name": "T",
+                        "timeCreated": {"contentType": "DateTime", "value": "2026-06-20T00:00:00+00:00"},
+                    }
+                ],
+            },
+        )
+    )
+
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        resource = TasksResource(http_client)
+        collected = [t async for t in resource.iterate(limit=5, fields=["name", "timeCreated"])]
+
+    assert collected and collected[0].time_created is not None
+    sent_url = str(route.calls.last.request.url)
+    assert "timeCreated" in sent_url
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_page_after_accepts_int():
+    """#23: page_after=int is wrapped into {contentType, id} link automatically."""
+    route = respx.get(url__regex=r"https://example\.com/api/v3/task\?.*").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": []})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http_client:
+        await TasksResource(http_client).list(limit=5, page_after=12345)
+
+    from urllib.parse import unquote
+
+    decoded = unquote(str(route.calls.last.request.url)).replace(" ", "")
+    assert '"pageAfter":{"contentType":"Task","id":12345}' in decoded
