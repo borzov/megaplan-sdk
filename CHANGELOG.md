@@ -7,7 +7,59 @@
 
 ## [Не выпущено]
 
-## [0.4.0] — 2026-06-25
+## [0.4.1] — 2026-06-26
+
+### ⚠️ Изменения поведения (breaking)
+- **#16** `Comment.work_time` и `Comment.work_date` теперь типизированы
+  (`DateInterval | None` и `DateTime | None`) вместо сырых `dict`. Доступ
+  `comment.work_time["value"]` больше не работает — используйте
+  `comment.work_time.value` (плюс `.seconds` / `.minutes` / `.hours`).
+- **#26 / #27** Параметры `department_id` и `status` убраны из сигнатуры
+  `employees.list()` — сервер их не поддерживает (422). Теперь любая попытка
+  серверной фильтрации сотрудников (`filter` / `q` / `department_id` /
+  `status`) кидает `NotImplementedError` с подсказкой фильтровать на клиенте.
+- **#28** Параметр `filter` убран из сигнатуры `employees.list()` (он только
+  кидал `NotImplementedError` — типизация была лживой).
+
+### Fixed
+- **#21** `tasks.create_comment(work=N)` больше не теряет трудозатраты: раньше
+  поле сериализовалось как `{"seconds": ...}` (сервер молча писал 0), теперь
+  — корректный `{"value": int(work * 3600)}`. **#22** Метод стал тонкой
+  обёрткой над `comments.create`, поэтому naming и поведение `work` едины.
+- **#24** `tasks.iterate()` теперь пробрасывает `fields` / `sort_by` /
+  `expand` / `q` в `list()` (раньше итерация возвращала задачи без
+  `time_created`).
+- **#25** `TaskFullDetails` / `DealFullDetails` / `ProjectFullDetails`
+  делегируют доступ к полям вложенной сущности, поэтому `tasks.list(expand=…)`
+  больше не ломает `task.owner` — работают и `details.task.owner`, и
+  `details.owner`.
+- **#29** `FilterBuilder.field('x').equals(True/5)` теперь строит
+  `FilterTermBool` / `FilterTermNumber` (как `field_eq`), а не отвергаемый
+  сервером `FilterTermString`.
+- **#15** Документация по единицам `work`: параметр — отработанное время **в
+  часах** (`work=2.5` ⇒ 2 ч 30 мин), сериализуется как `value = int(work *
+  3600)` секунд. Прежняя формулировка release notes («`value` в секундах»)
+  вводила в заблуждение.
+
+### Changed
+- **#17** `comments.get()` и `comments.delete()` принимают (и игнорируют)
+  `entity_type` — единый стиль с `list` / `create`.
+- **#23** `page_after` / `page_before` / `page_with` теперь принимают `int`
+  (id), Pydantic-модель или dict и сами оборачивают значение в entity-link
+  `{contentType, id}`, который требует сервер.
+- **#19** В docstring `comments.delete()` добавлено предупреждение, что на
+  большинстве инсталляций Megaplan удаление комментариев запрещено политикой
+  (403) даже автору.
+- Документация: примеры комментариев в README и `examples/cli_app`
+  переведены на `content=` вместо устаревшего `comment_data={"text": …}`
+  (D-1 / D-2); добавлены заметки про `employees.get_current()`,
+  статус-поля `Employee` и делегаты `KnowledgeSectionWithArticles`.
+
+### Added
+- `DateInterval` экспортируется из `megaplan_sdk` (модель интервала с
+  `.value` / `.seconds` / `.minutes` / `.hours`).
+
+## [0.4.0] — 2026-06-26
 
 ### ⚠️ Изменения поведения (breaking)
 - **#14** `tasks.list()` / `deals.list()` без `sort_by` теперь сортируют по

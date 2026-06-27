@@ -1624,14 +1624,22 @@ for comment in comments:
 
 ```python
 # Комментарий к задаче
-comment = await client.comments.create(entity_id=42, comment_data={"text": "Текст комментария"})
+comment = await client.comments.create(entity_id=42, content="Текст комментария")
 
 # Комментарий к проекту
-comment = await client.comments.create(entity_id=5, comment_data={"text": "Текст"}, entity_type="project")
+comment = await client.comments.create(entity_id=5, content="Текст", entity_type="project")
 
 # Комментарий к сделке
-comment = await client.comments.create(entity_id=200, comment_data={"text": "Текст"}, entity_type="deal")
+comment = await client.comments.create(entity_id=200, content="Текст", entity_type="deal")
+
+# С учётом трудозатрат: work — отработанное время в ЧАСАХ (work=2.5 ⇒ 2 ч 30 мин).
+# Сериализуется как value = int(work * 3600) секунд; сервер квантует до минут.
+comment = await client.comments.create(entity_id=42, content="Сделано", work=2.5)
+print(comment.work_time.value)    # 9000 (секунды), плюс .minutes / .hours
 ```
+
+> **Удаление комментариев:** на большинстве инсталляций Megaplan запрещено
+> политикой даже автору — `comments.delete()` ожидаемо вернёт `403` (#19).
 
 > **Ограничение:** Комментарии контрагентов не поддерживаются API (возвращает 500).
 > Используйте комментарии в связанных сделках или задачах.
@@ -1763,21 +1771,35 @@ deals = await client.deals.list(filter=filter_obj)
 
 ### Поиск сотрудников
 
-Параметры `q` и `filter` у `employees.list()` **не поддерживаются сервером** (API молча игнорирует
-фильтр на эндпоинте `/employee`). Начиная с 0.4.0 SDK выбрасывает `NotImplementedError` при их
-передаче. Для поиска используйте альтернативы:
+Серверная фильтрация на эндпоинте `/employee` **не работает вообще**: `q` / `filter`
+молча игнорируются (200 OK), а `department_id` / `status` отвергаются (422). Начиная с
+0.4.1 эти параметры убраны из сигнатуры, и любая попытка их передать кидает
+`NotImplementedError`. Фильтруйте на клиенте:
 
 ```python
-# Вызовет NotImplementedError начиная с 0.4.0
+# Вызовет NotImplementedError
 # employees = await client.employees.list(q="Иван Иванов")
+# employees = await client.employees.list(department_id=1000004)
 
-# Рекомендуется: загрузить всех и фильтровать локально
-async for emp in client.employees.iterate():
-    if "Иван" in emp.first_name:
-        print(emp.display_name())
+# Рекомендуется: загрузить страницу и фильтровать локально
+employees = await client.employees.list(limit=500)
+working = [e for e in employees if e.is_working]                       # статус-поля #13
+by_dept = [e for e in employees if getattr(e.department, "id", None) == 1000004]
 
 # Или get_many по известным ID
 employees_map = await client.employees.get_many([123, 456])
+```
+
+Полезные статус-поля `Employee` (без серверного фильтра): `is_working`,
+`fire_in_progress`, `can_login`, `status.name` («В штате»). Поля `isDropped` у
+`Employee` нет (в отличие от Task/Deal/Project).
+
+#### Текущий пользователь
+
+```python
+me = await client.employees.get_current()   # → /api/v3/currentUser
+print(me.display_name(), me.email)
+# employees.get("me") намеренно кидает ValueError с подсказкой на get_current()
 ```
 
 ### Проверка существования сделки (check_exists)
