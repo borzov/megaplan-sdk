@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from megaplan_sdk.models.base import BaseEntity
-from megaplan_sdk.models.common import DateTime, Money, TimestampMixin
+from megaplan_sdk.models.common import DateTime, MainEntityProxyMixin, Money, TimestampMixin
 
 
 class TradeFilter(BaseModel):
@@ -96,8 +96,11 @@ class Deal(TimestampMixin):
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
-class DealFullDetails(BaseModel):
+class DealFullDetails(MainEntityProxyMixin, BaseModel):
     """Full deal details with all related entities.
+
+    Attribute access falls through to the wrapped ``deal`` (#25): both
+    ``details.deal.manager`` and ``details.manager`` resolve identically.
 
     Attributes:
         deal: Main deal entity.
@@ -109,6 +112,8 @@ class DealFullDetails(BaseModel):
         contractor_details: Full contractor details (if requested).
         related_tasks: Tasks related to this deal (if requested).
     """
+
+    _main_field: ClassVar[str] = "deal"
 
     deal: Deal
     comments: list[Any] | None = None

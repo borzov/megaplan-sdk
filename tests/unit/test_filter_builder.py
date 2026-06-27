@@ -449,3 +449,33 @@ class TestFilterBuilderErrors:
 
         with pytest.raises(ValueError, match="in_list.*requires"):
             builder.field("name").in_list(["test"])
+
+
+def test_field_equals_bool_matches_field_eq():
+    """#29: field('x').equals(True) builds the same term as field_eq('x', True)."""
+    from megaplan_sdk.filter_builder import FilterBuilder
+
+    chained = FilterBuilder("TaskFilter").field("isOverdue").equals(True).build()
+    shortcut = FilterBuilder("TaskFilter").field_eq("isOverdue", True).build()
+    assert chained == shortcut
+    term = chained["config"]["termGroup"]["terms"][0]
+    assert term["contentType"] == "FilterTermBool"
+    assert term["value"] is True
+
+
+def test_field_equals_number_matches_field_eq():
+    """#29: field('x').equals(5) builds a FilterTermNumber, like field_eq."""
+    from megaplan_sdk.filter_builder import FilterBuilder
+
+    chained = FilterBuilder("TaskFilter").field("count").equals(5).build()
+    shortcut = FilterBuilder("TaskFilter").field_eq("count", 5).build()
+    assert chained == shortcut
+    assert chained["config"]["termGroup"]["terms"][0]["contentType"] == "FilterTermNumber"
+
+
+def test_field_equals_string_unchanged():
+    """#29: string equals still builds FilterTermString."""
+    from megaplan_sdk.filter_builder import FilterBuilder
+
+    built = FilterBuilder("TaskFilter").field("name").equals("ДВФМ").build()
+    assert built["config"]["termGroup"]["terms"][0]["contentType"] == "FilterTermString"

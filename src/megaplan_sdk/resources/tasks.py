@@ -39,6 +39,8 @@ VALID_TASK_STATUSES = {
 class TasksResource(BaseResource, FullDetailsMixin):
     """Resource for working with tasks."""
 
+    _page_content_type = ContentType.TASK
+
     _full_details_config = [
         RelatedDataConfig("sub_tasks", "include_sub_tasks", "get_sub_tasks"),
         RelatedDataConfig("actual_sub_tasks", "include_actual_sub_tasks", "get_actual_sub_tasks"),
@@ -571,16 +573,30 @@ class TasksResource(BaseResource, FullDetailsMixin):
         filter: FilterType | None = None,
         statuses: list[str] | None = None,
         limit: int = 100,
+        **kwargs: Any,
     ) -> AsyncIterator[Task]:
         """Iterate over all tasks with automatic pagination.
+
+        Forwards every extra keyword (``fields``, ``sort_by``, ``expand``,
+        ``q``, ``q_in``, ...) straight to :meth:`list` (#24). Without this,
+        iterated tasks came back without date fields (e.g. ``time_created``
+        was ``None``), which broke "walk all tasks from the last N days".
 
         Args:
             filter: Task filter (ID or config).
             statuses: List of statuses to filter by.
             limit: Number of items per page.
+            **kwargs: Additional parameters passed through to ``list()``
+                (e.g. ``fields=[...]``, ``sort_by=[...]``, ``expand=[...]``).
 
         Yields:
             Task objects.
+
+        Examples:
+            >>> async for task in client.tasks.iterate(
+            ...     limit=100, fields=["name", "timeCreated"]
+            ... ):
+            ...     print(task.time_created)
         """
         task: Task
         async for task in self._iterate_generic(  # type: ignore[valid-type]
@@ -589,6 +605,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
             limit,
             filter=filter,
             statuses=statuses,
+            **kwargs,
         ):
             yield task
 
@@ -633,10 +650,17 @@ class TasksResource(BaseResource, FullDetailsMixin):
     ) -> Comment:
         """Create a comment for a task.
 
+        Thin wrapper over :meth:`CommentsResource.create` (#21/#22): both
+        encode ``work`` identically as ``workTime.value`` (seconds). Prefer
+        ``client.comments.create(entity_id=..., content=...)`` directly; this
+        helper is kept for backwards compatibility.
+
         Args:
             task_id: Task identifier.
-            text: Comment text.
-            work: Hours worked (for time tracking).
+            text: Comment text (maps to the API ``content`` field).
+            work: Hours worked (time tracking). ``work=2.5`` ⇒ 2 h 30 min.
+                Serialized as ``{"contentType": "DateInterval",
+                "value": int(work * 3600)}``; the server quantizes to minutes.
             attaches: List of file attachments.
 
         Returns:
@@ -649,19 +673,15 @@ class TasksResource(BaseResource, FullDetailsMixin):
             ...     work=2.5
             ... )
         """
-        extra_fields = {}
-        if work is not None:
-            extra_fields["workTime"] = {
-                "contentType": "DateInterval",
-                "seconds": int(work * 3600),
-            }
+        from megaplan_sdk.resources.comments import CommentsResource
 
-        return await self._create_entity_comment(
-            "task",
-            task_id,
-            text,
-            attaches,
-            **extra_fields,
+        comments = CommentsResource(self._http, cache=self._cache)
+        return await comments.create(
+            entity_id=task_id,
+            content=text,
+            entity_type="task",
+            work=work,
+            attaches=attaches,
         )
 
     async def create_simple(

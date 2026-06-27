@@ -181,11 +181,19 @@ class CommentsResource(BaseResource):
 
         return comments
 
-    async def get(self, comment_id: int) -> Comment:
+    async def get(
+        self,
+        comment_id: int,
+        entity_type: str | None = None,  # noqa: ARG002 — accepted for API symmetry (#17)
+    ) -> Comment:
         """Get comment by ID.
 
         Args:
             comment_id: Comment identifier.
+            entity_type: Accepted and ignored for signature symmetry with
+                ``list``/``create``/``delete`` (#17). The server path
+                ``/api/v3/comment/<id>`` is the same for every parent type, so
+                this argument has no effect.
 
         Returns:
             Comment details.
@@ -208,11 +216,24 @@ class CommentsResource(BaseResource):
         response = await self._http.post(path, json_data=comment_data)
         return Comment(**response["data"])
 
-    async def delete(self, comment_id: int) -> None:
+    async def delete(
+        self,
+        comment_id: int,
+        entity_type: str | None = None,  # noqa: ARG002 — accepted for API symmetry (#17)
+    ) -> None:
         """Delete comment.
 
         Args:
             comment_id: Comment identifier.
+            entity_type: Accepted and ignored for signature symmetry with
+                ``list``/``create``/``get`` (#17).
+
+        Warning:
+            On most Megaplan installations comment deletion is forbidden by
+            policy **even for the comment's own author** — the server returns
+            ``403 No rights to delete comment`` (#19). The UI does not allow it
+            either. Expect ``AuthorizationError`` and prefer editing via
+            :meth:`update` if you have the right.
         """
         path = self._build_path("api", "v3", "comment", str(comment_id))
         await self._http.delete(path)

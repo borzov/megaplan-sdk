@@ -50,3 +50,19 @@ async def test_employees_get_many_uses_sequential_gets():
         result = await EmployeesResource(http).get_many([1000003, 1000028])
     assert set(result.keys()) == {1000003, 1000028}
     assert result[1000003].last_name == "Борзов"
+
+
+@pytest.mark.asyncio
+async def test_employee_department_id_raises_not_implemented():
+    """#26: department_id= is not a working server filter — must raise."""
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.raises(NotImplementedError):
+            await EmployeesResource(http).list(department_id=1000004)
+
+
+@pytest.mark.asyncio
+async def test_employee_status_raises_not_implemented():
+    """#27: status= is not a working server filter — must raise."""
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        with pytest.raises(NotImplementedError):
+            await EmployeesResource(http).list(status="active")

@@ -1260,7 +1260,7 @@ async def test_comments(client: MegaplanClient):
                     print("\n⏳ Создание комментария...")
                     comment = await client.comments.create(
                         entity_id=int(task_id),
-                        comment_data={"text": text}
+                        content=text,
                     )
                     print("\n✅ Комментарий создан!")
                     print(f"  ID: {comment.id}")

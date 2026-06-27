@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from megaplan_sdk.models.base import BaseEntity
-from megaplan_sdk.models.common import DateTime, TimestampMixin
+from megaplan_sdk.models.common import DateTime, MainEntityProxyMixin, TimestampMixin
 
 if TYPE_CHECKING:
     from megaplan_sdk.models.milestone import Milestone
@@ -47,8 +47,11 @@ class Project(TimestampMixin):
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
-class ProjectFullDetails(BaseModel):
+class ProjectFullDetails(MainEntityProxyMixin, BaseModel):
     """Full project details with all related entities.
+
+    Attribute access falls through to the wrapped ``project`` (#25): both
+    ``details.project.owner`` and ``details.owner`` resolve identically.
 
     Attributes:
         project: Main project entity.
@@ -63,6 +66,8 @@ class ProjectFullDetails(BaseModel):
         responsible_details: Full responsible employee details (if requested).
         owner_details: Full owner employee details (if requested).
     """
+
+    _main_field: ClassVar[str] = "project"
 
     project: Project
     deals: list[Any] | None = None

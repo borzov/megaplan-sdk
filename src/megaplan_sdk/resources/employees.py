@@ -14,6 +14,8 @@ from megaplan_sdk.resources.base import BaseResource
 class EmployeesResource(BaseResource):
     """Resource for working with employees."""
 
+    _page_content_type = ContentType.EMPLOYEE
+
     async def create(self, employee_data: dict[str, Any]) -> Employee:
         """Create a new employee.
 
@@ -36,12 +38,14 @@ class EmployeesResource(BaseResource):
         """
         return await self._create_entity("employee", employee_data, Employee)
 
+    # No server-side filtering works on /api/v3/employee: filter/q are accepted
+    # (200 OK) but silently ignored (#13), while department/status are hard-
+    # rejected with 422 (#26/#27). These params are intentionally absent from
+    # the signature (#28); any attempt is caught below with clear guidance.
+    _UNSUPPORTED_FILTER_PARAMS = ("filter", "q", "department_id", "status", "department")
+
     async def list(
         self,
-        filter: Any | None = None,  # noqa: A002
-        q: str | None = None,
-        department_id: int | None = None,
-        status: str | None = None,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -50,18 +54,17 @@ class EmployeesResource(BaseResource):
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         expand: list[str] | None = None,
+        **unsupported: Any,
     ) -> list[Employee]:
         """Get list of employees.
 
+        Server-side filtering on ``/api/v3/employee`` does not work at all
+        (#13/#26/#27/#28): ``filter``/``q`` are accepted with 200 OK but
+        silently ignored, and ``department``/``status`` are rejected with 422.
+        Passing any of them raises ``NotImplementedError`` with guidance to
+        filter client-side instead.
+
         Args:
-            filter: NOT SUPPORTED — raises NotImplementedError.
-                The server accepts filter= with 200 OK but silently ignores it.
-                Fetch `.list(limit=500)` and filter client-side. (#13)
-            q: NOT SUPPORTED — raises NotImplementedError.
-                Text search on /api/v3/employee is silently ignored server-side.
-                Fetch `.list(limit=500)` and filter client-side. (#13)
-            department_id: Filter by department ID.
-            status: Filter by status (active, fired, etc.).
             limit: Number of items per page.
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
@@ -73,53 +76,39 @@ class EmployeesResource(BaseResource):
                 Supported values: "department", "manager".
                 Note: When expand is provided, department and manager fields will be
                 replaced with full Department/Employee objects instead of BaseEntity.
+            **unsupported: Trap for dead filter params (``filter``, ``q``,
+                ``department_id``, ``status``) — raises ``NotImplementedError``.
 
         Returns:
             List of employees (with expanded fields if requested).
 
         Raises:
-            NotImplementedError: If `filter` or `q` is provided (server silently
-                ignores them — raise loudly to prevent silent wrong results).
+            NotImplementedError: If any server-side filter param is provided
+                (the endpoint has no working filter — raise loudly to prevent
+                silent wrong results).
 
         Examples:
-            >>> # Get all active employees
-            >>> employees = await client.employees.list(status="active")
+            >>> # No server filter; fetch a page and filter client-side
+            >>> employees = await client.employees.list(limit=500)
+            >>> working = [e for e in employees if e.is_working]
+            >>> dept = [e for e in employees if getattr(e.department, "id", None) == 1000004]
             >>>
             >>> # Get employees with expanded department
             >>> employees = await client.employees.list(
             ...     limit=10, expand=["department", "manager"]
             ... )
-            >>> for employee in employees:
-            ...     if employee.department and hasattr(employee.department, 'name'):
-            ...         print(f"{employee.display_name()} - {employee.department.name}")
         """
-        # #13: /api/v3/employee accepts filter/q with 200 OK but SILENTLY
-        # ignores them (verified 2026-06-24 against ruvents.megaplan.ru) —
-        # raise loudly instead of returning a wrong subset.
-        if filter is not None:
+        if unsupported:
+            bad = ", ".join(sorted(unsupported))
             raise NotImplementedError(
-                "Server-side filter on /api/v3/employee is accepted (200 OK) "
-                "but silently ignored. Fetch `.list(limit=500)` and filter "
-                "client-side. (#13)"
-            )
-        if q is not None:
-            raise NotImplementedError(
-                "Text search `q` on /api/v3/employee is silently ignored "
-                "server-side. Fetch `.list(limit=500)` and filter "
-                "client-side. (#13)"
+                f"Server-side filtering on /api/v3/employee is not supported "
+                f"(got: {bad}). The endpoint ignores filter/q (200 OK, no effect) "
+                f"and 422s on department/status. Fetch `.list(limit=500)` and "
+                f"filter client-side, e.g. `[e for e in emps if e.is_working]`. "
+                f"(#13/#26/#27/#28)"
             )
 
         path = self._build_path("api", "v3", "employee")
-
-        # Prepare employee-specific parameters
-        extra_params: dict[str, Any] = {}
-        if department_id:
-            extra_params["department"] = {
-                "id": department_id,
-                "contentType": ContentType.DEPARTMENT,
-            }
-        if status:
-            extra_params["status"] = status
 
         # Use base method to build params (DRY)
         params = self._build_list_params(
@@ -130,7 +119,6 @@ class EmployeesResource(BaseResource):
             fields=fields,
             sort_by=sort_by,
             only_requested_fields=only_requested_fields,
-            **extra_params,
         )
 
         # 1. Fetch employees
@@ -252,7 +240,7 @@ class EmployeesResource(BaseResource):
             Employee objects.
 
         Examples:
-            >>> async for employee in client.employees.iterate(status="active"):
+            >>> async for employee in client.employees.iterate(limit=100):
             ...     print(f"{employee.first_name} {employee.last_name}")
         """
         employee: Employee

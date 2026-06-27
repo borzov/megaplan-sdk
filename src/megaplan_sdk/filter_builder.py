@@ -184,7 +184,7 @@ class FilterBuilder:
         """
         if self._current_field_type is None:
             raise ValueError("field() or field_*() must be called before adding a condition")
-        return self._add_term("equals", value, self._current_field_type)
+        return self._add_term("equals", value, self._term_type_for_value(value))
 
     def not_contains(self, value: str) -> FilterBuilder:
         """Add condition: field does not contain value (string only).
@@ -216,7 +216,7 @@ class FilterBuilder:
         """
         if self._current_field_type is None:
             raise ValueError("field() or field_*() must be called before adding a condition")
-        return self._add_term("not_equals", value, self._current_field_type)
+        return self._add_term("not_equals", value, self._term_type_for_value(value))
 
     # Number operators
     def greater_than(self, value: int | float | str) -> FilterBuilder:
@@ -538,6 +538,24 @@ class FilterBuilder:
                 },
             },
         }
+
+    def _term_type_for_value(self, value: Any) -> str:
+        """Resolve the term type for an equals/not_equals value (#29).
+
+        ``field()`` defaults the term type to ``"string"``. A bool/number value
+        on such a generic field must build ``FilterTermBool``/``FilterTermNumber``
+        — a ``FilterTermString`` carrying a bool/number is rejected by the
+        server ("'stdClass' is not assignable to '<Filter>'"). This mirrors
+        :meth:`field_eq` so ``field('x').equals(True)`` == ``field_eq('x', True)``.
+        Explicit ``field_bool``/``field_number``/... selectors are respected.
+        """
+        term_type = self._current_field_type or "string"
+        if term_type == "string" and not isinstance(value, str):
+            if isinstance(value, bool):
+                return "bool"
+            if isinstance(value, int | float):
+                return "number"
+        return term_type
 
     def _add_term(self, comparison: str, value: Any, term_type: str) -> FilterBuilder:
         """Add a FilterTerm to the current group.

@@ -17,6 +17,8 @@ from megaplan_sdk.types import FilterType
 class DealsResource(BaseResource, FullDetailsMixin):
     """Resource for working with deals."""
 
+    _page_content_type = ContentType.DEAL
+
     def __init__(
         self,
         http_client,

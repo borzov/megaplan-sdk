@@ -1,11 +1,9 @@
 """Comment model for Megaplan SDK."""
 
-from typing import Any
-
 from pydantic import ConfigDict, Field
 
 from megaplan_sdk.models.base import BaseEntity
-from megaplan_sdk.models.common import TimestampMixin
+from megaplan_sdk.models.common import DateInterval, DateTime, TimestampMixin
 
 
 class Comment(BaseEntity, TimestampMixin):
@@ -19,8 +17,9 @@ class Comment(BaseEntity, TimestampMixin):
         content: Comment text content.
         attaches: List of attached files.
         attaches_count: Number of attachments.
-        work_time: Work time interval (DateInterval entity with contentType, value).
-        work_date: Work date (DateTime entity with contentType, value, timestamp).
+        work_time: Work time interval (typed DateInterval; ``.value`` in
+            seconds, plus ``.seconds``/``.minutes``/``.hours``). #16
+        work_date: Work date (typed DateTime with contentType, value). #16
         is_unread: Whether comment is unread.
         is_dropped: Whether comment is deleted.
         completed: Completion status.
@@ -34,8 +33,8 @@ class Comment(BaseEntity, TimestampMixin):
     content: str | None = None
     attaches: list[BaseEntity] | None = None
     attaches_count: int | None = Field(alias="attachesCount", default=None)
-    work_time: dict[str, Any] | None = Field(alias="workTime", default=None)
-    work_date: dict[str, Any] | None = Field(alias="workDate", default=None)
+    work_time: DateInterval | None = Field(alias="workTime", default=None)
+    work_date: DateTime | None = Field(alias="workDate", default=None)
     is_unread: bool | None = Field(alias="isUnread", default=None)
     is_dropped: bool | None = Field(alias="isDropped", default=None)
     completed: int | None = None
