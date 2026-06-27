@@ -262,3 +262,29 @@ async def test_create_work_serialized_as_value_in_seconds():
 
     body = json.loads(route.calls.last.request.content)
     assert body["workTime"] == {"contentType": "DateInterval", "value": 9000}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_accepts_entity_type_kwarg():
+    """#17: get() accepts (and ignores) entity_type for API symmetry."""
+    respx.get("https://example.com/api/v3/comment/187507").mock(
+        return_value=Response(
+            200,
+            json={"meta": {"status": 200}, "data": {"id": 187507, "contentType": "Comment"}},
+        )
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        comment = await CommentsResource(http).get(comment_id=187507, entity_type="task")
+    assert comment.id == 187507
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_delete_accepts_entity_type_kwarg():
+    """#17: delete() accepts (and ignores) entity_type for API symmetry."""
+    respx.delete("https://example.com/api/v3/comment/187507").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": None})
+    )
+    async with HTTPClient("https://example.com", access_token="token") as http:
+        await CommentsResource(http).delete(comment_id=187507, entity_type="task")
