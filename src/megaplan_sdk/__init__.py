@@ -27,7 +27,7 @@ from megaplan_sdk.helpers import (
 )
 from megaplan_sdk.logging_config import setup_logging
 from megaplan_sdk.models.comment import Comment
-from megaplan_sdk.models.common import DateTime, Money
+from megaplan_sdk.models.common import DateInterval, DateTime, Money
 from megaplan_sdk.models.contractor import Contractor, ContractorCompany, ContractorHuman
 from megaplan_sdk.models.deal import Deal, DealFullDetails
 from megaplan_sdk.models.department import Department
@@ -86,6 +86,7 @@ __all__ = [
     "Participant",
     "parse_participant",
     "parse_participants",
+    "DateInterval",
     "DateTime",
     # Filters
     "FiltersResource",
@@ -115,4 +116,4 @@ __all__ = [
     "DEFAULT_TASK_LIST_FIELDS",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"

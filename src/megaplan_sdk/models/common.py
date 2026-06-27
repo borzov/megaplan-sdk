@@ -1,8 +1,36 @@
 """Common models for Megaplan SDK."""
 
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class MainEntityProxyMixin:
+    """Delegate unknown attribute access to a wrapped main entity (#25).
+
+    ``*FullDetails`` containers wrap the primary entity (Task/Deal/Project)
+    under a named field (``task``/``deal``/``project``). Without delegation,
+    code written for the plain entity (``task.owner.name``) breaks the moment
+    ``expand=`` switches the return type to a container. This mixin proxies any
+    attribute missing on the container to the wrapped entity, so both
+    ``details.task.owner`` and ``details.owner`` work.
+
+    Subclasses set ``_main_field`` to the wrapped field's name. Container fields
+    and explicit container extras always win; only genuinely missing attributes
+    are delegated.
+    """
+
+    _main_field: ClassVar[str]
+
+    def __getattr__(self, item: str) -> Any:
+        try:
+            return super().__getattr__(item)  # type: ignore[misc]
+        except AttributeError:
+            if not item.startswith("_"):
+                main = self.__dict__.get(type(self)._main_field)
+                if main is not None:
+                    return getattr(main, item)
+            raise
 
 
 class Pagination(BaseModel):
@@ -67,6 +95,49 @@ class DateTime(BaseModel):
     value: str
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+
+class DateInterval(BaseModel):
+    """Time interval model for work-time / duration fields.
+
+    Megaplan API returns durations as objects with ``contentType`` and a
+    ``value`` measured in **seconds**. This typed wrapper replaces the raw
+    ``dict`` previously exposed on ``Comment.work_time`` (#16) and offers
+    convenience accessors.
+
+    Attributes:
+        content_type: Always "DateInterval".
+        value: Duration in seconds.
+
+    Example:
+        >>> interval = DateInterval(contentType="DateInterval", value=9000)
+        >>> interval.value
+        9000
+        >>> interval.minutes
+        150.0
+        >>> interval.hours
+        2.5
+    """
+
+    content_type: str = Field(alias="contentType", default="DateInterval")
+    value: int = 0
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    @property
+    def seconds(self) -> int:
+        """Duration in seconds (alias for ``value``)."""
+        return self.value
+
+    @property
+    def minutes(self) -> float:
+        """Duration in minutes."""
+        return self.value / 60
+
+    @property
+    def hours(self) -> float:
+        """Duration in hours."""
+        return self.value / 3600
 
 
 class Money(BaseModel):

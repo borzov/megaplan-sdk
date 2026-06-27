@@ -220,3 +220,60 @@ def test_employee_status_fields():
     assert e.fire_in_progress is False
     assert e.can_login is True
     assert "isDropped" not in Employee.model_fields
+
+
+def test_comment_work_time_parsed_as_dateinterval():
+    """#16: work_time is a typed DateInterval, not a raw dict."""
+    from megaplan_sdk.models.comment import Comment
+    from megaplan_sdk.models.common import DateInterval
+
+    c = Comment(
+        id=1,
+        contentType="Comment",
+        workTime={"contentType": "DateInterval", "value": 9000},
+        workDate={"contentType": "DateTime", "value": "2026-06-26T06:25:15+00:00"},
+    )
+    assert isinstance(c.work_time, DateInterval)
+    assert c.work_time.value == 9000
+    assert c.work_time.seconds == 9000
+    assert c.work_time.minutes == 150.0
+    assert c.work_time.hours == 2.5
+    assert c.work_date is not None and c.work_date.value.startswith("2026-06-26")
+
+
+def test_comment_work_time_none_when_absent():
+    """#16: missing work_time stays None."""
+    from megaplan_sdk.models.comment import Comment
+
+    c = Comment(id=2, contentType="Comment")
+    assert c.work_time is None
+    assert c.work_date is None
+
+
+def test_task_full_details_delegates_to_task():
+    """#25: TaskFullDetails proxies missing attrs to the wrapped task."""
+    from megaplan_sdk.models.task import Task, TaskFullDetails
+
+    task = Task(id=5, contentType="Task", name="T", owner={"contentType": "Employee", "id": 7, "name": "Борзов"})
+    details = TaskFullDetails(task=task)
+    # delegated access
+    assert details.name == "T"
+    assert details.owner.id == 7
+    assert details.owner.name == "Борзов"
+    # explicit container access still works
+    assert details.task.name == "T"
+    # genuinely missing attr still raises
+    import pytest as _pytest
+
+    with _pytest.raises(AttributeError):
+        _ = details.totally_missing_attr
+
+
+def test_deal_full_details_delegates_to_deal():
+    """#25: DealFullDetails proxies missing attrs to the wrapped deal."""
+    from megaplan_sdk.models.deal import Deal, DealFullDetails
+
+    deal = Deal(id=9, contentType="Deal", name="D")
+    details = DealFullDetails(deal=deal)
+    assert details.name == "D"
+    assert details.deal.id == 9

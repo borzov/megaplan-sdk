@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from megaplan_sdk.models.base import BaseEntity
-from megaplan_sdk.models.common import DateTime, TimestampMixin
+from megaplan_sdk.models.common import DateTime, MainEntityProxyMixin, TimestampMixin
 
 if TYPE_CHECKING:
     from megaplan_sdk.models.milestone import Milestone
@@ -55,8 +55,12 @@ class Task(TimestampMixin):
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
-class TaskFullDetails(BaseModel):
+class TaskFullDetails(MainEntityProxyMixin, BaseModel):
     """Full task details with all related entities.
+
+    Attribute access falls through to the wrapped ``task`` (#25): both
+    ``details.task.owner`` and ``details.owner`` resolve identically, so code
+    written for a plain ``Task`` keeps working under ``expand=``.
 
     Attributes:
         task: Main task entity.
@@ -70,6 +74,8 @@ class TaskFullDetails(BaseModel):
         responsible_details: Full responsible employee details (if requested).
         owner_details: Full owner employee details (if requested).
     """
+
+    _main_field: ClassVar[str] = "task"
 
     task: Task
     sub_tasks: list[Any] | None = None
