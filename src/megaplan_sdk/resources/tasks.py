@@ -11,7 +11,9 @@ from megaplan_sdk.constants import (
     ContentType,
 )
 from megaplan_sdk.models.comment import Comment
+from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.task import Task, TaskFullDetails
+from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
 from megaplan_sdk.types import FilterType
@@ -40,6 +42,13 @@ class TasksResource(BaseResource, FullDetailsMixin):
     """Resource for working with tasks."""
 
     _page_content_type = ContentType.TASK
+
+    _expand_rules = {
+        "responsible": ExpandRule("employee", Employee, details_field="responsible_details"),
+        "owner": ExpandRule("employee", Employee, details_field="owner_details"),
+    }
+    _details_model = TaskFullDetails
+    _main_field = "task"
 
     _full_details_config = [
         RelatedDataConfig("sub_tasks", "include_sub_tasks", "get_sub_tasks"),
@@ -285,46 +294,8 @@ class TasksResource(BaseResource, FullDetailsMixin):
             statuses=statuses,  # Extra param specific to tasks
         )
 
-        # 1. Fetch tasks
         tasks = await self._get_list(path, Task, params)
-
-        # 2. If no expand, return as is
-        if not expand or not tasks:
-            return tasks
-
-        # 3. Batch load related entities
-        from megaplan_sdk.models.employee import Employee
-
-        expand_config: dict[str, tuple[str, type, str]] = {
-            "responsible": ("employee", Employee, ContentType.EMPLOYEE),
-            "owner": ("employee", Employee, ContentType.EMPLOYEE),
-        }
-
-        expanded = await self._expand_list_entities(tasks, expand, expand_config)
-        responsible_map = expanded.get("responsible", {})
-        owner_map = expanded.get("owner", {})
-
-        # 4. Build TaskFullDetails objects
-        results = []
-        for task in tasks:
-            resp_details = None
-            owner_details = None
-
-            if task.responsible and task.responsible.id in responsible_map:
-                resp_details = responsible_map[task.responsible.id]
-
-            if task.owner and task.owner.id in owner_map:
-                owner_details = owner_map[task.owner.id]
-
-            results.append(
-                TaskFullDetails(
-                    task=task,
-                    responsible_details=resp_details,
-                    owner_details=owner_details,
-                )
-            )
-
-        return results
+        return await self._expand_and_wrap(tasks, expand)
 
     async def get(self, task_id: int) -> Task:
         """Get task by ID.

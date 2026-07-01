@@ -7,7 +7,9 @@ from typing import Any
 
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.logging_config import logger
+from megaplan_sdk.models.department import Department
 from megaplan_sdk.models.employee import Employee
+from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 
 
@@ -15,6 +17,13 @@ class EmployeesResource(BaseResource):
     """Resource for working with employees."""
 
     _page_content_type = ContentType.EMPLOYEE
+
+    # Replace mode: no details model — loaded entities replace the reference
+    # fields on immutable copies, the public return type stays list[Employee].
+    _expand_rules = {
+        "department": ExpandRule("department", Department),
+        "manager": ExpandRule("employee", Employee),
+    }
 
     async def create(self, employee_data: dict[str, Any]) -> Employee:
         """Create a new employee.
@@ -121,34 +130,8 @@ class EmployeesResource(BaseResource):
             only_requested_fields=only_requested_fields,
         )
 
-        # 1. Fetch employees
         employees = await self._get_list(path, Employee, params)
-
-        # 2. If no expand, return as is
-        if not expand or not employees:
-            return employees
-
-        # 3. Batch load related entities
-        from megaplan_sdk.models.department import Department
-
-        expand_config: dict[str, tuple[str, type, str]] = {
-            "department": ("department", Department, ContentType.DEPARTMENT),
-            "manager": ("employee", Employee, ContentType.EMPLOYEE),
-        }
-
-        expanded = await self._expand_list_entities(employees, expand, expand_config)
-        department_map = expanded.get("department", {})
-        manager_map = expanded.get("manager", {})
-
-        # 4. Replace BaseEntity references with full objects
-        for employee in employees:
-            if employee.department and employee.department.id in department_map:
-                employee.department = department_map[employee.department.id]
-
-            if employee.manager and employee.manager.id in manager_map:
-                employee.manager = manager_map[employee.manager.id]
-
-        return employees
+        return await self._expand_and_wrap(employees, expand)
 
     async def get(self, employee_id: int) -> Employee:
         """Get employee by ID.

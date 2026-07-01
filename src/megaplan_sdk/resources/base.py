@@ -2,11 +2,12 @@
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger
+from megaplan_sdk.resources._expand import ExpandRule
 
 if TYPE_CHECKING:
     from megaplan_sdk.cache import EntityCache
@@ -48,6 +49,16 @@ class BaseResource:
     # subclasses override this so a bare int id can be wrapped into the entity
     # link {contentType, id} the server requires (#23). None = unknown.
     _page_content_type: str | None = None
+
+    # Declarative expand pipeline (see _expand.py). Subclasses fill
+    # _expand_rules with field name -> ExpandRule. Wrap-mode resources also
+    # declare _details_model (the *FullDetails container) and _main_field (the
+    # container attribute holding the wrapped entity); without _details_model
+    # the engine runs in replace mode: loaded entities replace the reference
+    # fields on immutable copies.
+    _expand_rules: ClassVar[dict[str, ExpandRule]] = {}
+    _details_model: ClassVar[type[Any] | None] = None
+    _main_field: ClassVar[str | None] = None
 
     def _build_path(self, *parts: str) -> str:
         """Build API path from parts.
@@ -948,71 +959,91 @@ class BaseResource:
         data = response.get("data", {})
         return data if isinstance(data, dict) else {}
 
-    async def _expand_list_entities(
+    async def _expand_and_wrap(
         self,
-        entities: list[T],
+        entities: list[Any],
         expand: list[str] | None,
-        expand_config: dict[str, tuple[str, type, str]],
-    ) -> dict[str, dict[int, Any]]:
-        """Expand related entities for list of entities.
+    ) -> list[Any]:
+        """Run the declarative expand pipeline over listed entities.
 
-        Unified method to handle expand logic in list() methods.
-        Returns empty dict if expand is None or empty, or if entities list is empty.
-
-        Args:
-            entities: List of entities to expand.
-            expand: List of field names to expand (None or empty means no expansion).
-            expand_config: Configuration mapping field_name -> (entity_type, model_class, content_type).
-
-        Returns:
-            Dictionary mapping field_name -> {entity_id -> loaded_entity}.
-        """
-        if not expand or not entities:
-            return {}
-
-        return await self._expand_entities(entities, expand, expand_config)
-
-    async def _expand_entities(
-        self,
-        entities: list[T],
-        expand: list[str],
-        expand_config: dict[str, tuple[str, type, str]],
-    ) -> dict[str, dict[int, Any]]:
-        """Generic method to expand related entities.
+        Loads the reference fields requested in ``expand`` per ``_expand_rules``
+        (cache-first, batched), then assembles the result. Wrap mode
+        (``_details_model`` declared): each entity is wrapped into the details
+        container with loaded relatives in the rules' ``details_field``s.
+        Replace mode: reference fields are replaced with loaded entities on
+        immutable copies of the listed entities.
 
         Args:
-            entities: List of entities to expand.
-            expand: List of field names to expand.
-            expand_config: Configuration mapping field_name -> (entity_type, model_class, content_type).
+            entities: Listed entities to expand.
+            expand: Requested field names (unknown names are ignored).
+                None or empty list returns ``entities`` unchanged.
 
         Returns:
-            Dictionary mapping field_name -> {entity_id -> loaded_entity}.
+            List of details containers (wrap mode) or entity copies
+            (replace mode).
         """
         if not expand or not entities:
-            return {}
+            return entities
 
-        result: dict[str, dict[int, Any]] = {}
-
+        loaded_maps: dict[str, dict[int, Any]] = {}
         for field_name in expand:
-            if field_name not in expand_config:
+            rule = self._expand_rules.get(field_name)
+            if rule is None:
                 continue
-
-            entity_type, model_class, _ = expand_config[field_name]
-
-            # Collect references for this field
-            refs = []
-            for entity in entities:
-                field_value = getattr(entity, field_name, None)
-                if field_value is not None and hasattr(field_value, "id"):
-                    refs.append(field_value)
-
+            refs = [
+                ref
+                for entity in entities
+                if (ref := getattr(entity, field_name, None)) is not None and hasattr(ref, "id")
+            ]
             if refs:
-                loaded: dict[int, T] = await self._load_related_entities(
-                    refs, entity_type, model_class
+                loaded_maps[field_name] = await self._load_related_entities(
+                    refs, rule.entity_type, rule.model
                 )
-                result[field_name] = loaded
 
-        return result
+        if self._details_model is not None:
+            return self._wrap_into_details(entities, loaded_maps)
+        return self._replace_references(entities, loaded_maps)
+
+    def _wrap_into_details(
+        self,
+        entities: list[Any],
+        loaded_maps: dict[str, dict[int, Any]],
+    ) -> list[Any]:
+        """Wrap entities into the details container with loaded relatives."""
+        if self._details_model is None or self._main_field is None:
+            raise TypeError(
+                f"{type(self).__name__} must declare _details_model and _main_field "
+                "to use wrap mode"
+            )
+        results: list[Any] = []
+        for entity in entities:
+            kwargs: dict[str, Any] = {self._main_field: entity}
+            for field_name, rule in self._expand_rules.items():
+                if rule.details_field is None:
+                    continue
+                ref = getattr(entity, field_name, None)
+                loaded = loaded_maps.get(field_name, {})
+                kwargs[rule.details_field] = (
+                    loaded.get(ref.id) if ref is not None and hasattr(ref, "id") else None
+                )
+            results.append(self._details_model(**kwargs))
+        return results
+
+    def _replace_references(
+        self,
+        entities: list[Any],
+        loaded_maps: dict[str, dict[int, Any]],
+    ) -> list[Any]:
+        """Replace reference fields with loaded entities on immutable copies."""
+        results: list[Any] = []
+        for entity in entities:
+            updates: dict[str, Any] = {}
+            for field_name, loaded in loaded_maps.items():
+                ref = getattr(entity, field_name, None)
+                if ref is not None and hasattr(ref, "id") and ref.id in loaded:
+                    updates[field_name] = loaded[ref.id]
+            results.append(entity.model_copy(update=updates) if updates else entity)
+        return results
 
     async def _get_milestones_generic(
         self,

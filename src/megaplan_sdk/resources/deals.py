@@ -7,8 +7,10 @@ from typing import Any, overload
 
 from megaplan_sdk.constants import DEFAULT_SORT_RECENT, ContentType
 from megaplan_sdk.models.comment import Comment
+from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
 from megaplan_sdk.models.employee import Employee
+from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
 from megaplan_sdk.types import FilterType
@@ -18,6 +20,13 @@ class DealsResource(BaseResource, FullDetailsMixin):
     """Resource for working with deals."""
 
     _page_content_type = ContentType.DEAL
+
+    _expand_rules = {
+        "manager": ExpandRule("employee", Employee, details_field="manager_details"),
+        "contractor": ExpandRule("contractor", Contractor, details_field="contractor_details"),
+    }
+    _details_model = DealFullDetails
+    _main_field = "deal"
 
     def __init__(
         self,
@@ -243,47 +252,8 @@ class DealsResource(BaseResource, FullDetailsMixin):
             **extra_params,
         )
 
-        # 1. Fetch deals
         deals = await self._get_list(path, Deal, params)
-
-        # 2. If no expand, return as is
-        if not expand or not deals:
-            return deals
-
-        # 3. Batch load related entities
-        from megaplan_sdk.models.contractor import Contractor
-        from megaplan_sdk.models.employee import Employee
-
-        expand_config: dict[str, tuple[str, type, str]] = {
-            "manager": ("employee", Employee, ContentType.EMPLOYEE),
-            "contractor": ("contractor", Contractor, ContentType.CONTRACTOR),
-        }
-
-        expanded = await self._expand_list_entities(deals, expand, expand_config)
-        manager_map = expanded.get("manager", {})
-        contractor_map = expanded.get("contractor", {})
-
-        # 4. Build DealFullDetails objects
-        results = []
-        for deal in deals:
-            mgr_details = None
-            contr_details = None
-
-            if deal.manager and deal.manager.id in manager_map:
-                mgr_details = manager_map[deal.manager.id]
-
-            if deal.contractor and deal.contractor.id in contractor_map:
-                contr_details = contractor_map[deal.contractor.id]
-
-            results.append(
-                DealFullDetails(
-                    deal=deal,
-                    manager_details=mgr_details,
-                    contractor_details=contr_details,
-                )
-            )
-
-        return results
+        return await self._expand_and_wrap(deals, expand)
 
     async def get(self, deal_id: int) -> Deal:
         """Get deal by ID.
