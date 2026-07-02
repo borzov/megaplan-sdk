@@ -2,14 +2,11 @@
 
 from unittest.mock import patch
 
-import pytest
-
 from megaplan_sdk.cache import EntityCache
 
 
 def test_ttl_expiration():
     """Test TTL expiration using time mocking."""
-    from time import time
 
     cache = EntityCache(max_size=100, ttl=5)
 

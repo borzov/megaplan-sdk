@@ -1,102 +1,54 @@
 """Unit tests for BaseResource."""
 
-import pytest
-import respx
 from httpx import Response
 
-from megaplan_sdk.http_client import HTTPClient
-from megaplan_sdk.resources.tasks import TasksResource
+from megaplan_sdk.resources.base import BaseResource
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_pagination_page_after():
+async def test_pagination_page_after(megaplan_api, tasks):
     """Test pageAfter parameter in query params."""
-    respx.get(
-        url__regex=r"https://example\.com/api/v3/task\?.*pageAfter.*",
-    ).mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [{"id": 2, "contentType": "Task", "name": "Task 2"}],
-            },
-        )
+    megaplan_api.get("task", data=[{"id": 2, "contentType": "Task", "name": "Task 2"}])
+
+    result = await tasks.list(
+        limit=10,
+        page_after={"contentType": "Task", "id": 1},
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        tasks = await resource.list(
-            limit=10,
-            page_after={"contentType": "Task", "id": 1},
-        )
-
-        assert len(tasks) == 1
-        assert tasks[0].id == 2
+    assert len(result) == 1
+    assert result[0].id == 2
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_pagination_page_before():
+async def test_pagination_page_before(megaplan_api, tasks):
     """Test pageBefore parameter in query params."""
-    respx.get(
-        url__regex=r"https://example\.com/api/v3/task\?.*pageBefore.*",
-    ).mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [{"id": 1, "contentType": "Task", "name": "Task 1"}],
-            },
-        )
+    megaplan_api.get("task", data=[{"id": 1, "contentType": "Task", "name": "Task 1"}])
+
+    result = await tasks.list(
+        limit=10,
+        page_before={"contentType": "Task", "id": 2},
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        tasks = await resource.list(
-            limit=10,
-            page_before={"contentType": "Task", "id": 2},
-        )
-
-        assert len(tasks) == 1
-        assert tasks[0].id == 1
+    assert len(result) == 1
+    assert result[0].id == 1
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_pagination_page_with():
+async def test_pagination_page_with(megaplan_api, tasks):
     """Test pageWith parameter in query params."""
-    respx.get(
-        url__regex=r"https://example\.com/api/v3/task\?.*pageWith.*",
-    ).mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [{"id": 5, "contentType": "Task", "name": "Task 5"}],
-            },
-        )
+    megaplan_api.get("task", data=[{"id": 5, "contentType": "Task", "name": "Task 5"}])
+
+    result = await tasks.list(
+        limit=10,
+        page_with={"contentType": "Task", "id": 5},
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        tasks = await resource.list(
-            limit=10,
-            page_with={"contentType": "Task", "id": 5},
-        )
-
-        assert len(tasks) == 1
-        assert tasks[0].id == 5
+    assert len(result) == 1
+    assert result[0].id == 5
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_iterate_multiple_pages():
+async def test_iterate_multiple_pages(megaplan_api, tasks):
     """Test iterate() with multiple pages."""
     # First page - TasksResource adds statuses parameter
-    respx.get(
-        url__regex=r"https://example\.com/api/v3/task\?.*",
-    ).mock(
+    route = megaplan_api.router.get(f"{megaplan_api.base_url}/api/v3/task")
+    route.mock(
         side_effect=[
             Response(
                 200,
@@ -120,256 +72,149 @@ async def test_iterate_multiple_pages():
         ]
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        tasks = []
-        async for task in resource.iterate(limit=2):
-            tasks.append(task)
+    collected = []
+    async for task in tasks.iterate(limit=2):
+        collected.append(task)
 
-        assert len(tasks) == 3
-        assert tasks[0].id == 1
-        assert tasks[1].id == 2
-        assert tasks[2].id == 3
+    assert len(collected) == 3
+    assert collected[0].id == 1
+    assert collected[1].id == 2
+    assert collected[2].id == 3
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_iterate_empty_result():
+async def test_iterate_empty_result(megaplan_api, tasks):
     """Test iterate() with empty result."""
-    respx.get("https://example.com/api/v3/task").mock(
-        return_value=Response(
-            200,
-            json={"meta": {"status": 200}, "data": []},
-        )
-    )
+    megaplan_api.get("task", data=[])
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        tasks = []
-        async for task in resource.iterate(limit=10):
-            tasks.append(task)
+    collected = []
+    async for task in tasks.iterate(limit=10):
+        collected.append(task)
 
-        assert len(tasks) == 0
+    assert len(collected) == 0
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_iterate_partial_page():
+async def test_iterate_partial_page(megaplan_api, tasks):
     """Test iterate() stops when last page < limit."""
     # First page with 2 items (limit is 10, but only 2 returned)
-    respx.get("https://example.com/api/v3/task").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [
-                    {"id": 1, "contentType": "Task", "name": "Task 1"},
-                    {"id": 2, "contentType": "Task", "name": "Task 2"},
-                ],
-            },
-        )
+    megaplan_api.get(
+        "task",
+        data=[
+            {"id": 1, "contentType": "Task", "name": "Task 1"},
+            {"id": 2, "contentType": "Task", "name": "Task 2"},
+        ],
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        tasks = []
-        async for task in resource.iterate(limit=10):
-            tasks.append(task)
+    collected = []
+    async for task in tasks.iterate(limit=10):
+        collected.append(task)
 
-        assert len(tasks) == 2
-        # Should not make second request since len(items) < limit
+    assert len(collected) == 2
+    # Should not make second request since len(items) < limit
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_fields_parameter():
+async def test_fields_parameter(megaplan_api, tasks):
     """Test fields parameter in query."""
-    respx.get(
-        url__regex=r"https://example\.com/api/v3/task\?.*fields.*",
-    ).mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [{"id": 1, "contentType": "Task", "name": "Task 1"}],
-            },
-        )
-    )
+    megaplan_api.get("task", data=[{"id": 1, "contentType": "Task", "name": "Task 1"}])
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        tasks = await resource.list(fields=["name", "status"])
+    result = await tasks.list(fields=["name", "status"])
 
-        assert len(tasks) == 1
+    assert len(result) == 1
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_sort_by_parameter():
+async def test_sort_by_parameter(megaplan_api, tasks):
     """Test sortBy parameter in query."""
-    respx.get(
-        url__regex=r"https://example\.com/api/v3/task\?.*sortBy.*",
-    ).mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [{"id": 1, "contentType": "Task", "name": "Task 1"}],
-            },
-        )
+    megaplan_api.get("task", data=[{"id": 1, "contentType": "Task", "name": "Task 1"}])
+
+    result = await tasks.list(
+        sort_by=[{"field": "name", "direction": "asc"}],
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        tasks = await resource.list(
-            sort_by=[{"field": "name", "direction": "asc"}],
-        )
-
-        assert len(tasks) == 1
+    assert len(result) == 1
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_only_requested_fields():
+async def test_only_requested_fields(megaplan_api, tasks):
     """Test onlyRequestedFields parameter in query."""
-    respx.get(
-        url__regex=r"https://example\.com/api/v3/task\?.*onlyRequestedFields.*",
-    ).mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [{"id": 1, "contentType": "Task", "name": "Task 1"}],
-            },
-        )
-    )
+    megaplan_api.get("task", data=[{"id": 1, "contentType": "Task", "name": "Task 1"}])
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        tasks = await resource.list(only_requested_fields=True)
+    result = await tasks.list(only_requested_fields=True)
 
-        assert len(tasks) == 1
+    assert len(result) == 1
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_build_list_params_combinations():
+async def test_build_list_params_combinations(megaplan_api, tasks):
     """Test combinations of all parameters together."""
-    respx.get(
-        url__regex=r"https://example\.com/api/v3/task\?.*",
-    ).mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [{"id": 1, "contentType": "Task", "name": "Task 1"}],
-            },
-        )
+    megaplan_api.get("task", data=[{"id": 1, "contentType": "Task", "name": "Task 1"}])
+
+    result = await tasks.list(
+        limit=10,
+        page_after={"contentType": "Task", "id": 1},
+        fields=["name"],
+        sort_by=[{"field": "name", "direction": "asc"}],
+        only_requested_fields=True,
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        tasks = await resource.list(
-            limit=10,
-            page_after={"contentType": "Task", "id": 1},
-            fields=["name"],
-            sort_by=[{"field": "name", "direction": "asc"}],
-            only_requested_fields=True,
-        )
-
-        assert len(tasks) == 1
+    assert len(result) == 1
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_get_entity_comments():
+async def test_get_entity_comments(megaplan_api, tasks):
     """Test _get_entity_comments with different pagination parameters."""
     # Test with limit - Comment model uses "content" field, not "text"
-    respx.get("https://example.com/api/v3/task/1/comments").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [
-                    {"id": 1, "contentType": "Comment", "content": "Comment 1"},
-                    {"id": 2, "contentType": "Comment", "content": "Comment 2"},
-                ],
-            },
-        )
+    megaplan_api.get(
+        "task/1/comments",
+        data=[
+            {"id": 1, "contentType": "Comment", "content": "Comment 1"},
+            {"id": 2, "contentType": "Comment", "content": "Comment 2"},
+        ],
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        comments = await resource.get_comments(task_id=1, limit=10)
+    comments = await tasks.get_comments(task_id=1, limit=10)
 
-        assert len(comments) == 2
-        assert comments[0].content == "Comment 1"
-        assert comments[1].content == "Comment 2"
+    assert len(comments) == 2
+    assert comments[0].content == "Comment 1"
+    assert comments[1].content == "Comment 2"
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_get_entity_comments_with_pagination():
+async def test_get_entity_comments_with_pagination(megaplan_api, tasks):
     """Test _get_entity_comments with page_after."""
-    respx.get(
-        url__regex=r"https://example\.com/api/v3/task/1/comments\?.*pageAfter.*",
-    ).mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [{"id": 2, "contentType": "Comment", "text": "Comment 2"}],
-            },
-        )
+    megaplan_api.get(
+        "task/1/comments",
+        data=[{"id": 2, "contentType": "Comment", "text": "Comment 2"}],
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        comments = await resource.get_comments(
-            task_id=1,
-            page_after={"contentType": "Comment", "id": 1},
-        )
+    comments = await tasks.get_comments(
+        task_id=1,
+        page_after={"contentType": "Comment", "id": 1},
+    )
 
-        assert len(comments) == 1
-        assert comments[0].id == 2
+    assert len(comments) == 1
+    assert comments[0].id == 2
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_create_entity_comment():
+async def test_create_entity_comment(megaplan_api, tasks):
     """Test _create_entity_comment with attaches and extra_fields."""
-    respx.post("https://example.com/api/v3/task/1/comments").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": {
-                    "id": 1,
-                    "contentType": "Comment",
-                    "content": "Test comment",
-                    "work": 2.5,
-                },
-            },
-        )
+    megaplan_api.post(
+        "task/1/comments",
+        data={
+            "id": 1,
+            "contentType": "Comment",
+            "content": "Test comment",
+            "work": 2.5,
+        },
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TasksResource(http_client)
-        comment = await resource.create_comment(
-            task_id=1,
-            text="Test comment",
-            work=2.5,
-            attaches=[{"id": 10, "contentType": "File"}],
-        )
+    comment = await tasks.create_comment(
+        task_id=1,
+        text="Test comment",
+        work=2.5,
+        attaches=[{"id": 10, "contentType": "File"}],
+    )
 
-        assert comment.id == 1
-        assert comment.content == "Test comment"
+    assert comment.id == 1
+    assert comment.content == "Test comment"
 
 
-@pytest.mark.asyncio
-async def test_fetch_details_parallel_exceptions():
+async def test_fetch_details_parallel_exceptions(http_client):
     """Test _fetch_details_parallel handles exceptions correctly."""
-    from megaplan_sdk.resources.base import BaseResource
 
     class TestResource(BaseResource):
         pass
@@ -380,34 +225,30 @@ async def test_fetch_details_parallel_exceptions():
     async def success_task():
         return "success"
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TestResource(http_client)
+    resource = TestResource(http_client)
 
-        tasks = {
-            "failing": failing_task(),
-            "success": success_task(),
-        }
+    tasks = {
+        "failing": failing_task(),
+        "success": success_task(),
+    }
 
-        results = await resource._fetch_details_parallel(tasks)
+    results = await resource._fetch_details_parallel(tasks)
 
-        assert results["failing"] is None  # Exception should result in None
-        assert results["success"] == "success"
+    assert results["failing"] is None  # Exception should result in None
+    assert results["success"] == "success"
 
 
-@pytest.mark.asyncio
-async def test_fetch_details_parallel_empty():
+async def test_fetch_details_parallel_empty(http_client):
     """Test _fetch_details_parallel with empty tasks dict."""
-    from megaplan_sdk.resources.base import BaseResource
 
     class TestResource(BaseResource):
         pass
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = TestResource(http_client)
+    resource = TestResource(http_client)
 
-        results = await resource._fetch_details_parallel({})
+    results = await resource._fetch_details_parallel({})
 
-        assert results == {}
+    assert results == {}
 
 
 def test_knowledge_content_types_defined():
@@ -420,7 +261,5 @@ def test_knowledge_content_types_defined():
 
 def test_entity_type_maps_knowledge_segments():
     """Test that knowledgeBase and knowledgeArticle map to correct ContentTypes."""
-    from megaplan_sdk.resources.base import BaseResource
-
     assert BaseResource._entity_type_to_content_type("knowledgeBase") == "KnowledgeBase"
     assert BaseResource._entity_type_to_content_type("knowledgeArticle") == "KnowledgeArticle"

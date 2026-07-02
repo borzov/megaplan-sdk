@@ -1,365 +1,218 @@
 """Unit tests for FiltersResource."""
 
-import pytest
-import respx
-from httpx import Response
 
-from megaplan_sdk.http_client import HTTPClient
-from megaplan_sdk.resources.filters import FiltersResource
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_list_filters():
+async def test_list_filters(megaplan_api, filters):
     """Test listing filters."""
-    respx.get("https://example.com/api/v3/taskFilter").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [
-                    {"id": 1, "contentType": "TaskFilter", "name": "Filter 1"},
-                    {"id": 2, "contentType": "TaskFilter", "name": "Filter 2"},
-                ],
-            },
-        )
+    megaplan_api.get(
+        "taskFilter",
+        data=[
+            {"id": 1, "contentType": "TaskFilter", "name": "Filter 1"},
+            {"id": 2, "contentType": "TaskFilter", "name": "Filter 2"},
+        ],
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        filters = await resource.list("task")
+    result = await filters.list("task")
 
-        assert len(filters) == 2
-        assert filters[0].id == 1
-        assert filters[0].name == "Filter 1"
-        assert filters[1].id == 2
+    assert len(result) == 2
+    assert result[0].id == 1
+    assert result[0].name == "Filter 1"
+    assert result[1].id == 2
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_list_filters_with_filters_param():
+async def test_list_filters_with_filters_param(megaplan_api, filters):
     """Test listing filters with filters parameter."""
-    respx.get("https://example.com/api/v3/taskFilter?{%22filters%22:%20[%22123%22,%20%22456%22]}").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [{"id": 123, "contentType": "TaskFilter", "name": "Filter 123"}],
-            },
-        )
+    megaplan_api.get(
+        "taskFilter",
+        data=[{"id": 123, "contentType": "TaskFilter", "name": "Filter 123"}],
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        filters = await resource.list("task", filters=["123", "456"])
+    result = await filters.list("task", filters=["123", "456"])
 
-        assert len(filters) == 1
-        assert filters[0].id == 123
+    assert len(result) == 1
+    assert result[0].id == 123
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_get_filter():
+async def test_get_filter(megaplan_api, filters):
     """Test getting filter by ID."""
-    respx.get("https://example.com/api/v3/taskFilter/123").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": {"id": 123, "contentType": "TaskFilter", "name": "Test Filter"},
-            },
-        )
+    megaplan_api.get(
+        "taskFilter/123",
+        data={"id": 123, "contentType": "TaskFilter", "name": "Test Filter"},
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        filter_obj = await resource.get("task", 123)
+    filter_obj = await filters.get("task", 123)
 
-        assert filter_obj.id == 123
-        assert filter_obj.name == "Test Filter"
+    assert filter_obj.id == 123
+    assert filter_obj.name == "Test Filter"
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_get_filter_string_id():
+async def test_get_filter_string_id(megaplan_api, filters):
     """Test getting filter by string ID."""
-    respx.get("https://example.com/api/v3/taskFilter/my_filter").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": {"id": 1, "contentType": "TaskFilter", "name": "My Filter"},
-            },
-        )
+    megaplan_api.get(
+        "taskFilter/my_filter",
+        data={"id": 1, "contentType": "TaskFilter", "name": "My Filter"},
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        filter_obj = await resource.get("task", "my_filter")
+    filter_obj = await filters.get("task", "my_filter")
 
-        assert filter_obj.id == 1
-        assert filter_obj.name == "My Filter"
+    assert filter_obj.id == 1
+    assert filter_obj.name == "My Filter"
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_create_filter():
+async def test_create_filter(megaplan_api, filters):
     """Test creating filter."""
-    respx.post("https://example.com/api/v3/taskFilter/my_filter").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": {
-                    "id": 1,
-                    "contentType": "TaskFilter",
-                    "name": "New Filter",
-                    "config": {"status": "in_progress"},
-                },
-            },
-        )
+    megaplan_api.post(
+        "taskFilter/my_filter",
+        data={
+            "id": 1,
+            "contentType": "TaskFilter",
+            "name": "New Filter",
+            "config": {"status": "in_progress"},
+        },
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        filter_obj = await resource.create(
-            "task",
-            "my_filter",
-            {"name": "New Filter", "config": {"status": "in_progress"}},
-        )
+    filter_obj = await filters.create(
+        "task",
+        "my_filter",
+        {"name": "New Filter", "config": {"status": "in_progress"}},
+    )
 
-        assert filter_obj.id == 1
-        assert filter_obj.name == "New Filter"
-        assert filter_obj.config == {"status": "in_progress"}
+    assert filter_obj.id == 1
+    assert filter_obj.name == "New Filter"
+    assert filter_obj.config == {"status": "in_progress"}
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_update_filter():
+async def test_update_filter(megaplan_api, filters):
     """Test updating filter."""
-    respx.post("https://example.com/api/v3/taskFilter/123").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": {"id": 123, "contentType": "TaskFilter", "name": "Updated Filter"},
-            },
-        )
+    megaplan_api.post(
+        "taskFilter/123",
+        data={"id": 123, "contentType": "TaskFilter", "name": "Updated Filter"},
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        filter_obj = await resource.update("task", 123, {"name": "Updated Filter"})
+    filter_obj = await filters.update("task", 123, {"name": "Updated Filter"})
 
-        assert filter_obj.name == "Updated Filter"
+    assert filter_obj.name == "Updated Filter"
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_delete_filter():
+async def test_delete_filter(megaplan_api, filters):
     """Test deleting filter."""
-    respx.delete("https://example.com/api/v3/taskFilter/123").mock(
-        return_value=Response(200, json={"meta": {"status": 200}})
-    )
+    megaplan_api.delete("taskFilter/123")
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        await resource.delete("task", 123)
+    await filters.delete("task", 123)
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_leave_filter():
+async def test_leave_filter(megaplan_api, filters):
     """Test leaving filter."""
-    respx.post("https://example.com/api/v3/taskFilter/123/leave").mock(
-        return_value=Response(200, json={"meta": {"status": 200}})
-    )
+    megaplan_api.post("taskFilter/123/leave")
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        await resource.leave("task", 123)
+    await filters.leave("task", 123)
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_get_settings():
+async def test_get_settings(megaplan_api, filters):
     """Test getting filter settings."""
-    respx.get("https://example.com/api/v3/taskFilter/123/newFilterSettings").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": {"setting1": "value1", "setting2": "value2"},
-            },
-        )
+    megaplan_api.get(
+        "taskFilter/123/newFilterSettings",
+        data={"setting1": "value1", "setting2": "value2"},
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        settings = await resource.get_settings("task", 123)
+    settings = await filters.get_settings("task", 123)
 
-        assert settings.setting1 == "value1"  # type: ignore[attr-defined]
-        assert settings.setting2 == "value2"  # type: ignore[attr-defined]
+    assert settings.setting1 == "value1"  # type: ignore[attr-defined]
+    assert settings.setting2 == "value2"  # type: ignore[attr-defined]
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_set_settings():
+async def test_set_settings(megaplan_api, filters):
     """Test setting filter settings."""
-    respx.post("https://example.com/api/v3/taskFilter/123/newFilterSettings").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": {"setting1": "new_value"},
-            },
-        )
+    megaplan_api.post(
+        "taskFilter/123/newFilterSettings",
+        data={"setting1": "new_value"},
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        settings = await resource.set_settings("task", 123, {"setting1": "new_value"})
+    settings = await filters.set_settings("task", 123, {"setting1": "new_value"})
 
-        assert settings.setting1 == "new_value"  # type: ignore[attr-defined]
+    assert settings.setting1 == "new_value"  # type: ignore[attr-defined]
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_export_filter():
+async def test_export_filter(megaplan_api, filters):
     """Test exporting filter data."""
-    # HTTPClient converts params to JSON string in query, so filter=123 becomes ?{"filter":123}
-    import json
-    params_json = json.dumps({"filter": 123}, ensure_ascii=False)
-    url = f"https://example.com/api/v3/taskFilter/export?{params_json}"
-    respx.get(url).mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": {"file": {"contentType": "File", "id": 456}},
-            },
-        )
+    megaplan_api.get(
+        "taskFilter/export",
+        data={"file": {"contentType": "File", "id": 456}},
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        result = await resource.export("task", filter=123)
+    result = await filters.export("task", filter=123)
 
-        assert result.file is not None
-        assert result.file.id == 456  # type: ignore[union-attr]
+    assert result.file is not None
+    assert result.file.id == 456  # type: ignore[union-attr]
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_export_filter_with_config():
+async def test_export_filter_with_config(megaplan_api, filters):
     """Test exporting filter data with config."""
-    respx.get(
-        "https://example.com/api/v3/taskFilter/export?{%22filter%22:%20{%22status%22:%20%22in_progress%22}}"
-    ).mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": {"file": None},
-            },
-        )
+    megaplan_api.get(
+        "taskFilter/export",
+        data={"file": None},
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        result = await resource.export("task", filter={"status": "in_progress"})
+    result = await filters.export("task", filter={"status": "in_progress"})
 
-        assert result.file is None
+    assert result.file is None
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_get_available_responsibles():
+async def test_get_available_responsibles(megaplan_api, filters):
     """Test getting available responsibles."""
-    respx.get("https://example.com/api/v3/taskFilter/availableResponsibles").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [
-                    {"id": 1, "contentType": "Employee", "firstName": "John", "lastName": "Doe"},
-                    {"id": 2, "contentType": "ContractorCompany", "name": "Company"},
-                ],
-            },
-        )
+    megaplan_api.get(
+        "taskFilter/availableResponsibles",
+        data=[
+            {"id": 1, "contentType": "Employee", "firstName": "John", "lastName": "Doe"},
+            {"id": 2, "contentType": "ContractorCompany", "name": "Company"},
+        ],
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        responsibles = await resource.get_available_responsibles("task")
+    responsibles = await filters.get_available_responsibles("task")
 
-        assert len(responsibles) == 2
-        assert responsibles[0].id == 1
-        assert responsibles[1].id == 2
+    assert len(responsibles) == 2
+    assert responsibles[0].id == 1
+    assert responsibles[1].id == 2
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_get_formula_variables():
+async def test_get_formula_variables(megaplan_api, filters):
     """Test getting formula variables."""
-    respx.get("https://example.com/api/v3/taskFilter/formula/variables").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": ["variable1", "variable2", "variable3"],
-            },
-        )
+    megaplan_api.get(
+        "taskFilter/formula/variables",
+        data=["variable1", "variable2", "variable3"],
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        variables = await resource.get_formula_variables("task")
+    variables = await filters.get_formula_variables("task")
 
-        assert len(variables) == 3
-        assert "variable1" in variables
-        assert "variable2" in variables
-        assert "variable3" in variables
+    assert len(variables) == 3
+    assert "variable1" in variables
+    assert "variable2" in variables
+    assert "variable3" in variables
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_normalize_entity_type():
+async def test_normalize_entity_type(filters):
     """Test entity type normalization."""
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
+    # Test common mappings
+    assert filters._normalize_entity_type("task") == "taskFilter"
+    assert filters._normalize_entity_type("deal") == "tradeFilter"
+    assert filters._normalize_entity_type("trade") == "tradeFilter"
+    assert filters._normalize_entity_type("employee") == "employeeFilter"
+    assert filters._normalize_entity_type("project") == "projectFilter"
 
-        # Test common mappings
-        assert resource._normalize_entity_type("task") == "taskFilter"
-        assert resource._normalize_entity_type("deal") == "tradeFilter"
-        assert resource._normalize_entity_type("trade") == "tradeFilter"
-        assert resource._normalize_entity_type("employee") == "employeeFilter"
-        assert resource._normalize_entity_type("project") == "projectFilter"
+    # Test already normalized
+    assert filters._normalize_entity_type("taskFilter") == "taskFilter"
 
-        # Test already normalized
-        assert resource._normalize_entity_type("taskFilter") == "taskFilter"
-
-        # Test unknown type (should add Filter suffix)
-        assert resource._normalize_entity_type("unknown") == "unknownFilter"
+    # Test unknown type (should add Filter suffix)
+    assert filters._normalize_entity_type("unknown") == "unknownFilter"
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_list_different_entity_types():
+async def test_list_different_entity_types(megaplan_api, filters):
     """Test listing filters for different entity types."""
-    respx.get("https://example.com/api/v3/tradeFilter").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [{"id": 1, "contentType": "TradeFilter", "name": "Deal Filter"}],
-            },
-        )
+    megaplan_api.get(
+        "tradeFilter",
+        data=[{"id": 1, "contentType": "TradeFilter", "name": "Deal Filter"}],
     )
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = FiltersResource(http_client)
-        filters = await resource.list("deal")
+    result = await filters.list("deal")
 
-        assert len(filters) == 1
-        assert filters[0].content_type == "TradeFilter"
+    assert len(result) == 1
+    assert result[0].content_type == "TradeFilter"

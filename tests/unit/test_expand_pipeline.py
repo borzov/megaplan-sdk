@@ -3,37 +3,21 @@
 import dataclasses
 
 import pytest
-import respx
-from httpx import Response
 
-from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.models.department import Department
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
-from megaplan_sdk.resources.employees import EmployeesResource
 
-EMPLOYEE_10_RESPONSE = Response(
-    200,
-    json={
-        "meta": {"status": 200},
-        "data": {
-            "id": 10,
-            "contentType": "Employee",
-            "firstName": "John",
-            "lastName": "Doe",
-        },
-    },
-)
+EMPLOYEE_10 = {
+    "id": 10,
+    "contentType": "Employee",
+    "firstName": "John",
+    "lastName": "Doe",
+}
 
-DEPARTMENT_5_RESPONSE = Response(
-    200,
-    json={
-        "meta": {"status": 200},
-        "data": {"id": 5, "contentType": "Department", "name": "Development"},
-    },
-)
+DEPARTMENT_5 = {"id": 5, "contentType": "Department", "name": "Development"}
 
 
 class WrapModeResource(BaseResource):
@@ -68,11 +52,9 @@ def test_expand_rule_is_frozen_with_optional_details_field():
         rule.entity_type = "department"  # type: ignore[misc]
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_wrap_mode_builds_details_containers():
+async def test_wrap_mode_builds_details_containers(megaplan_api, http_client):
     """Wrap mode loads requested fields and wraps entities into _details_model."""
-    respx.get("https://example.com/api/v3/employee/10").mock(return_value=EMPLOYEE_10_RESPONSE)
+    megaplan_api.get("employee/10", data=EMPLOYEE_10)
 
     tasks = [
         Task(
@@ -86,9 +68,8 @@ async def test_wrap_mode_builds_details_containers():
         )
     ]
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = WrapModeResource(http_client)
-        result = await resource._expand_and_wrap(tasks, ["responsible"])
+    resource = WrapModeResource(http_client)
+    result = await resource._expand_and_wrap(tasks, ["responsible"])
 
     assert isinstance(result[0], TaskFullDetails)
     assert result[0].task is tasks[0]
@@ -98,11 +79,9 @@ async def test_wrap_mode_builds_details_containers():
     assert result[0].owner_details is None
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_wrap_mode_missing_reference_yields_none():
+async def test_wrap_mode_missing_reference_yields_none(megaplan_api, http_client):
     """Entities without the reference get None in the details field."""
-    respx.get("https://example.com/api/v3/employee/10").mock(return_value=EMPLOYEE_10_RESPONSE)
+    megaplan_api.get("employee/10", data=EMPLOYEE_10)
 
     tasks = [
         Task(**{"id": 1, "contentType": "Task", "name": "No responsible"}),
@@ -116,31 +95,26 @@ async def test_wrap_mode_missing_reference_yields_none():
         ),
     ]
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = WrapModeResource(http_client)
-        result = await resource._expand_and_wrap(tasks, ["responsible"])
+    resource = WrapModeResource(http_client)
+    result = await resource._expand_and_wrap(tasks, ["responsible"])
 
     assert result[0].responsible_details is None
     assert result[1].responsible_details is not None
 
 
-@pytest.mark.asyncio
-async def test_expand_none_returns_entities_unchanged():
+async def test_expand_none_returns_entities_unchanged(http_client):
     """expand=None short-circuits: the same objects come back, no HTTP calls."""
     tasks = [Task(**{"id": 1, "contentType": "Task", "name": "Task 1"})]
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = WrapModeResource(http_client)
-        result = await resource._expand_and_wrap(tasks, None)
+    resource = WrapModeResource(http_client)
+    result = await resource._expand_and_wrap(tasks, None)
 
     assert result is tasks
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_replace_mode_replaces_fields_immutably():
+async def test_replace_mode_replaces_fields_immutably(megaplan_api, http_client):
     """Replace mode swaps reference fields for loaded entities on new copies."""
-    respx.get("https://example.com/api/v3/department/5").mock(return_value=DEPARTMENT_5_RESPONSE)
+    megaplan_api.get("department/5", data=DEPARTMENT_5)
 
     employees = [
         Employee(
@@ -153,9 +127,8 @@ async def test_replace_mode_replaces_fields_immutably():
         )
     ]
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        resource = ReplaceModeResource(http_client)
-        result = await resource._expand_and_wrap(employees, ["department", "invalid_field"])
+    resource = ReplaceModeResource(http_client)
+    result = await resource._expand_and_wrap(employees, ["department", "invalid_field"])
 
     assert isinstance(result[0], Employee)
     assert result[0].department is not None
@@ -166,33 +139,25 @@ async def test_replace_mode_replaces_fields_immutably():
     assert employees[0].department.name is None
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_employees_list_expand_replaces_department():
+async def test_employees_list_expand_replaces_department(megaplan_api, employees):
     """Public seam: employees.list(expand=...) returns Employee with full Department."""
-    respx.get("https://example.com/api/v3/employee").mock(
-        return_value=Response(
-            200,
-            json={
-                "meta": {"status": 200},
-                "data": [
-                    {
-                        "id": 1,
-                        "contentType": "Employee",
-                        "firstName": "Jane",
-                        "lastName": "Smith",
-                        "department": {"id": 5, "contentType": "Department"},
-                    }
-                ],
-            },
-        )
+    megaplan_api.get(
+        "employee",
+        data=[
+            {
+                "id": 1,
+                "contentType": "Employee",
+                "firstName": "Jane",
+                "lastName": "Smith",
+                "department": {"id": 5, "contentType": "Department"},
+            }
+        ],
     )
-    respx.get("https://example.com/api/v3/department/5").mock(return_value=DEPARTMENT_5_RESPONSE)
+    megaplan_api.get("department/5", data=DEPARTMENT_5)
 
-    async with HTTPClient("https://example.com", access_token="token") as http_client:
-        employees = await EmployeesResource(http_client).list(expand=["department"])
+    result = await employees.list(expand=["department"])
 
-    assert len(employees) == 1
-    assert isinstance(employees[0], Employee)
-    assert employees[0].department is not None
-    assert employees[0].department.name == "Development"
+    assert len(result) == 1
+    assert isinstance(result[0], Employee)
+    assert result[0].department is not None
+    assert result[0].department.name == "Development"
