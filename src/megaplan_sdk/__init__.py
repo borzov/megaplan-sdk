@@ -122,4 +122,4 @@ __all__ = [
     "DEFAULT_TASK_LIST_FIELDS",
 ]
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
