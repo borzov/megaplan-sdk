@@ -1,6 +1,7 @@
 """Unit tests for seam interfaces: post_form, restore_token, open, list_related_to."""
 
 import json
+from urllib.parse import unquote
 
 import httpx
 import pytest
@@ -95,7 +96,7 @@ class TestListRelatedTo:
         assert result[0].id == 7
         # The query is the JSON params; `filter` inside must be a STRING
         # containing the baseOn config (API quirk owned by tasks, not deals)
-        query = route.calls.last.request.url.query.decode()
+        query = unquote(route.calls.last.request.url.query.decode())
         params = json.loads(query)
         assert isinstance(params["filter"], str)
         assert json.loads(params["filter"]) == {"baseOn": {"contentType": "Deal", "id": 5}}

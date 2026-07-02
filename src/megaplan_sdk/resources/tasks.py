@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, overload
 
@@ -309,6 +310,27 @@ class TasksResource(BaseResource, FullDetailsMixin):
             Task details.
         """
         return await self._get_entity("task", task_id, Task)
+
+    async def list_related_to(self, content_type: str, entity_id: int) -> list[Task]:
+        """Get tasks based on another entity (deal, project, ...).
+
+        Owns the baseOn quirk of the tasks endpoint: the filter config must
+        be passed as a JSON *string* in the filter param, not as an object,
+        and must not go through the filter-ID coercion of list().
+
+        Args:
+            content_type: contentType of the base entity (e.g. ContentType.DEAL).
+            entity_id: Base entity ID.
+
+        Returns:
+            List of tasks based on the entity.
+        """
+        filter_config = {"baseOn": {"contentType": content_type, "id": entity_id}}
+        params = self._build_list_params(
+            filter=json.dumps(filter_config, ensure_ascii=False),
+        )
+        path = self._build_path("api", "v3", "task")
+        return await self._get_list(path, Task, params)
 
     async def get_many(self, ids: list[int], use_cache: bool = True) -> dict[int, Task]:
         """Batch-fetch tasks by id via the bulk endpoint (#FR-1).

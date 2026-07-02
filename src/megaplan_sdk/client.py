@@ -93,8 +93,7 @@ class MegaplanClient:
             logger.debug(f"Entity cache enabled (max_size={cache_max_size}, ttl={cache_ttl}s)")
 
         if access_token:
-            self._auth_manager._access_token = access_token
-            self._auth_manager._expires_at = None
+            self._auth_manager.restore_token(access_token)
             logger.debug("MegaplanClient initialized with access_token")
 
         self.auth = AuthResource(self._http, cache=self._cache)
@@ -134,7 +133,7 @@ class MegaplanClient:
     async def __aenter__(self) -> "MegaplanClient":
         """Async context manager entry."""
         logger.debug("Entering MegaplanClient context")
-        await self._http._ensure_client()
+        await self._http.open()
 
         # Perform initial authentication if credentials provided
         if self._initial_password and self.username:
@@ -182,8 +181,7 @@ class MegaplanClient:
         Args:
             access_token: OAuth2 access token.
         """
-        self._http.set_access_token(access_token)
-        self._auth_manager._access_token = access_token
+        self._auth_manager.restore_token(access_token)
 
     def clear_cache(self) -> None:
         """Clear all cached entities.

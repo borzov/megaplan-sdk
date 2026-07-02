@@ -84,22 +84,11 @@ class DealsResource(BaseResource, FullDetailsMixin):
         ]
 
     async def _fetch_related_tasks(self, deal_id: int, **kwargs: Any) -> Any:
-        """Custom fetcher for related tasks.
-
-        Note: For tasks API, filter config must be serialized to JSON string
-        when it's a dict, because API expects filter as string in query params.
-        """
-        import json
-
+        """Custom fetcher for related tasks (baseOn quirk owned by tasks)."""
         from megaplan_sdk.resources.tasks import TasksResource
 
         tasks_resource = TasksResource(self._http, cache=self._cache)
-        # For tasks API, baseOn must be inside filter config
-        # Filter must be JSON string when it's a dict (API requirement)
-        filter_config = {"baseOn": {"contentType": ContentType.DEAL, "id": deal_id}}
-        # Serialize filter dict to JSON string - API expects string, not object
-        filter_str = json.dumps(filter_config, ensure_ascii=False)
-        return await tasks_resource.list(filter=filter_str)
+        return await tasks_resource.list_related_to(ContentType.DEAL, deal_id)
 
     async def create(self, deal_data: dict[str, Any]) -> Deal:
         """Create a new deal.

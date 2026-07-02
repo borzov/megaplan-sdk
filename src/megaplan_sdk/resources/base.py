@@ -494,24 +494,35 @@ class BaseResource:
         # Determine contentType from entity_type
         content_type = self._entity_type_to_content_type(entity_type)
 
-        # Try cache first
-        if use_cache and self._cache:
-            cached = self._cache.get(content_type, entity_id)
+        if use_cache:
+            cached = self._cache_get(content_type, entity_id, model_class)
             if cached is not None:
-                # Cache stores dict, convert to model
-                return model_class(**cached) if isinstance(cached, dict) else cached
+                return cached
 
-        # Fetch from API
         entity = await self._get_entity(entity_type, entity_id, model_class)
 
-        # Store in cache
-        if use_cache and self._cache:
-            # Store as dict for consistency
-            # TypeVar T doesn't guarantee .model_dump, but all Pydantic models have it
-            entity_dict = entity.model_dump(by_alias=True)  # type: ignore[attr-defined]
-            self._cache.set(content_type, entity_id, entity_dict)
+        if use_cache:
+            self._cache_put(content_type, entity_id, entity)
 
         return entity
+
+    def _cache_get(self, content_type: str, entity_id: int, model_class: type[T]) -> T | None:
+        """Read an entity from cache, parsing the stored payload into a model.
+
+        The cache storage format is decided here and in _cache_put ONLY —
+        no other code may interpret cached payloads.
+        """
+        if not self._cache:
+            return None
+        cached = self._cache.get(content_type, entity_id)
+        if cached is None:
+            return None
+        return model_class(**cached) if isinstance(cached, dict) else cached  # type: ignore[no-any-return]
+
+    def _cache_put(self, content_type: str, entity_id: int, entity: Any) -> None:
+        """Store an entity in cache as a by-alias dict (the storage format)."""
+        if self._cache:
+            self._cache.set(content_type, entity_id, entity.model_dump(by_alias=True))
 
     async def _load_related_entities(
         self,
@@ -554,17 +565,12 @@ class BaseResource:
         ids_to_fetch: set[int] = set()
 
         # Check cache for each ID
-        if self._cache:
-            for entity_id in unique_ids:
-                cached = self._cache.get(content_type, entity_id)
-                if cached is not None:
-                    result[entity_id] = (
-                        model_class(**cached) if isinstance(cached, dict) else cached
-                    )
-                else:
-                    ids_to_fetch.add(entity_id)
-        else:
-            ids_to_fetch = unique_ids
+        for entity_id in unique_ids:
+            cached = self._cache_get(content_type, entity_id, model_class)
+            if cached is not None:
+                result[entity_id] = cached
+            else:
+                ids_to_fetch.add(entity_id)
 
         # Fetch missing entities in parallel
         if ids_to_fetch:
@@ -610,12 +616,10 @@ class BaseResource:
         result: dict[int, T] = {}
         missing: list[int] = []
         for entity_id in dict.fromkeys(ids):  # de-dupe, preserve order
-            if use_cache and self._cache:
-                cached = self._cache.get(content_type, entity_id)
+            if use_cache:
+                cached = self._cache_get(content_type, entity_id, model_class)
                 if cached is not None:
-                    result[entity_id] = (
-                        model_class(**cached) if isinstance(cached, dict) else cached
-                    )
+                    result[entity_id] = cached
                     continue
             missing.append(entity_id)
 
@@ -625,12 +629,8 @@ class BaseResource:
                 entity = model_class(**item)
                 entity_id = int(item["id"])
                 result[entity_id] = entity
-                if use_cache and self._cache:
-                    self._cache.set(
-                        content_type,
-                        entity_id,
-                        entity.model_dump(by_alias=True),  # type: ignore[attr-defined]
-                    )
+                if use_cache:
+                    self._cache_put(content_type, entity_id, entity)
         return result
 
     async def _get_many_sequential(
