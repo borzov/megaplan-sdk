@@ -24,6 +24,7 @@ from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataCon
 from megaplan_sdk.task_query import (
     VALID_TASK_STATUSES,
     TaskQuery,
+    validate_task_fields,
     validate_task_sort_field,
     validate_task_statuses,
 )
@@ -267,6 +268,10 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 field_name = rule.get("fieldName")
                 if field_name is not None:
                     validate_task_sort_field(field_name)
+
+        # Validate fields against known-unsupported synonyms (raw 422) (#32).
+        if fields and isinstance(fields, list | tuple):
+            validate_task_fields([f for f in fields if isinstance(f, str)])
 
         # Convert filter ID to object format if needed
         processed_filter = filter

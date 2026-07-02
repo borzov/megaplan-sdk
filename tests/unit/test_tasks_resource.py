@@ -728,3 +728,27 @@ async def test_get_full_details_comment_owners_stay_stubs_by_default(megaplan_ap
 
     assert details.comments is not None
     assert details.comments[0].owner.name is None
+
+
+# --- #32: fields validation ---
+
+
+async def test_list_rejects_unsupported_fields_before_wire(megaplan_api, tasks):
+    """#32: fields the API answers with 422 are rejected client-side."""
+    route = megaplan_api.get("task", data=[])
+
+    with pytest.raises(ValueError) as exc:
+        await tasks.list(fields=["name", "timeUpdated"])
+
+    assert "timeUpdated" in str(exc.value)
+    assert "statusChangeTime" in str(exc.value)
+    assert not route.called
+
+
+async def test_list_allows_unknown_and_custom_fields(megaplan_api, tasks):
+    """#32: unknown/custom fields still reach the server (no allowlist)."""
+    route = megaplan_api.get("task", data=[])
+
+    await tasks.list(fields=["commentsCount", "Category1000001CustomFieldFoo"])
+
+    assert route.called
