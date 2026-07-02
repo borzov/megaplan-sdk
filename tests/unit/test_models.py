@@ -213,8 +213,13 @@ def test_employee_status_fields():
     from megaplan_sdk.models.employee import Employee
 
     e = Employee.model_validate(
-        {"contentType": "Employee", "id": 1, "isWorking": True,
-         "fireInProgress": False, "canLogin": True}
+        {
+            "contentType": "Employee",
+            "id": 1,
+            "isWorking": True,
+            "fireInProgress": False,
+            "canLogin": True,
+        }
     )
     assert e.is_working is True
     assert e.fire_in_progress is False
@@ -254,7 +259,12 @@ def test_task_full_details_delegates_to_task():
     """#25: TaskFullDetails proxies missing attrs to the wrapped task."""
     from megaplan_sdk.models.task import Task, TaskFullDetails
 
-    task = Task(id=5, contentType="Task", name="T", owner={"contentType": "Employee", "id": 7, "name": "Борзов"})
+    task = Task(
+        id=5,
+        contentType="Task",
+        name="T",
+        owner={"contentType": "Employee", "id": 7, "name": "Борзов"},
+    )
     details = TaskFullDetails(task=task)
     # delegated access
     assert details.name == "T"

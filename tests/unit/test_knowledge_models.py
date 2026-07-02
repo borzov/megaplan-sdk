@@ -55,7 +55,9 @@ def test_knowledge_article_uses_base_not_parent():
 
 
 def test_section_with_articles_composite():
-    section = KnowledgeBase(**{"contentType": "KnowledgeBase", "id": "2", "name": "Рабочие вопросы"})
+    section = KnowledgeBase(
+        **{"contentType": "KnowledgeBase", "id": "2", "name": "Рабочие вопросы"}
+    )
     article = KnowledgeArticle(**{"contentType": "KnowledgeArticle", "id": "33", "name": "A"})
     composite = KnowledgeSectionWithArticles(section=section, articles=[article])
     assert composite.section.id == 2

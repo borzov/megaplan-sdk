@@ -51,7 +51,9 @@ from megaplan_sdk.models.milestone import Milestone
 from megaplan_sdk.models.participant import Participant, parse_participant, parse_participants
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task, TaskFullDetails
+from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.filters import FiltersResource
+from megaplan_sdk.task_query import TaskQuery
 
 __all__ = [
     # Client
@@ -88,6 +90,10 @@ __all__ = [
     "parse_participants",
     "DateInterval",
     "DateTime",
+    # Pagination
+    "Page",
+    # Task queries
+    "TaskQuery",
     # Filters
     "FiltersResource",
     "BaseFilter",
@@ -116,4 +122,4 @@ __all__ = [
     "DEFAULT_TASK_LIST_FIELDS",
 ]
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"

@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, overload
 
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.deal import Deal
+from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task
+from megaplan_sdk.pagination import Page
+from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
 from megaplan_sdk.types import FilterType
@@ -23,6 +27,13 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
     """Resource for working with projects."""
 
     _page_content_type = ContentType.PROJECT
+
+    _expand_rules = {
+        "responsible": ExpandRule("employee", Employee, details_field="responsible_details"),
+        "owner": ExpandRule("employee", Employee, details_field="owner_details"),
+    }
+    _details_model = ProjectFullDetails
+    _main_field = "project"
 
     _full_details_config = [
         RelatedDataConfig("deals", "include_deals", "get_deals"),
@@ -165,9 +176,12 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
                 pass
 
         if owner_id:
-            project_data["owner"] = {"contentType": "Employee", "id": owner_id}
+            project_data["owner"] = {"contentType": ContentType.EMPLOYEE, "id": owner_id}
         if responsible_id:
-            project_data["responsible"] = {"contentType": "Employee", "id": responsible_id}
+            project_data["responsible"] = {
+                "contentType": ContentType.EMPLOYEE,
+                "id": responsible_id,
+            }
 
         return await self.create(project_data, auto_fill_required=False)
 
@@ -180,6 +194,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -195,6 +210,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -208,6 +224,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -230,6 +247,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
+            page: Page position (replaces page_after/page_before/page_with).
             fields: Additional fields to include.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
@@ -266,51 +284,14 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             page_after=page_after,
             page_before=page_before,
             page_with=page_with,
+            page=page,
             fields=fields,
             sort_by=sort_by,
             only_requested_fields=only_requested_fields,
         )
 
-        # 1. Fetch projects
         projects = await self._get_list(path, Project, params)
-
-        # 2. If no expand, return as is
-        if not expand or not projects:
-            return projects
-
-        # 3. Batch load related entities
-        from megaplan_sdk.models.employee import Employee
-
-        expand_config: dict[str, tuple[str, type, str]] = {
-            "responsible": ("employee", Employee, ContentType.EMPLOYEE),
-            "owner": ("employee", Employee, ContentType.EMPLOYEE),
-        }
-
-        expanded = await self._expand_list_entities(projects, expand, expand_config)
-        responsible_map = expanded.get("responsible", {})
-        owner_map = expanded.get("owner", {})
-
-        # 4. Build ProjectFullDetails objects
-        results = []
-        for project in projects:
-            resp_details = None
-            owner_details = None
-
-            if project.responsible and project.responsible.id in responsible_map:
-                resp_details = responsible_map[project.responsible.id]
-
-            if project.owner and project.owner.id in owner_map:
-                owner_details = owner_map[project.owner.id]
-
-            results.append(
-                ProjectFullDetails(
-                    project=project,
-                    responsible_details=resp_details,
-                    owner_details=owner_details,
-                )
-            )
-
-        return results
+        return await self._expand_and_wrap(projects, expand)
 
     async def get(self, project_id: int) -> Project:
         """Get project by ID.
@@ -543,6 +524,12 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             ...     text="Project update"
             ... )
         """
+        warnings.warn(
+            "projects.create_comment() is deprecated and will be removed in 0.5.0; "
+            'use client.comments.create(entity_id=..., content=..., entity_type="project").',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return await self._create_entity_comment(
             "project",
             project_id,

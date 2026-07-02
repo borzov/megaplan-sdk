@@ -6,7 +6,7 @@ import pytest
 import respx
 from httpx import Response
 
-from megaplan_sdk.exceptions import AuthenticationError, NotFoundError
+from megaplan_sdk.exceptions import NotFoundError
 from megaplan_sdk.http_client import HTTPClient
 
 

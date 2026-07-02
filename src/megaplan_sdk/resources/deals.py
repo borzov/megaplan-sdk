@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import AsyncIterator
 from typing import Any, overload
 
 from megaplan_sdk.constants import DEFAULT_SORT_RECENT, ContentType
 from megaplan_sdk.models.comment import Comment
+from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
 from megaplan_sdk.models.employee import Employee
+from megaplan_sdk.pagination import Page
+from megaplan_sdk.registry import filter_content_type_for
+from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
 from megaplan_sdk.types import FilterType
@@ -18,6 +23,14 @@ class DealsResource(BaseResource, FullDetailsMixin):
     """Resource for working with deals."""
 
     _page_content_type = ContentType.DEAL
+    _filter_content_type = filter_content_type_for("deal")
+
+    _expand_rules = {
+        "manager": ExpandRule("employee", Employee, details_field="manager_details"),
+        "contractor": ExpandRule("contractor", Contractor, details_field="contractor_details"),
+    }
+    _details_model = DealFullDetails
+    _main_field = "deal"
 
     def __init__(
         self,
@@ -73,22 +86,20 @@ class DealsResource(BaseResource, FullDetailsMixin):
         ]
 
     async def _fetch_related_tasks(self, deal_id: int, **kwargs: Any) -> Any:
-        """Custom fetcher for related tasks.
+        """Related tasks cannot be fetched — the API has no tasks-by-deal filter.
 
-        Note: For tasks API, filter config must be serialized to JSON string
-        when it's a dict, because API expects filter as string in query params.
+        Verified empirically (2026-07-02): every baseOn wire format is either
+        silently ignored (the endpoint returns ALL account tasks) or rejected
+        with 422; the server reports Task has no deal/trade/baseOn fields, and
+        the deal side exposes only tasksCount. The previous implementation
+        silently returned unrelated tasks.
         """
-        import json
-
-        from megaplan_sdk.resources.tasks import TasksResource
-
-        tasks_resource = TasksResource(self._http, cache=self._cache)
-        # For tasks API, baseOn must be inside filter config
-        # Filter must be JSON string when it's a dict (API requirement)
-        filter_config = {"baseOn": {"contentType": ContentType.DEAL, "id": deal_id}}
-        # Serialize filter dict to JSON string - API expects string, not object
-        filter_str = json.dumps(filter_config, ensure_ascii=False)
-        return await tasks_resource.list(filter=filter_str)
+        raise NotImplementedError(
+            "Megaplan API has no working tasks-by-deal (baseOn) filter: object "
+            "configs are silently ignored and string configs are rejected with "
+            "422. include_related_tasks previously returned ALL account tasks. "
+            "Use deal.tasksCount for the count; there is no way to list the tasks."
+        )
 
     async def create(self, deal_data: dict[str, Any]) -> Deal:
         """Create a new deal.
@@ -114,6 +125,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -133,6 +145,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -150,6 +163,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -175,6 +189,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
+            page: Page position (replaces page_after/page_before/page_with).
             fields: Additional fields to request from the API.
                 Must use actual API field names: ``manager``, ``price``,
                 ``timeCreated``, ``timeUpdated``, ``number``, ``cost``, ``debt``,
@@ -212,14 +227,14 @@ class DealsResource(BaseResource, FullDetailsMixin):
         if q is not None:
             if filter is not None:
                 raise ValueError("Pass either `q` or `filter`, not both.")
-            filter = self._q_to_filter("TradeFilter", q, q_in or ["name"])
+            filter = self._q_to_filter(self._filter_content_type, q, q_in or ["name"])
             q = None
 
         # Convert filter ID to object format if needed
         processed_filter = filter
         if filter is not None and isinstance(filter, int | str) and not isinstance(filter, dict):
             # Convert ID to filter object format
-            processed_filter = {"contentType": "TradeFilter", "id": str(filter)}
+            processed_filter = {"contentType": self._filter_content_type, "id": str(filter)}
 
         # Prepare deal-specific parameters
         extra_params: dict[str, Any] = {}
@@ -237,53 +252,15 @@ class DealsResource(BaseResource, FullDetailsMixin):
             page_after=page_after,
             page_before=page_before,
             page_with=page_with,
+            page=page,
             fields=fields,
             sort_by=sort_by,
             only_requested_fields=only_requested_fields,
             **extra_params,
         )
 
-        # 1. Fetch deals
         deals = await self._get_list(path, Deal, params)
-
-        # 2. If no expand, return as is
-        if not expand or not deals:
-            return deals
-
-        # 3. Batch load related entities
-        from megaplan_sdk.models.contractor import Contractor
-        from megaplan_sdk.models.employee import Employee
-
-        expand_config: dict[str, tuple[str, type, str]] = {
-            "manager": ("employee", Employee, ContentType.EMPLOYEE),
-            "contractor": ("contractor", Contractor, ContentType.CONTRACTOR),
-        }
-
-        expanded = await self._expand_list_entities(deals, expand, expand_config)
-        manager_map = expanded.get("manager", {})
-        contractor_map = expanded.get("contractor", {})
-
-        # 4. Build DealFullDetails objects
-        results = []
-        for deal in deals:
-            mgr_details = None
-            contr_details = None
-
-            if deal.manager and deal.manager.id in manager_map:
-                mgr_details = manager_map[deal.manager.id]
-
-            if deal.contractor and deal.contractor.id in contractor_map:
-                contr_details = contractor_map[deal.contractor.id]
-
-            results.append(
-                DealFullDetails(
-                    deal=deal,
-                    manager_details=mgr_details,
-                    contractor_details=contr_details,
-                )
-            )
-
-        return results
+        return await self._expand_and_wrap(deals, expand)
 
     async def get(self, deal_id: int) -> Deal:
         """Get deal by ID.
@@ -420,7 +397,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         if filter is not None:
             if isinstance(filter, int | str):
                 params["filter"] = {
-                    "contentType": "TradeFilter",
+                    "contentType": self._filter_content_type,
                     "id": int(filter) if str(filter).isdigit() else str(filter),
                 }
             else:
@@ -544,6 +521,12 @@ class DealsResource(BaseResource, FullDetailsMixin):
             ...     text="Deal update"
             ... )
         """
+        warnings.warn(
+            "deals.create_comment() is deprecated and will be removed in 0.5.0; "
+            'use client.comments.create(entity_id=..., content=..., entity_type="deal").',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return await self._create_entity_comment(
             "deal",
             deal_id,
@@ -558,7 +541,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[Any]:
         """Get auditors for a deal.
 
         Args:
@@ -574,29 +557,22 @@ class DealsResource(BaseResource, FullDetailsMixin):
         Examples:
             >>> auditors = await client.deals.get_auditors(deal_id=123)
         """
-        path = self._build_path("api", "v3", "deal", str(deal_id), "auditors")
-
-        params = self._build_list_params(
-            limit=limit,
-            page_after=page_after,
-            page_before=page_before,
-            page_with=page_with,
+        return await self._get_entity_related_list(
+            "deal", deal_id, "auditors", limit, page_after, page_before, page_with
         )
-
-        response = await self._http.get(path, params=params if params else None)
-        data: list[dict[str, Any]] = response.get("data", [])
-        return data
 
     async def add_auditor(
         self,
         deal_id: int,
         auditor_id: int,
-    ) -> dict[str, Any]:
+        auditor_content_type: str = ContentType.EMPLOYEE,
+    ) -> Any:
         """Add auditor to the deal.
 
         Args:
             deal_id: Deal identifier.
             auditor_id: Auditor ID (Employee ID).
+            auditor_content_type: Content type (usually "Employee").
 
         Returns:
             Added auditor.
@@ -607,27 +583,35 @@ class DealsResource(BaseResource, FullDetailsMixin):
             ...     auditor_id=456
             ... )
         """
-        path = self._build_path("api", "v3", "deal", str(deal_id), "auditors")
-        response = await self._http.post(path, json_data={"id": auditor_id})
-        result: dict[str, Any] = response.get("data", {})
-        return result
+        return await self._add_entity_related(
+            "deal", deal_id, "auditors", auditor_id, auditor_content_type
+        )
 
     async def remove_auditor(
         self,
         deal_id: int,
         auditor_id: int,
+        auditor_content_type: str = ContentType.EMPLOYEE,
     ) -> None:
         """Remove auditor from the deal.
 
         Args:
             deal_id: Deal identifier.
             auditor_id: Auditor ID.
+            auditor_content_type: Content type (usually "Employee").
 
         Examples:
             >>> await client.deals.remove_auditor(deal_id=123, auditor_id=456)
         """
-        path = self._build_path("api", "v3", "deal", str(deal_id), "auditors", str(auditor_id))
-        await self._http.delete(path)
+        await self._remove_entity_related(
+            "deal",
+            deal_id,
+            "auditors",
+            auditor_id,
+            auditor_content_type,
+            # API irregularity: /deal/{id}/auditors/{auditorId} — no contentType
+            content_type_in_path=False,
+        )
 
     async def get_history(
         self,

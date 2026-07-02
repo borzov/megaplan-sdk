@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from megaplan_sdk.exceptions import raise_for_status
+from megaplan_sdk.exceptions import AuthenticationError, raise_for_status
 from megaplan_sdk.logging_config import logger, sanitize_dict
 
 
@@ -369,15 +369,25 @@ class HTTPClient:
         """
         return await self._request("DELETE", path, params=params, headers=headers)
 
+    async def open(self) -> None:
+        """Open the underlying HTTP connection pool.
+
+        Public counterpart of the async context manager entry, for callers
+        managing the lifecycle manually. Pair with close().
+        """
+        await self._ensure_client()
+
     async def post_form(
         self,
         url: str,
         data: dict[str, Any],
         headers: dict[str, str] | None = None,
-    ) -> httpx.Response:
-        """Make POST request with form data (for auth).
+    ) -> dict[str, Any]:
+        """Make POST request with form data (OAuth token endpoints).
 
-        This is a public method for authentication that doesn't require a token.
+        Exists solely for authentication: no token injection, no Megaplan
+        envelope validation. Owns the transport entirely — failures surface
+        as AuthenticationError, so callers never handle httpx.
 
         Args:
             url: Full URL (not just path).
@@ -385,8 +395,21 @@ class HTTPClient:
             headers: Optional headers.
 
         Returns:
-            Raw httpx Response object.
+            Parsed response JSON.
+
+        Raises:
+            AuthenticationError: On HTTP error status, network failure,
+                or a non-JSON response body.
         """
         await self._ensure_client()
         assert self._client is not None  # For mypy: ensured by _ensure_client()
-        return await self._client.post(url, data=data, headers=headers)
+        try:
+            response = await self._client.post(url, data=data, headers=headers)
+            response.raise_for_status()
+            return response.json()  # type: ignore[no-any-return]
+        except httpx.HTTPStatusError as e:
+            raise AuthenticationError(
+                f"Authentication request failed with status {e.response.status_code}"
+            ) from e
+        except (httpx.HTTPError, json.JSONDecodeError) as e:
+            raise AuthenticationError(f"Authentication request failed: {e}") from e

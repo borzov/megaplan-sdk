@@ -2,44 +2,52 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 
 from megaplan_sdk.constants import (
     DEFAULT_SORT_RECENT,
-    UNSUPPORTED_TASK_SORT_FIELDS,
     ContentType,
 )
 from megaplan_sdk.models.comment import Comment
+from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.task import Task, TaskFullDetails
+from megaplan_sdk.pagination import Page
+from megaplan_sdk.registry import filter_content_type_for
+from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
+
+# VALID_TASK_STATUSES is re-exported for backwards compatibility; the
+# canonical definition and all task list validation live in task_query.py
+from megaplan_sdk.task_query import (
+    VALID_TASK_STATUSES,
+    TaskQuery,
+    validate_task_sort_field,
+    validate_task_statuses,
+)
 from megaplan_sdk.types import FilterType
 
 if TYPE_CHECKING:
     from megaplan_sdk.models.milestone import Milestone
     from megaplan_sdk.models.participant import Participant
 
-# Valid task statuses according to RAML documentation
-VALID_TASK_STATUSES = {
-    "created",
-    "assigned",
-    "accepted",
-    "done",
-    "completed",
-    "rejected",
-    "cancelled",
-    "expired",
-    "delayed",
-    "template",
-    "overdue",
-}
+__all__ = ["VALID_TASK_STATUSES", "TasksResource"]
 
 
 class TasksResource(BaseResource, FullDetailsMixin):
     """Resource for working with tasks."""
 
     _page_content_type = ContentType.TASK
+    _filter_content_type = filter_content_type_for("task")
+
+    _expand_rules = {
+        "responsible": ExpandRule("employee", Employee, details_field="responsible_details"),
+        "owner": ExpandRule("employee", Employee, details_field="owner_details"),
+    }
+    _details_model = TaskFullDetails
+    _main_field = "task"
 
     _full_details_config = [
         RelatedDataConfig("sub_tasks", "include_sub_tasks", "get_sub_tasks"),
@@ -132,6 +140,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -150,6 +159,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -166,6 +176,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -193,6 +204,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
+            page: Page position (replaces page_after/page_before/page_with).
             fields: Additional fields to include.
                 **Important:** list endpoints do NOT return date fields
                 (timeCreated, activity, lastCommentTimeCreated, ...) unless
@@ -242,35 +254,25 @@ class TasksResource(BaseResource, FullDetailsMixin):
         if q is not None:
             if filter is not None:
                 raise ValueError("Pass either `q` or `filter`, not both.")
-            filter = self._q_to_filter("TaskFilter", q, q_in or ["name"])
+            filter = self._q_to_filter(self._filter_content_type, q, q_in or ["name"])
             q = None
 
         # Validate statuses if provided
         if statuses:
-            invalid_statuses = [s for s in statuses if s not in VALID_TASK_STATUSES]
-            if invalid_statuses:
-                raise ValueError(
-                    f"Invalid task status values: {invalid_statuses}. "
-                    f"Valid values: {sorted(VALID_TASK_STATUSES)}"
-                )
+            validate_task_statuses(statuses)
 
         # Validate sort_by against fields the API rejects with a raw 422 (#7).
         if sort_by:
             for rule in sort_by:
                 field_name = rule.get("fieldName")
-                if field_name in UNSUPPORTED_TASK_SORT_FIELDS:
-                    suggestion = UNSUPPORTED_TASK_SORT_FIELDS[field_name]
-                    raise ValueError(
-                        f"Task cannot be sorted by '{field_name}' (API returns 422). "
-                        f"Use '{suggestion}' instead — e.g. "
-                        f'sort_by=[{{"fieldName": "{suggestion}", "desc": True}}].'
-                    )
+                if field_name is not None:
+                    validate_task_sort_field(field_name)
 
         # Convert filter ID to object format if needed
         processed_filter = filter
         if filter is not None and isinstance(filter, int | str) and not isinstance(filter, dict):
             # Convert ID to filter object format
-            processed_filter = {"contentType": "TaskFilter", "id": str(filter)}
+            processed_filter = {"contentType": self._filter_content_type, "id": str(filter)}
 
         # Use base method to build params (DRY)
         params = self._build_list_params(
@@ -279,52 +281,39 @@ class TasksResource(BaseResource, FullDetailsMixin):
             page_after=page_after,
             page_before=page_before,
             page_with=page_with,
+            page=page,
             fields=fields,
             sort_by=sort_by,
             only_requested_fields=only_requested_fields,
             statuses=statuses,  # Extra param specific to tasks
         )
 
-        # 1. Fetch tasks
         tasks = await self._get_list(path, Task, params)
+        return await self._expand_and_wrap(tasks, expand)
 
-        # 2. If no expand, return as is
-        if not expand or not tasks:
-            return tasks
+    async def list_by(self, query: TaskQuery) -> list[Task]:
+        """Get list of tasks described by a :class:`TaskQuery`.
 
-        # 3. Batch load related entities
-        from megaplan_sdk.models.employee import Employee
+        The query is validated at construction time — invalid combinations
+        (search+filter, bad statuses, unsupported sort fields, unfilterable
+        search fields) never reach the wire.
 
-        expand_config: dict[str, tuple[str, type, str]] = {
-            "responsible": ("employee", Employee, ContentType.EMPLOYEE),
-            "owner": ("employee", Employee, ContentType.EMPLOYEE),
-        }
+        Args:
+            query: Query built fluently with TaskQuery().
 
-        expanded = await self._expand_list_entities(tasks, expand, expand_config)
-        responsible_map = expanded.get("responsible", {})
-        owner_map = expanded.get("owner", {})
+        Returns:
+            List of tasks.
 
-        # 4. Build TaskFullDetails objects
-        results = []
-        for task in tasks:
-            resp_details = None
-            owner_details = None
-
-            if task.responsible and task.responsible.id in responsible_map:
-                resp_details = responsible_map[task.responsible.id]
-
-            if task.owner and task.owner.id in owner_map:
-                owner_details = owner_map[task.owner.id]
-
-            results.append(
-                TaskFullDetails(
-                    task=task,
-                    responsible_details=resp_details,
-                    owner_details=owner_details,
-                )
-            )
-
-        return results
+        Examples:
+            >>> query = (
+            ...     TaskQuery()
+            ...     .statuses("assigned", "accepted")
+            ...     .sort_by("timeCreated", desc=True)
+            ...     .limit(50)
+            ... )
+            >>> tasks = await client.tasks.list_by(query)
+        """
+        return cast("list[Task]", await self.list(**query.as_list_kwargs()))
 
     async def get(self, task_id: int) -> Task:
         """Get task by ID.
@@ -673,6 +662,12 @@ class TasksResource(BaseResource, FullDetailsMixin):
             ...     work=2.5
             ... )
         """
+        warnings.warn(
+            "tasks.create_comment() is deprecated and will be removed in 0.5.0; "
+            'use client.comments.create(entity_id=..., content=..., entity_type="task").',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         from megaplan_sdk.resources.comments import CommentsResource
 
         comments = CommentsResource(self._http, cache=self._cache)
@@ -740,7 +735,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 pass
 
         if responsible_id:
-            task_data["responsible"] = {"contentType": "Employee", "id": responsible_id}
+            task_data["responsible"] = {"contentType": ContentType.EMPLOYEE, "id": responsible_id}
 
         return await self.create(task_data, auto_fill_required=False)
 
@@ -795,7 +790,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         # Update task to set parent relationship (required by API)
         # Note: parent must be set via update, not create
         update_data = {
-            "parent": {"contentType": "Project", "id": project_id},
+            "parent": {"contentType": ContentType.PROJECT, "id": project_id},
         }
         task = await self.update(task.id, update_data)
 

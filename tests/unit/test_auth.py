@@ -1,7 +1,6 @@
 """Unit tests for authentication."""
 
 import time
-from unittest.mock import AsyncMock, patch
 
 import pytest
 import respx

@@ -3,6 +3,7 @@
 from typing import Any
 
 from megaplan_sdk.models.department import Department
+from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.base import BaseResource
 
 
@@ -26,6 +27,7 @@ class DepartmentsResource(BaseResource):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
     ) -> list[Department]:
         """Get list of departments.
 
@@ -34,6 +36,7 @@ class DepartmentsResource(BaseResource):
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
+            page: Page position (replaces page_after/page_before/page_with).
 
         Returns:
             List of departments.
@@ -50,6 +53,7 @@ class DepartmentsResource(BaseResource):
             page_after=page_after,
             page_before=page_before,
             page_with=page_with,
+            page=page,
         )
         return await self._get_list(path, Department, params)
 

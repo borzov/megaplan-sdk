@@ -2,11 +2,14 @@
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger
+from megaplan_sdk.pagination import Page
+from megaplan_sdk.registry import content_type_for
+from megaplan_sdk.resources._expand import ExpandRule
 
 if TYPE_CHECKING:
     from megaplan_sdk.cache import EntityCache
@@ -48,6 +51,16 @@ class BaseResource:
     # subclasses override this so a bare int id can be wrapped into the entity
     # link {contentType, id} the server requires (#23). None = unknown.
     _page_content_type: str | None = None
+
+    # Declarative expand pipeline (see _expand.py). Subclasses fill
+    # _expand_rules with field name -> ExpandRule. Wrap-mode resources also
+    # declare _details_model (the *FullDetails container) and _main_field (the
+    # container attribute holding the wrapped entity); without _details_model
+    # the engine runs in replace mode: loaded entities replace the reference
+    # fields on immutable copies.
+    _expand_rules: ClassVar[dict[str, ExpandRule]] = {}
+    _details_model: ClassVar[type[Any] | None] = None
+    _main_field: ClassVar[str | None] = None
 
     def _build_path(self, *parts: str) -> str:
         """Build API path from parts.
@@ -162,6 +175,7 @@ class BaseResource:
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         page_content_type: str | None = None,
+        page: "Page | None" = None,
         **extra_params: Any,
     ) -> dict[str, Any]:
         """Build standard list parameters for pagination and filtering.
@@ -175,11 +189,18 @@ class BaseResource:
             fields: Additional fields to include.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
+            page: Page position; replaces the page_after/page_before/page_with
+                trio. Passing both raises ValueError.
             **extra_params: Additional parameters (e.g., statuses, status, q).
 
         Returns:
             Dictionary with non-None parameters.
         """
+        if page is not None:
+            if page_after is not None or page_before is not None or page_with is not None:
+                raise ValueError("Pass either page= or page_after/page_before/page_with, not both.")
+            page_after, page_before, page_with = page.after, page.before, page.with_
+
         params: dict[str, Any] = {}
 
         if filter is not None:
@@ -482,24 +503,35 @@ class BaseResource:
         # Determine contentType from entity_type
         content_type = self._entity_type_to_content_type(entity_type)
 
-        # Try cache first
-        if use_cache and self._cache:
-            cached = self._cache.get(content_type, entity_id)
+        if use_cache:
+            cached = self._cache_get(content_type, entity_id, model_class)
             if cached is not None:
-                # Cache stores dict, convert to model
-                return model_class(**cached) if isinstance(cached, dict) else cached
+                return cached
 
-        # Fetch from API
         entity = await self._get_entity(entity_type, entity_id, model_class)
 
-        # Store in cache
-        if use_cache and self._cache:
-            # Store as dict for consistency
-            # TypeVar T doesn't guarantee .model_dump, but all Pydantic models have it
-            entity_dict = entity.model_dump(by_alias=True)  # type: ignore[attr-defined]
-            self._cache.set(content_type, entity_id, entity_dict)
+        if use_cache:
+            self._cache_put(content_type, entity_id, entity)
 
         return entity
+
+    def _cache_get(self, content_type: str, entity_id: int, model_class: type[T]) -> T | None:
+        """Read an entity from cache, parsing the stored payload into a model.
+
+        The cache storage format is decided here and in _cache_put ONLY —
+        no other code may interpret cached payloads.
+        """
+        if not self._cache:
+            return None
+        cached = self._cache.get(content_type, entity_id)
+        if cached is None:
+            return None
+        return model_class(**cached) if isinstance(cached, dict) else cached  # type: ignore[no-any-return]
+
+    def _cache_put(self, content_type: str, entity_id: int, entity: Any) -> None:
+        """Store an entity in cache as a by-alias dict (the storage format)."""
+        if self._cache:
+            self._cache.set(content_type, entity_id, entity.model_dump(by_alias=True))
 
     async def _load_related_entities(
         self,
@@ -542,17 +574,12 @@ class BaseResource:
         ids_to_fetch: set[int] = set()
 
         # Check cache for each ID
-        if self._cache:
-            for entity_id in unique_ids:
-                cached = self._cache.get(content_type, entity_id)
-                if cached is not None:
-                    result[entity_id] = (
-                        model_class(**cached) if isinstance(cached, dict) else cached
-                    )
-                else:
-                    ids_to_fetch.add(entity_id)
-        else:
-            ids_to_fetch = unique_ids
+        for entity_id in unique_ids:
+            cached = self._cache_get(content_type, entity_id, model_class)
+            if cached is not None:
+                result[entity_id] = cached
+            else:
+                ids_to_fetch.add(entity_id)
 
         # Fetch missing entities in parallel
         if ids_to_fetch:
@@ -598,12 +625,10 @@ class BaseResource:
         result: dict[int, T] = {}
         missing: list[int] = []
         for entity_id in dict.fromkeys(ids):  # de-dupe, preserve order
-            if use_cache and self._cache:
-                cached = self._cache.get(content_type, entity_id)
+            if use_cache:
+                cached = self._cache_get(content_type, entity_id, model_class)
                 if cached is not None:
-                    result[entity_id] = (
-                        model_class(**cached) if isinstance(cached, dict) else cached
-                    )
+                    result[entity_id] = cached
                     continue
             missing.append(entity_id)
 
@@ -613,12 +638,8 @@ class BaseResource:
                 entity = model_class(**item)
                 entity_id = int(item["id"])
                 result[entity_id] = entity
-                if use_cache and self._cache:
-                    self._cache.set(
-                        content_type,
-                        entity_id,
-                        entity.model_dump(by_alias=True),  # type: ignore[attr-defined]
-                    )
+                if use_cache:
+                    self._cache_put(content_type, entity_id, entity)
         return result
 
     async def _get_many_sequential(
@@ -671,28 +692,7 @@ class BaseResource:
             >>> BaseResource._entity_type_to_content_type("contractorCompany")
             'ContractorCompany'
         """
-        # Map API path segments to ContentTypes
-        # This avoids issues with capitalize() on CamelCase names
-        mapping = {
-            "todo": ContentType.TASK,
-            "task": ContentType.TASK,
-            "project": ContentType.PROJECT,
-            "deal": ContentType.DEAL,
-            "employee": ContentType.EMPLOYEE,
-            "contractor": ContentType.CONTRACTOR,
-            "department": ContentType.DEPARTMENT,
-            "contractorCompany": ContentType.CONTRACTOR_COMPANY,
-            "contractorHuman": ContentType.CONTRACTOR_HUMAN,
-            "comment": ContentType.COMMENT,
-            "knowledgeBase": ContentType.KNOWLEDGE_BASE,
-            "knowledgeArticle": ContentType.KNOWLEDGE_ARTICLE,
-        }
-
-        result = mapping.get(entity_type)
-        if result:
-            return result
-
-        return entity_type.capitalize()
+        return content_type_for(entity_type)
 
     @staticmethod
     def _parse_contractor_response(data: dict[str, Any]) -> "Contractor":
@@ -800,6 +800,7 @@ class BaseResource:
         related_type: str,
         related_id: int,
         related_content_type: str = ContentType.EMPLOYEE,
+        content_type_in_path: bool = True,
     ) -> None:
         """Generic method to remove related entity (auditor, executor, milestone).
 
@@ -809,16 +810,21 @@ class BaseResource:
             related_type: Related resource type (e.g., "auditors", "executors", "milestones").
             related_id: Related entity ID.
             related_content_type: Content type of related entity (usually "Employee").
+            content_type_in_path: API irregularity: tasks/projects DELETE via
+                .../{contentType}/{id}, deals via .../{id} (RAML + verified
+                on the stand 2026-07-02 — the contentType path 404s for deals).
         """
-        path = self._build_path(
+        path_parts = [
             "api",
             "v3",
             entity_type,
             str(entity_id),
             related_type,
-            related_content_type,
-            str(related_id),
-        )
+        ]
+        if content_type_in_path:
+            path_parts.append(related_content_type)
+        path_parts.append(str(related_id))
+        path = self._build_path(*path_parts)
         await self._http.delete(path)
 
     async def _get_entity_history(
@@ -916,6 +922,10 @@ class BaseResource:
 
         final_data: dict[str, Any] = {}
         for key, result in zip(fetch_map.keys(), results, strict=True):
+            if isinstance(result, NotImplementedError):
+                # A knowingly unsupported feature must fail loudly,
+                # not degrade to None
+                raise result
             if isinstance(result, Exception):
                 logger.warning(f"Failed to fetch {key}: {result}")
                 final_data[key] = None
@@ -948,71 +958,91 @@ class BaseResource:
         data = response.get("data", {})
         return data if isinstance(data, dict) else {}
 
-    async def _expand_list_entities(
+    async def _expand_and_wrap(
         self,
-        entities: list[T],
+        entities: list[Any],
         expand: list[str] | None,
-        expand_config: dict[str, tuple[str, type, str]],
-    ) -> dict[str, dict[int, Any]]:
-        """Expand related entities for list of entities.
+    ) -> list[Any]:
+        """Run the declarative expand pipeline over listed entities.
 
-        Unified method to handle expand logic in list() methods.
-        Returns empty dict if expand is None or empty, or if entities list is empty.
-
-        Args:
-            entities: List of entities to expand.
-            expand: List of field names to expand (None or empty means no expansion).
-            expand_config: Configuration mapping field_name -> (entity_type, model_class, content_type).
-
-        Returns:
-            Dictionary mapping field_name -> {entity_id -> loaded_entity}.
-        """
-        if not expand or not entities:
-            return {}
-
-        return await self._expand_entities(entities, expand, expand_config)
-
-    async def _expand_entities(
-        self,
-        entities: list[T],
-        expand: list[str],
-        expand_config: dict[str, tuple[str, type, str]],
-    ) -> dict[str, dict[int, Any]]:
-        """Generic method to expand related entities.
+        Loads the reference fields requested in ``expand`` per ``_expand_rules``
+        (cache-first, batched), then assembles the result. Wrap mode
+        (``_details_model`` declared): each entity is wrapped into the details
+        container with loaded relatives in the rules' ``details_field``s.
+        Replace mode: reference fields are replaced with loaded entities on
+        immutable copies of the listed entities.
 
         Args:
-            entities: List of entities to expand.
-            expand: List of field names to expand.
-            expand_config: Configuration mapping field_name -> (entity_type, model_class, content_type).
+            entities: Listed entities to expand.
+            expand: Requested field names (unknown names are ignored).
+                None or empty list returns ``entities`` unchanged.
 
         Returns:
-            Dictionary mapping field_name -> {entity_id -> loaded_entity}.
+            List of details containers (wrap mode) or entity copies
+            (replace mode).
         """
         if not expand or not entities:
-            return {}
+            return entities
 
-        result: dict[str, dict[int, Any]] = {}
-
+        loaded_maps: dict[str, dict[int, Any]] = {}
         for field_name in expand:
-            if field_name not in expand_config:
+            rule = self._expand_rules.get(field_name)
+            if rule is None:
                 continue
-
-            entity_type, model_class, _ = expand_config[field_name]
-
-            # Collect references for this field
-            refs = []
-            for entity in entities:
-                field_value = getattr(entity, field_name, None)
-                if field_value is not None and hasattr(field_value, "id"):
-                    refs.append(field_value)
-
+            refs = [
+                ref
+                for entity in entities
+                if (ref := getattr(entity, field_name, None)) is not None and hasattr(ref, "id")
+            ]
             if refs:
-                loaded: dict[int, T] = await self._load_related_entities(
-                    refs, entity_type, model_class
+                loaded_maps[field_name] = await self._load_related_entities(
+                    refs, rule.entity_type, rule.model
                 )
-                result[field_name] = loaded
 
-        return result
+        if self._details_model is not None:
+            return self._wrap_into_details(entities, loaded_maps)
+        return self._replace_references(entities, loaded_maps)
+
+    def _wrap_into_details(
+        self,
+        entities: list[Any],
+        loaded_maps: dict[str, dict[int, Any]],
+    ) -> list[Any]:
+        """Wrap entities into the details container with loaded relatives."""
+        if self._details_model is None or self._main_field is None:
+            raise TypeError(
+                f"{type(self).__name__} must declare _details_model and _main_field "
+                "to use wrap mode"
+            )
+        results: list[Any] = []
+        for entity in entities:
+            kwargs: dict[str, Any] = {self._main_field: entity}
+            for field_name, rule in self._expand_rules.items():
+                if rule.details_field is None:
+                    continue
+                ref = getattr(entity, field_name, None)
+                loaded = loaded_maps.get(field_name, {})
+                kwargs[rule.details_field] = (
+                    loaded.get(ref.id) if ref is not None and hasattr(ref, "id") else None
+                )
+            results.append(self._details_model(**kwargs))
+        return results
+
+    def _replace_references(
+        self,
+        entities: list[Any],
+        loaded_maps: dict[str, dict[int, Any]],
+    ) -> list[Any]:
+        """Replace reference fields with loaded entities on immutable copies."""
+        results: list[Any] = []
+        for entity in entities:
+            updates: dict[str, Any] = {}
+            for field_name, loaded in loaded_maps.items():
+                ref = getattr(entity, field_name, None)
+                if ref is not None and hasattr(ref, "id") and ref.id in loaded:
+                    updates[field_name] = loaded[ref.id]
+            results.append(entity.model_copy(update=updates) if updates else entity)
+        return results
 
     async def _get_milestones_generic(
         self,
@@ -1079,7 +1109,7 @@ class BaseResource:
             # API expects DateTime object with contentType and value
             return {
                 **data_dict,
-                field_name: {"contentType": "DateTime", "value": data_dict[field_name]},
+                field_name: {"contentType": ContentType.DATE_TIME, "value": data_dict[field_name]},
             }
         return data_dict
 
