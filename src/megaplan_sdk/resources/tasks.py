@@ -1075,6 +1075,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         include_milestones: bool = False,
         include_responsible_details: bool = False,
         include_owner_details: bool = False,
+        expand_comment_owners: bool = False,
         comments_limit: int | None = None,
         history_limit: int | None = None,
     ) -> TaskFullDetails:
@@ -1094,6 +1095,13 @@ class TasksResource(BaseResource, FullDetailsMixin):
             include_milestones: Load milestones list.
             include_responsible_details: Load full responsible (Employee) details.
             include_owner_details: Load full owner (Employee) details.
+            expand_comment_owners: Resolve comment authors to full Employee
+                objects via one batch of parallel cached requests (#30).
+                The API never populates comment owners, so without this flag
+                ``details.comments[n].owner`` is a bare ``{contentType, id}``
+                reference. Requires ``include_comments=True``; passing it
+                without the flag raises ValueError. Off by default so that
+                text-only consumers don't pay for the extra batch.
             comments_limit: Limit for comments (if included).
                 None = use global default (from MegaplanClient) or API default.
                 Explicit value overrides global default.
@@ -1123,25 +1131,45 @@ class TasksResource(BaseResource, FullDetailsMixin):
             ... )
             >>> print(details.task.name)
             >>> print(details.responsible_details.first_name)
+            >>>
+            >>> # Comments with resolved authors
+            >>> details = await client.tasks.get_full_details(
+            ...     task_id=123,
+            ...     include_comments=True,
+            ...     expand_comment_owners=True,
+            ... )
+            >>> print(details.comments[0].owner.name)  # "Иван Петров"
         """
-        return await self._get_full_details_generic(
-            entity_id=task_id,
-            entity_getter="get",
-            full_details_class=TaskFullDetails,
-            config=self._full_details_config,
-            main_entity_field="task",
-            include_sub_tasks=include_sub_tasks,
-            include_actual_sub_tasks=include_actual_sub_tasks,
-            include_comments=include_comments,
-            include_history=include_history,
-            include_auditors=include_auditors,
-            include_executors=include_executors,
-            include_milestones=include_milestones,
-            include_responsible_details=include_responsible_details,
-            include_owner_details=include_owner_details,
-            comments_limit=comments_limit,
-            history_limit=history_limit,
+        if expand_comment_owners and not include_comments:
+            raise ValueError(
+                "'expand_comment_owners' was provided but 'include_comments' is False. "
+                "Pass 'include_comments=True' to load comments first, "
+                "or omit 'expand_comment_owners'."
+            )
+        details = cast(
+            TaskFullDetails,
+            await self._get_full_details_generic(
+                entity_id=task_id,
+                entity_getter="get",
+                full_details_class=TaskFullDetails,
+                config=self._full_details_config,
+                main_entity_field="task",
+                include_sub_tasks=include_sub_tasks,
+                include_actual_sub_tasks=include_actual_sub_tasks,
+                include_comments=include_comments,
+                include_history=include_history,
+                include_auditors=include_auditors,
+                include_executors=include_executors,
+                include_milestones=include_milestones,
+                include_responsible_details=include_responsible_details,
+                include_owner_details=include_owner_details,
+                comments_limit=comments_limit,
+                history_limit=history_limit,
+            ),
         )
+        if expand_comment_owners and details.comments:
+            await self._resolve_comment_owners(details.comments)
+        return details
 
     async def get_available_parents(
         self,

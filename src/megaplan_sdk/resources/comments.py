@@ -119,6 +119,7 @@ class CommentsResource(BaseResource):
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         expand: list[str] | None = None,
+        expand_comment_owners: bool = False,
     ) -> list[Comment]:
         """Get list of comments for an entity.
 
@@ -140,6 +141,8 @@ class CommentsResource(BaseResource):
                 to full Employee objects via batch parallel requests (cached).
                 The API never returns populated owners, so this is the only
                 resolution path.
+            expand_comment_owners: Sugar over ``expand=["owner"]`` (#30);
+                mirrors the same-named ``tasks.get_full_details()`` flag.
 
         Returns:
             List of comments.
@@ -169,23 +172,10 @@ class CommentsResource(BaseResource):
 
         comments = await self._get_list(path, Comment, params)
 
-        if not expand or "owner" not in expand or not comments:
-            return comments
-
-        from megaplan_sdk.models.employee import Employee
-
-        # Only Employee owners are resolvable via the employee endpoint.
-        employee_owners = [
-            c.owner for c in comments if c.owner is not None and c.owner.content_type == "Employee"
-        ]
-        owner_map = await self._load_related_entities(employee_owners, "employee", Employee)
-        for comment in comments:
-            if (
-                comment.owner is not None
-                and comment.owner.content_type == "Employee"
-                and comment.owner.id in owner_map
-            ):
-                comment.owner = owner_map[comment.owner.id]
+        if expand_comment_owners:
+            expand = [*(expand or []), "owner"]
+        if expand and "owner" in expand and comments:
+            await self._resolve_comment_owners(comments)
 
         return comments
 

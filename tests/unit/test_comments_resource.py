@@ -176,3 +176,27 @@ async def test_delete_accepts_entity_type_kwarg(megaplan_api, comments):
     """#17: delete() accepts (and ignores) entity_type for API symmetry."""
     megaplan_api.delete("comment/187507")
     await comments.delete(comment_id=187507, entity_type="task")
+
+
+async def test_list_expand_comment_owners_sugar(megaplan_api, comments):
+    """#30: expand_comment_owners=True is sugar over expand=['owner']."""
+    megaplan_api.get(
+        "task/123/comments",
+        data=[
+            {
+                "contentType": "Comment",
+                "id": 1,
+                "content": "hi",
+                "owner": {"contentType": "Employee", "id": 1000037},
+            }
+        ],
+    )
+    megaplan_api.get(
+        "employee/1000037",
+        data={"contentType": "Employee", "id": 1000037, "name": "Иван Петров"},
+    )
+
+    result = await comments.list(entity_id=123, expand_comment_owners=True)
+
+    assert result[0].owner is not None
+    assert result[0].owner.name == "Иван Петров"  # type: ignore[union-attr]
