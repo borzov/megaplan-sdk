@@ -53,6 +53,7 @@ from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.filters import FiltersResource
+from megaplan_sdk.task_query import TaskQuery
 
 __all__ = [
     # Client
@@ -91,6 +92,8 @@ __all__ = [
     "DateTime",
     # Pagination
     "Page",
+    # Task queries
+    "TaskQuery",
     # Filters
     "FiltersResource",
     "BaseFilter",

@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 
 from megaplan_sdk.constants import (
     DEFAULT_SORT_RECENT,
-    UNSUPPORTED_TASK_SORT_FIELDS,
     ContentType,
 )
 from megaplan_sdk.models.comment import Comment
@@ -19,26 +18,22 @@ from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
+
+# VALID_TASK_STATUSES is re-exported for backwards compatibility; the
+# canonical definition and all task list validation live in task_query.py
+from megaplan_sdk.task_query import (
+    VALID_TASK_STATUSES,
+    TaskQuery,
+    validate_task_sort_field,
+    validate_task_statuses,
+)
 from megaplan_sdk.types import FilterType
 
 if TYPE_CHECKING:
     from megaplan_sdk.models.milestone import Milestone
     from megaplan_sdk.models.participant import Participant
 
-# Valid task statuses according to RAML documentation
-VALID_TASK_STATUSES = {
-    "created",
-    "assigned",
-    "accepted",
-    "done",
-    "completed",
-    "rejected",
-    "cancelled",
-    "expired",
-    "delayed",
-    "template",
-    "overdue",
-}
+__all__ = ["VALID_TASK_STATUSES", "TasksResource"]
 
 
 class TasksResource(BaseResource, FullDetailsMixin):
@@ -264,24 +259,14 @@ class TasksResource(BaseResource, FullDetailsMixin):
 
         # Validate statuses if provided
         if statuses:
-            invalid_statuses = [s for s in statuses if s not in VALID_TASK_STATUSES]
-            if invalid_statuses:
-                raise ValueError(
-                    f"Invalid task status values: {invalid_statuses}. "
-                    f"Valid values: {sorted(VALID_TASK_STATUSES)}"
-                )
+            validate_task_statuses(statuses)
 
         # Validate sort_by against fields the API rejects with a raw 422 (#7).
         if sort_by:
             for rule in sort_by:
                 field_name = rule.get("fieldName")
-                if field_name in UNSUPPORTED_TASK_SORT_FIELDS:
-                    suggestion = UNSUPPORTED_TASK_SORT_FIELDS[field_name]
-                    raise ValueError(
-                        f"Task cannot be sorted by '{field_name}' (API returns 422). "
-                        f"Use '{suggestion}' instead — e.g. "
-                        f'sort_by=[{{"fieldName": "{suggestion}", "desc": True}}].'
-                    )
+                if field_name is not None:
+                    validate_task_sort_field(field_name)
 
         # Convert filter ID to object format if needed
         processed_filter = filter
@@ -305,6 +290,30 @@ class TasksResource(BaseResource, FullDetailsMixin):
 
         tasks = await self._get_list(path, Task, params)
         return await self._expand_and_wrap(tasks, expand)
+
+    async def list_by(self, query: TaskQuery) -> list[Task]:
+        """Get list of tasks described by a :class:`TaskQuery`.
+
+        The query is validated at construction time — invalid combinations
+        (search+filter, bad statuses, unsupported sort fields, unfilterable
+        search fields) never reach the wire.
+
+        Args:
+            query: Query built fluently with TaskQuery().
+
+        Returns:
+            List of tasks.
+
+        Examples:
+            >>> query = (
+            ...     TaskQuery()
+            ...     .statuses("assigned", "accepted")
+            ...     .sort_by("timeCreated", desc=True)
+            ...     .limit(50)
+            ... )
+            >>> tasks = await client.tasks.list_by(query)
+        """
+        return cast("list[Task]", await self.list(**query.as_list_kwargs()))
 
     async def get(self, task_id: int) -> Task:
         """Get task by ID.
