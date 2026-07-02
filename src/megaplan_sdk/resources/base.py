@@ -907,6 +907,10 @@ class BaseResource:
 
         final_data: dict[str, Any] = {}
         for key, result in zip(fetch_map.keys(), results, strict=True):
+            if isinstance(result, NotImplementedError):
+                # A knowingly unsupported feature must fail loudly,
+                # not degrade to None
+                raise result
             if isinstance(result, Exception):
                 logger.warning(f"Failed to fetch {key}: {result}")
                 final_data[key] = None

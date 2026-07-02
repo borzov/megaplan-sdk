@@ -91,12 +91,8 @@ async def test_get_full_details(megaplan_api, deals):
         data={"id": 20, "contentType": "Contractor", "name": "Test Contractor"},
     )
 
-    # Mock related tasks - TasksResource.list() adds statuses parameter
-    megaplan_api.get(
-        "task",
-        data=[{"id": 100, "contentType": "Task", "name": "Related Task"}],
-    )
-
+    # include_related_tasks is NOT requested: the API has no tasks-by-deal
+    # filter and the flag raises NotImplementedError (see test_seams.py)
     full_details = await deals.get_full_details(
         deal_id=1,
         include_comments=True,
@@ -105,7 +101,6 @@ async def test_get_full_details(megaplan_api, deals):
         include_auditors=True,
         include_manager_details=True,
         include_contractor_details=True,
-        include_related_tasks=True,
     )
 
     # Check main deal
@@ -131,10 +126,6 @@ async def test_get_full_details(megaplan_api, deals):
 
     assert full_details.contractor_details is not None
     assert full_details.contractor_details.name == "Test Contractor"
-
-    assert full_details.related_tasks is not None
-    assert len(full_details.related_tasks) == 1
-    assert full_details.related_tasks[0].name == "Related Task"
 
 
 async def test_check_exists_true(megaplan_api, deals):

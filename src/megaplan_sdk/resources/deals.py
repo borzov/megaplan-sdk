@@ -84,11 +84,20 @@ class DealsResource(BaseResource, FullDetailsMixin):
         ]
 
     async def _fetch_related_tasks(self, deal_id: int, **kwargs: Any) -> Any:
-        """Custom fetcher for related tasks (baseOn quirk owned by tasks)."""
-        from megaplan_sdk.resources.tasks import TasksResource
+        """Related tasks cannot be fetched — the API has no tasks-by-deal filter.
 
-        tasks_resource = TasksResource(self._http, cache=self._cache)
-        return await tasks_resource.list_related_to(ContentType.DEAL, deal_id)
+        Verified empirically (2026-07-02): every baseOn wire format is either
+        silently ignored (the endpoint returns ALL account tasks) or rejected
+        with 422; the server reports Task has no deal/trade/baseOn fields, and
+        the deal side exposes only tasksCount. The previous implementation
+        silently returned unrelated tasks.
+        """
+        raise NotImplementedError(
+            "Megaplan API has no working tasks-by-deal (baseOn) filter: object "
+            "configs are silently ignored and string configs are rejected with "
+            "422. include_related_tasks previously returned ALL account tasks. "
+            "Use deal.tasksCount for the count; there is no way to list the tasks."
+        )
 
     async def create(self, deal_data: dict[str, Any]) -> Deal:
         """Create a new deal.

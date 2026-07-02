@@ -1,8 +1,5 @@
 """Unit tests for seam interfaces: post_form, restore_token, open, list_related_to."""
 
-import json
-from urllib.parse import unquote
-
 import httpx
 import pytest
 
@@ -84,19 +81,17 @@ class TestHTTPClientOpen:
             await client.close()
 
 
-class TestListRelatedTo:
-    """TasksResource owns the "filter config as JSON string" quirk."""
+class TestRelatedTasksNotImplemented:
+    """include_related_tasks must fail loudly: the API has no tasks-by-deal filter.
 
-    async def test_list_related_to_sends_stringified_base_on_filter(self, megaplan_api, tasks):
-        route = megaplan_api.get("task", data=[{"id": 7, "contentType": "Task", "name": "T"}])
+    Verified empirically (2026-07-02, ruvents): every baseOn wire format is
+    either silently ignored (returns ALL account tasks) or rejected with 422;
+    the server states Task has no deal/trade/baseOn fields. The old
+    implementation therefore returned unrelated tasks.
+    """
 
-        result = await tasks.list_related_to("Deal", 5)
+    async def test_include_related_tasks_raises_not_implemented(self, megaplan_api, deals):
+        megaplan_api.get("deal/5", data={"id": 5, "contentType": "Deal", "name": "Deal"})
 
-        assert len(result) == 1
-        assert result[0].id == 7
-        # The query is the JSON params; `filter` inside must be a STRING
-        # containing the baseOn config (API quirk owned by tasks, not deals)
-        query = unquote(route.calls.last.request.url.query.decode())
-        params = json.loads(query)
-        assert isinstance(params["filter"], str)
-        assert json.loads(params["filter"]) == {"baseOn": {"contentType": "Deal", "id": 5}}
+        with pytest.raises(NotImplementedError, match="related"):
+            await deals.get_full_details(5, include_related_tasks=True)
