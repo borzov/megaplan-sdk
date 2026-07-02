@@ -102,6 +102,9 @@ class DealFullDetails(MainEntityProxyMixin, BaseModel):
     Attribute access falls through to the wrapped ``deal`` (#25): both
     ``details.deal.manager`` and ``details.manager`` resolve identically.
 
+    ``manager``/``contractor`` prefer the loaded ``*_details`` when expand
+    populated them, falling back to the raw wire reference otherwise (#25).
+
     Attributes:
         deal: Main deal entity.
         comments: List of comments (if requested).
@@ -125,3 +128,15 @@ class DealFullDetails(MainEntityProxyMixin, BaseModel):
     related_tasks: list[Any] | None = None
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    @property
+    def manager(self) -> Any:
+        """Loaded manager (``manager_details``) or the raw ``deal.manager`` reference."""
+        return self.manager_details if self.manager_details is not None else self.deal.manager
+
+    @property
+    def contractor(self) -> Any:
+        """Loaded contractor (``contractor_details``) or the raw reference."""
+        return (
+            self.contractor_details if self.contractor_details is not None else self.deal.contractor
+        )
