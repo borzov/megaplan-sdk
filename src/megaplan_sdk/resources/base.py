@@ -791,6 +791,7 @@ class BaseResource:
         related_type: str,
         related_id: int,
         related_content_type: str = ContentType.EMPLOYEE,
+        content_type_in_path: bool = True,
     ) -> None:
         """Generic method to remove related entity (auditor, executor, milestone).
 
@@ -800,16 +801,21 @@ class BaseResource:
             related_type: Related resource type (e.g., "auditors", "executors", "milestones").
             related_id: Related entity ID.
             related_content_type: Content type of related entity (usually "Employee").
+            content_type_in_path: API irregularity: tasks/projects DELETE via
+                .../{contentType}/{id}, deals via .../{id} (RAML + verified
+                on the stand 2026-07-02 — the contentType path 404s for deals).
         """
-        path = self._build_path(
+        path_parts = [
             "api",
             "v3",
             entity_type,
             str(entity_id),
             related_type,
-            related_content_type,
-            str(related_id),
-        )
+        ]
+        if content_type_in_path:
+            path_parts.append(related_content_type)
+        path_parts.append(str(related_id))
+        path = self._build_path(*path_parts)
         await self._http.delete(path)
 
     async def _get_entity_history(

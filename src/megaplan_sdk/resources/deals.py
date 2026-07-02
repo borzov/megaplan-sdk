@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import AsyncIterator
 from typing import Any, overload
 
@@ -514,6 +515,12 @@ class DealsResource(BaseResource, FullDetailsMixin):
             ...     text="Deal update"
             ... )
         """
+        warnings.warn(
+            "deals.create_comment() is deprecated and will be removed in 0.5.0; "
+            'use client.comments.create(entity_id=..., content=..., entity_type="deal").',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return await self._create_entity_comment(
             "deal",
             deal_id,
@@ -528,7 +535,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[Any]:
         """Get auditors for a deal.
 
         Args:
@@ -544,29 +551,22 @@ class DealsResource(BaseResource, FullDetailsMixin):
         Examples:
             >>> auditors = await client.deals.get_auditors(deal_id=123)
         """
-        path = self._build_path("api", "v3", "deal", str(deal_id), "auditors")
-
-        params = self._build_list_params(
-            limit=limit,
-            page_after=page_after,
-            page_before=page_before,
-            page_with=page_with,
+        return await self._get_entity_related_list(
+            "deal", deal_id, "auditors", limit, page_after, page_before, page_with
         )
-
-        response = await self._http.get(path, params=params if params else None)
-        data: list[dict[str, Any]] = response.get("data", [])
-        return data
 
     async def add_auditor(
         self,
         deal_id: int,
         auditor_id: int,
-    ) -> dict[str, Any]:
+        auditor_content_type: str = ContentType.EMPLOYEE,
+    ) -> Any:
         """Add auditor to the deal.
 
         Args:
             deal_id: Deal identifier.
             auditor_id: Auditor ID (Employee ID).
+            auditor_content_type: Content type (usually "Employee").
 
         Returns:
             Added auditor.
@@ -577,27 +577,35 @@ class DealsResource(BaseResource, FullDetailsMixin):
             ...     auditor_id=456
             ... )
         """
-        path = self._build_path("api", "v3", "deal", str(deal_id), "auditors")
-        response = await self._http.post(path, json_data={"id": auditor_id})
-        result: dict[str, Any] = response.get("data", {})
-        return result
+        return await self._add_entity_related(
+            "deal", deal_id, "auditors", auditor_id, auditor_content_type
+        )
 
     async def remove_auditor(
         self,
         deal_id: int,
         auditor_id: int,
+        auditor_content_type: str = ContentType.EMPLOYEE,
     ) -> None:
         """Remove auditor from the deal.
 
         Args:
             deal_id: Deal identifier.
             auditor_id: Auditor ID.
+            auditor_content_type: Content type (usually "Employee").
 
         Examples:
             >>> await client.deals.remove_auditor(deal_id=123, auditor_id=456)
         """
-        path = self._build_path("api", "v3", "deal", str(deal_id), "auditors", str(auditor_id))
-        await self._http.delete(path)
+        await self._remove_entity_related(
+            "deal",
+            deal_id,
+            "auditors",
+            auditor_id,
+            auditor_content_type,
+            # API irregularity: /deal/{id}/auditors/{auditorId} — no contentType
+            content_type_in_path=False,
+        )
 
     async def get_history(
         self,

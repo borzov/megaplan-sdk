@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, overload
 
@@ -646,6 +647,12 @@ class TasksResource(BaseResource, FullDetailsMixin):
             ...     work=2.5
             ... )
         """
+        warnings.warn(
+            "tasks.create_comment() is deprecated and will be removed in 0.5.0; "
+            'use client.comments.create(entity_id=..., content=..., entity_type="task").',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         from megaplan_sdk.resources.comments import CommentsResource
 
         comments = CommentsResource(self._http, cache=self._cache)

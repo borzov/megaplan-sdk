@@ -619,7 +619,8 @@ async def test_create_comment_encodes_work_as_value_seconds(megaplan_api, tasks)
     """
     route = megaplan_api.post("task/1/comments", data={"id": 7, "contentType": "Comment"})
 
-    await tasks.create_comment(task_id=1, text="x", work=1.0)
+    with pytest.warns(DeprecationWarning, match="comments.create"):
+        await tasks.create_comment(task_id=1, text="x", work=1.0)
 
     body = json.loads(route.calls.last.request.content)
     assert body["content"] == "x"

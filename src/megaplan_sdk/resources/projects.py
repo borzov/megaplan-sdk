@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, overload
 
@@ -517,6 +518,12 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             ...     text="Project update"
             ... )
         """
+        warnings.warn(
+            "projects.create_comment() is deprecated and will be removed in 0.5.0; "
+            'use client.comments.create(entity_id=..., content=..., entity_type="project").',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return await self._create_entity_comment(
             "project",
             project_id,

@@ -1,5 +1,6 @@
 """Unit tests for BaseResource."""
 
+import pytest
 from httpx import Response
 
 from megaplan_sdk.resources.base import BaseResource
@@ -202,12 +203,13 @@ async def test_create_entity_comment(megaplan_api, tasks):
         },
     )
 
-    comment = await tasks.create_comment(
-        task_id=1,
-        text="Test comment",
-        work=2.5,
-        attaches=[{"id": 10, "contentType": "File"}],
-    )
+    with pytest.warns(DeprecationWarning, match="comments.create"):
+        comment = await tasks.create_comment(
+            task_id=1,
+            text="Test comment",
+            work=2.5,
+            attaches=[{"id": 10, "contentType": "File"}],
+        )
 
     assert comment.id == 1
     assert comment.content == "Test comment"
