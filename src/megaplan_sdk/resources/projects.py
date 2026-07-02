@@ -174,9 +174,12 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
                 pass
 
         if owner_id:
-            project_data["owner"] = {"contentType": "Employee", "id": owner_id}
+            project_data["owner"] = {"contentType": ContentType.EMPLOYEE, "id": owner_id}
         if responsible_id:
-            project_data["responsible"] = {"contentType": "Employee", "id": responsible_id}
+            project_data["responsible"] = {
+                "contentType": ContentType.EMPLOYEE,
+                "id": responsible_id,
+            }
 
         return await self.create(project_data, auto_fill_required=False)
 

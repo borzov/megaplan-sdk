@@ -13,6 +13,7 @@ from megaplan_sdk.constants import (
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.task import Task, TaskFullDetails
+from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
@@ -42,6 +43,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
     """Resource for working with tasks."""
 
     _page_content_type = ContentType.TASK
+    _filter_content_type = filter_content_type_for("task")
 
     _expand_rules = {
         "responsible": ExpandRule("employee", Employee, details_field="responsible_details"),
@@ -251,7 +253,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         if q is not None:
             if filter is not None:
                 raise ValueError("Pass either `q` or `filter`, not both.")
-            filter = self._q_to_filter("TaskFilter", q, q_in or ["name"])
+            filter = self._q_to_filter(self._filter_content_type, q, q_in or ["name"])
             q = None
 
         # Validate statuses if provided
@@ -279,7 +281,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         processed_filter = filter
         if filter is not None and isinstance(filter, int | str) and not isinstance(filter, dict):
             # Convert ID to filter object format
-            processed_filter = {"contentType": "TaskFilter", "id": str(filter)}
+            processed_filter = {"contentType": self._filter_content_type, "id": str(filter)}
 
         # Use base method to build params (DRY)
         params = self._build_list_params(
@@ -711,7 +713,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 pass
 
         if responsible_id:
-            task_data["responsible"] = {"contentType": "Employee", "id": responsible_id}
+            task_data["responsible"] = {"contentType": ContentType.EMPLOYEE, "id": responsible_id}
 
         return await self.create(task_data, auto_fill_required=False)
 
@@ -766,7 +768,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         # Update task to set parent relationship (required by API)
         # Note: parent must be set via update, not create
         update_data = {
-            "parent": {"contentType": "Project", "id": project_id},
+            "parent": {"contentType": ContentType.PROJECT, "id": project_id},
         }
         task = await self.update(task.id, update_data)
 

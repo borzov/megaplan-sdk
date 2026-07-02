@@ -20,6 +20,11 @@ class ContentType:
     KNOWLEDGE_BASE = "KnowledgeBase"
     KNOWLEDGE_ARTICLE = "KnowledgeArticle"
 
+    # Value types (not entities) that the API also tags with contentType
+    DATE_TIME = "DateTime"
+    DATE_INTERVAL = "DateInterval"
+    SORT_FIELD = "SortField"
+
 
 # Task fields users commonly try to sort by that the Megaplan API rejects (422).
 # Maps the unsupported field name to the supported replacement to suggest.
@@ -50,5 +55,5 @@ DEFAULT_TASK_LIST_FIELDS: tuple[str, ...] = (
 # Matches the Megaplan UI, which always shows the freshest items on top.
 # Pass sort_by=[] to a list() method to opt out of any sorting.
 DEFAULT_SORT_RECENT: list[dict[str, Any]] = [
-    {"contentType": "SortField", "fieldName": "timeCreated", "desc": True}
+    {"contentType": ContentType.SORT_FIELD, "fieldName": "timeCreated", "desc": True}
 ]

@@ -10,6 +10,7 @@ from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
 from megaplan_sdk.models.employee import Employee
+from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
@@ -20,6 +21,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
     """Resource for working with deals."""
 
     _page_content_type = ContentType.DEAL
+    _filter_content_type = filter_content_type_for("deal")
 
     _expand_rules = {
         "manager": ExpandRule("employee", Employee, details_field="manager_details"),
@@ -221,14 +223,14 @@ class DealsResource(BaseResource, FullDetailsMixin):
         if q is not None:
             if filter is not None:
                 raise ValueError("Pass either `q` or `filter`, not both.")
-            filter = self._q_to_filter("TradeFilter", q, q_in or ["name"])
+            filter = self._q_to_filter(self._filter_content_type, q, q_in or ["name"])
             q = None
 
         # Convert filter ID to object format if needed
         processed_filter = filter
         if filter is not None and isinstance(filter, int | str) and not isinstance(filter, dict):
             # Convert ID to filter object format
-            processed_filter = {"contentType": "TradeFilter", "id": str(filter)}
+            processed_filter = {"contentType": self._filter_content_type, "id": str(filter)}
 
         # Prepare deal-specific parameters
         extra_params: dict[str, Any] = {}
@@ -390,7 +392,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         if filter is not None:
             if isinstance(filter, int | str):
                 params["filter"] = {
-                    "contentType": "TradeFilter",
+                    "contentType": self._filter_content_type,
                     "id": int(filter) if str(filter).isdigit() else str(filter),
                 }
             else:

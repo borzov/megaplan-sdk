@@ -33,6 +33,13 @@ entities on immutable copies of the listed entities; the return type stays the
 plain entity list (employees).
 _Avoid_: in-place mode, mutation (implementation must stay immutable)
 
+**EntityRegistry**:
+The single authority for API naming (`registry.py`): one entry per entity type
+holds its contentType, filter contentType, and legacy aliases ("todo" for
+tasks, "trade" for deals). Resources consult it instead of keeping string
+tables.
+_Avoid_: mapping table, normalize function
+
 **FullDetails container**:
 A model (TaskFullDetails, DealFullDetails, ProjectFullDetails) wrapping the
 main entity plus loaded relatives; proxies unknown attributes to the main

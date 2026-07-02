@@ -12,6 +12,7 @@ from megaplan_sdk.models.filter import (
     NewFilterSettingsRequest,
     UserSetting,
 )
+from megaplan_sdk.registry import filter_path_for
 from megaplan_sdk.resources.base import BaseResource
 
 T = TypeVar("T", bound=BaseFilter)
@@ -32,33 +33,7 @@ class FiltersResource(BaseResource):
         Returns:
             Normalized entity type for API path (e.g., "taskFilter", "tradeFilter").
         """
-        # Map common entity types to filter types
-        mapping: dict[str, str] = {
-            "task": "taskFilter",
-            "deal": "tradeFilter",
-            "trade": "tradeFilter",
-            "employee": "employeeFilter",
-            "project": "projectFilter",
-            "contractor": "contractorFilter",
-            "doc": "docFilter",
-            "offer": "offerFilter",
-            "invoice": "invoiceFilter",
-            "consignment": "consignmentFilter",
-            "warehouse": "warehouseFilter",
-            "fileStorage": "fileStorageFilter",
-            "integration": "integrationFilter",
-            "report": "reportFilter",
-            "crm": "crmFilter",
-            "customCrm": "customCrmFilter",
-        }
-
-        # If already in correct format, return as is
-        if entity_type in mapping.values():
-            return entity_type
-
-        # Convert to lowercase for lookup
-        normalized = entity_type.lower()
-        return mapping.get(normalized, f"{normalized}Filter")
+        return filter_path_for(entity_type)
 
     async def list(
         self,

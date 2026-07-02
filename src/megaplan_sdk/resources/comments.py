@@ -6,6 +6,7 @@ import warnings
 from collections.abc import AsyncIterator
 from typing import Any, Literal, overload
 
+from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.resources.base import BaseResource
 
@@ -91,7 +92,10 @@ class CommentsResource(BaseResource):
             if work is not None:
                 # Server silently ignores `seconds`; the correct field is `value` in seconds.
                 # The server quantizes to whole minutes (e.g. 150 s → 120 s).
-                data["workTime"] = {"contentType": "DateInterval", "value": int(work * 3600)}
+                data["workTime"] = {
+                    "contentType": ContentType.DATE_INTERVAL,
+                    "value": int(work * 3600),
+                }
             if attaches:
                 data["attaches"] = attaches
         else:

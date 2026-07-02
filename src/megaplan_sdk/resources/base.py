@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger
+from megaplan_sdk.registry import content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
 
 if TYPE_CHECKING:
@@ -682,28 +683,7 @@ class BaseResource:
             >>> BaseResource._entity_type_to_content_type("contractorCompany")
             'ContractorCompany'
         """
-        # Map API path segments to ContentTypes
-        # This avoids issues with capitalize() on CamelCase names
-        mapping = {
-            "todo": ContentType.TASK,
-            "task": ContentType.TASK,
-            "project": ContentType.PROJECT,
-            "deal": ContentType.DEAL,
-            "employee": ContentType.EMPLOYEE,
-            "contractor": ContentType.CONTRACTOR,
-            "department": ContentType.DEPARTMENT,
-            "contractorCompany": ContentType.CONTRACTOR_COMPANY,
-            "contractorHuman": ContentType.CONTRACTOR_HUMAN,
-            "comment": ContentType.COMMENT,
-            "knowledgeBase": ContentType.KNOWLEDGE_BASE,
-            "knowledgeArticle": ContentType.KNOWLEDGE_ARTICLE,
-        }
-
-        result = mapping.get(entity_type)
-        if result:
-            return result
-
-        return entity_type.capitalize()
+        return content_type_for(entity_type)
 
     @staticmethod
     def _parse_contractor_response(data: dict[str, Any]) -> "Contractor":
@@ -1110,7 +1090,7 @@ class BaseResource:
             # API expects DateTime object with contentType and value
             return {
                 **data_dict,
-                field_name: {"contentType": "DateTime", "value": data_dict[field_name]},
+                field_name: {"contentType": ContentType.DATE_TIME, "value": data_dict[field_name]},
             }
         return data_dict
 
