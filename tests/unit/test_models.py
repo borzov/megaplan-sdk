@@ -287,3 +287,73 @@ def test_deal_full_details_delegates_to_deal():
     details = DealFullDetails(deal=deal)
     assert details.name == "D"
     assert details.deal.id == 9
+
+
+def test_task_full_details_owner_prefers_loaded_details():
+    """#25-DX: details.owner/.responsible return loaded *_details when present."""
+    from megaplan_sdk.models.employee import Employee
+    from megaplan_sdk.models.task import Task, TaskFullDetails
+
+    task = Task(
+        id=5,
+        contentType="Task",
+        owner={"contentType": "Employee", "id": 7},
+        responsible={"contentType": "Employee", "id": 7},
+    )
+    loaded = Employee(id=7, contentType="Employee", name="Гусев Максим")
+    details = TaskFullDetails(task=task, owner_details=loaded, responsible_details=loaded)
+
+    assert details.owner.name == "Гусев Максим"
+    assert details.responsible.name == "Гусев Максим"
+    # The raw wire reference stays untouched on the wrapped entity
+    assert details.task.owner.name is None
+
+
+def test_task_full_details_owner_falls_back_to_raw_reference():
+    """#25-DX: without loaded details, details.owner is the raw reference."""
+    from megaplan_sdk.models.task import Task, TaskFullDetails
+
+    task = Task(id=5, contentType="Task", owner={"contentType": "Employee", "id": 7})
+    details = TaskFullDetails(task=task)
+
+    assert details.owner is not None
+    assert details.owner.id == 7
+    assert details.responsible is None
+
+
+def test_project_full_details_owner_prefers_loaded_details():
+    """#25-DX: ProjectFullDetails.owner/.responsible prefer loaded details."""
+    from megaplan_sdk.models.employee import Employee
+    from megaplan_sdk.models.project import Project, ProjectFullDetails
+
+    project = Project(
+        id=3,
+        contentType="Project",
+        owner={"contentType": "Employee", "id": 7},
+        responsible={"contentType": "Employee", "id": 8},
+    )
+    owner = Employee(id=7, contentType="Employee", name="Гусев Максим")
+    details = ProjectFullDetails(project=project, owner_details=owner)
+
+    assert details.owner.name == "Гусев Максим"
+    assert details.responsible.id == 8  # fallback to raw ref
+
+
+def test_deal_full_details_manager_prefers_loaded_details():
+    """#25-DX: DealFullDetails.manager/.contractor prefer loaded details."""
+    from megaplan_sdk.models.contractor import Contractor
+    from megaplan_sdk.models.deal import Deal, DealFullDetails
+    from megaplan_sdk.models.employee import Employee
+
+    deal = Deal(
+        id=9,
+        contentType="Deal",
+        manager={"contentType": "Employee", "id": 7},
+        contractor={"contentType": "ContractorHuman", "id": 12},
+    )
+    manager = Employee(id=7, contentType="Employee", name="Гусев Максим")
+    contractor = Contractor(id=12, contentType="ContractorHuman", name="ООО Рога")
+    details = DealFullDetails(deal=deal, manager_details=manager, contractor_details=contractor)
+
+    assert details.manager.name == "Гусев Максим"
+    assert details.contractor.name == "ООО Рога"

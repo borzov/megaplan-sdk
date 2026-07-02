@@ -53,6 +53,9 @@ class ProjectFullDetails(MainEntityProxyMixin, BaseModel):
     Attribute access falls through to the wrapped ``project`` (#25): both
     ``details.project.owner`` and ``details.owner`` resolve identically.
 
+    ``owner``/``responsible`` prefer the loaded ``*_details`` when expand
+    populated them, falling back to the raw wire reference otherwise (#25).
+
     Attributes:
         project: Main project entity.
         deals: List of associated deals (if requested).
@@ -82,6 +85,20 @@ class ProjectFullDetails(MainEntityProxyMixin, BaseModel):
     owner_details: Any | None = None
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    @property
+    def owner(self) -> Any:
+        """Loaded owner (``owner_details``) or the raw ``project.owner`` reference."""
+        return self.owner_details if self.owner_details is not None else self.project.owner
+
+    @property
+    def responsible(self) -> Any:
+        """Loaded responsible (``responsible_details``) or the raw reference."""
+        return (
+            self.responsible_details
+            if self.responsible_details is not None
+            else self.project.responsible
+        )
 
 
 # Rebuild models after Milestone is defined to resolve forward references

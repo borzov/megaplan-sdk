@@ -33,6 +33,22 @@ class TestConstructionTimeValidation:
         with pytest.raises(NotImplementedError, match="silently ignored"):
             TaskQuery().search("x", in_=["description"])
 
+    def test_unsupported_field_rejected_with_suggestion(self):
+        """#32: foreign-API synonyms in fields raise with real replacements."""
+        with pytest.raises(ValueError, match="statusChangeTime"):
+            TaskQuery().fields("timeUpdated")
+
+    def test_created_at_synonym_suggests_time_created(self):
+        """#32: createdAt-style synonyms point to timeCreated."""
+        with pytest.raises(ValueError, match="timeCreated"):
+            TaskQuery().fields("createdAt")
+
+    def test_unknown_and_custom_fields_pass(self):
+        """#32: unknown/custom fields are NOT rejected (no reliable allowlist)."""
+        query = TaskQuery().fields("commentsCount", "Category1000001CustomFieldFoo")
+        kwargs = query.as_list_kwargs()
+        assert kwargs["fields"] == ["commentsCount", "Category1000001CustomFieldFoo"]
+
 
 class TestListBy:
     async def test_list_by_sends_built_params(self, megaplan_api, tasks):

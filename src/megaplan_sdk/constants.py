@@ -33,6 +33,24 @@ UNSUPPORTED_TASK_SORT_FIELDS: dict[str, str] = {
     "updatedAt": "activity",
 }
 
+# Field names carried over from other CRM APIs (Bitrix24, amoCRM, ...) that
+# Task does not have — the server answers `fields=` requests with a raw 422
+# "Task have not this fields" (#32). Maps each synonym to the real Task
+# fields to suggest. A blacklist is used deliberately: an allowlist derived
+# from the pydantic model is wrong in both directions (the model inherits
+# `timeUpdated` from TimestampMixin, which the server rejects, and omits
+# legit server fields like `commentsCount`; custom category fields are
+# unknowable in advance).
+UNSUPPORTED_TASK_FIELDS: dict[str, tuple[str, ...]] = {
+    "timeUpdated": ("statusChangeTime", "lastCommentTimeCreated", "activity"),
+    "updatedAt": ("statusChangeTime", "lastCommentTimeCreated", "activity"),
+    "updated_at": ("statusChangeTime", "lastCommentTimeCreated", "activity"),
+    "dateUpdated": ("statusChangeTime", "lastCommentTimeCreated", "activity"),
+    "createdAt": ("timeCreated",),
+    "created_at": ("timeCreated",),
+    "dateCreated": ("timeCreated",),
+}
+
 # Recommended `fields` set for tasks.list() so that date fields are populated.
 # Megaplan list endpoints omit these unless explicitly requested, which makes
 # client-side time-window filtering silently return nothing (#8).

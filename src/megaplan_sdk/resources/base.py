@@ -596,6 +596,29 @@ class BaseResource:
 
         return result
 
+    async def _resolve_comment_owners(self, comments: list[Any]) -> None:
+        """Resolve Employee comment owners to full Employee objects in place.
+
+        Batch-loads unique owners via ``_load_related_entities`` (cache-first).
+        Only Employee owners are resolvable via the employee endpoint; other
+        owner types (Contractor*) are left as bare references (#30).
+        """
+        from megaplan_sdk.models.employee import Employee
+
+        employee_owners = [
+            c.owner for c in comments if c.owner is not None and c.owner.content_type == "Employee"
+        ]
+        if not employee_owners:
+            return
+        owner_map = await self._load_related_entities(employee_owners, "employee", Employee)
+        for comment in comments:
+            if (
+                comment.owner is not None
+                and comment.owner.content_type == "Employee"
+                and comment.owner.id in owner_map
+            ):
+                comment.owner = owner_map[comment.owner.id]
+
     async def _bulk_get_entities_by_links(
         self, links: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:

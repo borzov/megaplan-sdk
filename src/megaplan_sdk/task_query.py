@@ -11,6 +11,7 @@ from typing import Any
 from megaplan_sdk.constants import (
     DEFAULT_SORT_RECENT,
     DEFAULT_TASK_LIST_FIELDS,
+    UNSUPPORTED_TASK_FIELDS,
     UNSUPPORTED_TASK_SORT_FIELDS,
 )
 from megaplan_sdk.pagination import Page
@@ -66,6 +67,30 @@ def validate_task_sort_field(field_name: str) -> None:
             f"Use '{suggestion}' instead — e.g. "
             f'sort_by=[{{"fieldName": "{suggestion}", "desc": True}}].'
         )
+
+
+def validate_task_fields(fields: list[str]) -> None:
+    """Reject ``fields`` values the API answers with a raw 422 (#32).
+
+    Only known foreign-API synonyms are rejected (blacklist); unknown and
+    custom category fields pass through — the pydantic model cannot serve
+    as an allowlist (see ``UNSUPPORTED_TASK_FIELDS`` in constants).
+
+    Args:
+        fields: Field names requested via the ``fields`` parameter.
+
+    Raises:
+        ValueError: If a field is a known-unsupported synonym, with the
+            real Task fields to use instead.
+    """
+    for field in fields:
+        suggestions = UNSUPPORTED_TASK_FIELDS.get(field)
+        if suggestions:
+            raise ValueError(
+                f"Task has no field '{field}' (API returns 422). "
+                f"Did you mean: {', '.join(suggestions)}? "
+                f"Commonly requested fields: {', '.join(DEFAULT_TASK_LIST_FIELDS)}."
+            )
 
 
 def validate_task_search_fields(fields: list[str]) -> None:
@@ -172,7 +197,8 @@ class TaskQuery:
         return self
 
     def fields(self, *fields: str) -> "TaskQuery":
-        """Request additional fields."""
+        """Request additional fields (validated against API-rejected synonyms)."""
+        validate_task_fields(list(fields))
         self._fields = [*(self._fields or []), *fields]
         return self
 

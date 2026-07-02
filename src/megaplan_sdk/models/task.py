@@ -62,6 +62,11 @@ class TaskFullDetails(MainEntityProxyMixin, BaseModel):
     ``details.task.owner`` and ``details.owner`` resolve identically, so code
     written for a plain ``Task`` keeps working under ``expand=``.
 
+    ``owner``/``responsible`` prefer the loaded ``*_details`` when expand
+    populated them, falling back to the raw wire reference otherwise — the
+    list API embeds a repeated linked entity fully only at its first
+    occurrence, so the raw reference alone is not reliable (#25).
+
     Attributes:
         task: Main task entity.
         sub_tasks: List of subtasks (if requested).
@@ -89,6 +94,20 @@ class TaskFullDetails(MainEntityProxyMixin, BaseModel):
     owner_details: Any | None = None
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    @property
+    def owner(self) -> Any:
+        """Loaded owner (``owner_details``) or the raw ``task.owner`` reference."""
+        return self.owner_details if self.owner_details is not None else self.task.owner
+
+    @property
+    def responsible(self) -> Any:
+        """Loaded responsible (``responsible_details``) or the raw reference."""
+        return (
+            self.responsible_details
+            if self.responsible_details is not None
+            else self.task.responsible
+        )
 
 
 # Rebuild models after Milestone is defined to resolve forward references

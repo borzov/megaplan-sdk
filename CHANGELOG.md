@@ -7,6 +7,45 @@
 
 ## [Не выпущено]
 
+## [0.4.3] — 2026-07-02
+
+Релиз по итогам повторной регрессии баг-репорта 0.4.2 на живом стенде:
+пять записей отчёта отозваны как устаревшие (уже исправлены в 0.4.1),
+реальные остатки закрыты здесь.
+
+### Добавлено
+- **`tasks.get_full_details(expand_comment_owners=True)`** — резолв
+  авторов комментариев в полные объекты `Employee` одним батчем
+  параллельных кэшируемых запросов (#30). API никогда не заполняет
+  `owner` у комментариев, поэтому раньше `include_comments=True`
+  оставлял голые ссылки `{contentType, id}`. Флаг opt-in: без
+  `include_comments=True` кидает `ValueError` (fail-fast как у
+  `*_limit`). Симметричный sugar `comments.list(entity_id,
+  expand_comment_owners=True)` эквивалентен `expand=["owner"]`.
+- **Валидация `fields` для задач (#32).** Синонимы полей из других
+  CRM-API (`timeUpdated`, `updatedAt`, `updated_at`, `dateUpdated`,
+  `createdAt`, `created_at`, `dateCreated`) перехватываются на клиенте
+  с подсказкой реальных полей Task (`statusChangeTime`,
+  `lastCommentTimeCreated`, `activity`, `timeCreated`) вместо сырого
+  серверного 422 «Task have not this fields». Работает в
+  `tasks.list()`, `tasks.iterate()` и `TaskQuery.fields()`.
+  Неизвестные и кастомные поля категорий по-прежнему проходят —
+  чёрный список, а не белый (модель не может служить allowlist:
+  она наследует отвергаемый сервером `timeUpdated` и не описывает
+  все легитимные поля).
+
+### Исправлено
+- **`details.owner` после `expand=` возвращал сырую ссылку с
+  `name=None` (#25).** Списочный API встраивает повторяющуюся
+  связанную сущность полностью только при первом вхождении, дальше —
+  голый `{contentType, id}`; при этом результат expand лежал только в
+  `owner_details`/`responsible_details`. Теперь у контейнеров
+  `*FullDetails` есть явные свойства, предпочитающие загруженную
+  сущность сырой ссылке: `owner`/`responsible` у
+  `TaskFullDetails`/`ProjectFullDetails`, `manager`/`contractor` у
+  `DealFullDetails`. Сырая ссылка доступна через `details.task.owner`
+  и аналоги.
+
 ## [0.4.2] — 2026-07-02
 
 Архитектурный релиз: углубление модулей по итогам ревью (кандидаты 1–7)
