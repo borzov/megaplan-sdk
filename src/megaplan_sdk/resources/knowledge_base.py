@@ -14,6 +14,7 @@ from megaplan_sdk.models.knowledge import (
     KnowledgeBase,
     KnowledgeSectionWithArticles,
 )
+from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.knowledge_article import KnowledgeArticleResource
 
@@ -65,6 +66,7 @@ class KnowledgeBaseResource(BaseResource):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
     ) -> list[KnowledgeBase]:
         """Get the flat list of Knowledge Base sections.
 
@@ -76,6 +78,7 @@ class KnowledgeBaseResource(BaseResource):
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
+            page: Page position (replaces page_after/page_before/page_with).
 
         Returns:
             List of KnowledgeBase sections.
@@ -86,6 +89,7 @@ class KnowledgeBaseResource(BaseResource):
             page_after=page_after,
             page_before=page_before,
             page_with=page_with,
+            page=page,
         )
         return await self._get_list(path, KnowledgeBase, params)
 

@@ -12,6 +12,7 @@ from megaplan_sdk.models.filter import (
     NewFilterSettingsRequest,
     UserSetting,
 )
+from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import filter_path_for
 from megaplan_sdk.resources.base import BaseResource
 
@@ -43,6 +44,7 @@ class FiltersResource(BaseResource):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -56,6 +58,7 @@ class FiltersResource(BaseResource):
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
+            page: Page position (replaces page_after/page_before/page_with).
             fields: Additional fields to include.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
@@ -78,6 +81,7 @@ class FiltersResource(BaseResource):
             page_after=page_after,
             page_before=page_before,
             page_with=page_with,
+            page=page,
             fields=fields,
             sort_by=sort_by,
             only_requested_fields=only_requested_fields,

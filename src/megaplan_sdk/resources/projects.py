@@ -12,6 +12,7 @@ from megaplan_sdk.models.deal import Deal
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task
+from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataConfig
@@ -193,6 +194,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -208,6 +210,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -221,6 +224,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
+        page: Page | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
@@ -243,6 +247,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
+            page: Page position (replaces page_after/page_before/page_with).
             fields: Additional fields to include.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
@@ -279,6 +284,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             page_after=page_after,
             page_before=page_before,
             page_with=page_with,
+            page=page,
             fields=fields,
             sort_by=sort_by,
             only_requested_fields=only_requested_fields,

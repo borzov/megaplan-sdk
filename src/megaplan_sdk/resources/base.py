@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger
+from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
 
@@ -174,6 +175,7 @@ class BaseResource:
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         page_content_type: str | None = None,
+        page: "Page | None" = None,
         **extra_params: Any,
     ) -> dict[str, Any]:
         """Build standard list parameters for pagination and filtering.
@@ -187,11 +189,18 @@ class BaseResource:
             fields: Additional fields to include.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
+            page: Page position; replaces the page_after/page_before/page_with
+                trio. Passing both raises ValueError.
             **extra_params: Additional parameters (e.g., statuses, status, q).
 
         Returns:
             Dictionary with non-None parameters.
         """
+        if page is not None:
+            if page_after is not None or page_before is not None or page_with is not None:
+                raise ValueError("Pass either page= or page_after/page_before/page_with, not both.")
+            page_after, page_before, page_with = page.after, page.before, page.with_
+
         params: dict[str, Any] = {}
 
         if filter is not None:
