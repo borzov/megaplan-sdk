@@ -16,6 +16,9 @@
   Миграция: `token = await mp.auth.refresh_token(...)`; используйте
   `token.access_token` и сохраняйте `token.refresh_token` — сервер ротирует его
   при каждом refresh.
+- Удалены deprecated-обёртки `tasks.create_comment()`, `deals.create_comment()`,
+  `projects.create_comment()` — как и было анонсировано в 0.4.2. Используйте
+  `client.comments.create(entity_id=..., content=..., entity_type=...)`.
 
 ### Добавлено
 - `client.attachments` — скачивание вложений: `download(attach) -> bytes` и

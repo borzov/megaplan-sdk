@@ -610,24 +610,6 @@ async def test_get_many_cache_hit_skips_bulk_post(megaplan_api, http_client):
     assert not route.called
 
 
-async def test_create_comment_encodes_work_as_value_seconds(megaplan_api, tasks):
-    """#21/#22: create_comment must serialize work as DateInterval.value (seconds).
-
-    Regression: the old helper wrote {"seconds": ...}, which the server silently
-    dropped (workTime stored 0). It must match comments.create exactly:
-    {"contentType": "DateInterval", "value": int(work * 3600)}.
-    """
-    route = megaplan_api.post("task/1/comments", data={"id": 7, "contentType": "Comment"})
-
-    with pytest.warns(DeprecationWarning, match="comments.create"):
-        await tasks.create_comment(task_id=1, text="x", work=1.0)
-
-    body = json.loads(route.calls.last.request.content)
-    assert body["content"] == "x"
-    assert body["workTime"] == {"contentType": "DateInterval", "value": 3600}
-    assert "seconds" not in body["workTime"]
-
-
 async def test_iterate_forwards_fields_to_list(megaplan_api, tasks):
     """#24: iterate() forwards fields/sort_by/expand kwargs to list()."""
     route = megaplan_api.get(

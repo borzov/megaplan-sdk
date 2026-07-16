@@ -1,6 +1,5 @@
 """Unit tests for BaseResource."""
 
-import pytest
 from httpx import Response
 
 from megaplan_sdk.resources.base import BaseResource
@@ -189,30 +188,6 @@ async def test_get_entity_comments_with_pagination(megaplan_api, tasks):
 
     assert len(comments) == 1
     assert comments[0].id == 2
-
-
-async def test_create_entity_comment(megaplan_api, tasks):
-    """Test _create_entity_comment with attaches and extra_fields."""
-    megaplan_api.post(
-        "task/1/comments",
-        data={
-            "id": 1,
-            "contentType": "Comment",
-            "content": "Test comment",
-            "work": 2.5,
-        },
-    )
-
-    with pytest.warns(DeprecationWarning, match="comments.create"):
-        comment = await tasks.create_comment(
-            task_id=1,
-            text="Test comment",
-            work=2.5,
-            attaches=[{"id": 10, "contentType": "File"}],
-        )
-
-    assert comment.id == 1
-    assert comment.content == "Test comment"
 
 
 async def test_fetch_details_parallel_exceptions(http_client):

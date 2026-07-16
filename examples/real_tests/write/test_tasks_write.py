@@ -224,7 +224,9 @@ async def test_create_comment():
             # Create comment
             comment_text = generate_test_name("COMMENT_TEXT")
             print(f"\n⏳ Создание комментария к задаче #{task.id}...")
-            comment = await client.tasks.create_comment(task.id, {"content": comment_text})
+            comment = await client.comments.create(
+                entity_id=task.id, content=comment_text, entity_type="task"
+            )
             tracker.add_comment(comment.id)
 
             print_success(f"Комментарий создан: ID={comment.id}")

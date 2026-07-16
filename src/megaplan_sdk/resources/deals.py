@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import AsyncIterator
 from typing import Any, cast, overload
 
@@ -505,41 +504,6 @@ class DealsResource(BaseResource, FullDetailsMixin):
             page_after,
             page_before,
             page_with,
-        )
-
-    async def create_comment(
-        self,
-        deal_id: int,
-        text: str,
-        attaches: list[dict[str, Any]] | None = None,
-    ) -> Comment:
-        """Create a comment for a deal.
-
-        Args:
-            deal_id: Deal identifier.
-            text: Comment text.
-            attaches: List of file attachments.
-
-        Returns:
-            Created comment.
-
-        Examples:
-            >>> comment = await client.deals.create_comment(
-            ...     deal_id=123,
-            ...     text="Deal update"
-            ... )
-        """
-        warnings.warn(
-            "deals.create_comment() is deprecated and will be removed in 0.5.0; "
-            'use client.comments.create(entity_id=..., content=..., entity_type="deal").',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return await self._create_entity_comment(
-            "deal",
-            deal_id,
-            text,
-            attaches,
         )
 
     async def get_auditors(

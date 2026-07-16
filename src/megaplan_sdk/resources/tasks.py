@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, cast, overload
 
@@ -641,55 +640,6 @@ class TasksResource(BaseResource, FullDetailsMixin):
             page_after,
             page_before,
             page_with,
-        )
-
-    async def create_comment(
-        self,
-        task_id: int,
-        text: str,
-        work: float | None = None,
-        attaches: list[dict[str, Any]] | None = None,
-    ) -> Comment:
-        """Create a comment for a task.
-
-        Thin wrapper over :meth:`CommentsResource.create` (#21/#22): both
-        encode ``work`` identically as ``workTime.value`` (seconds). Prefer
-        ``client.comments.create(entity_id=..., content=...)`` directly; this
-        helper is kept for backwards compatibility.
-
-        Args:
-            task_id: Task identifier.
-            text: Comment text (maps to the API ``content`` field).
-            work: Hours worked (time tracking). ``work=2.5`` ⇒ 2 h 30 min.
-                Serialized as ``{"contentType": "DateInterval",
-                "value": int(work * 3600)}``; the server quantizes to minutes.
-            attaches: List of file attachments.
-
-        Returns:
-            Created comment.
-
-        Examples:
-            >>> comment = await client.tasks.create_comment(
-            ...     task_id=123,
-            ...     text="Work completed",
-            ...     work=2.5
-            ... )
-        """
-        warnings.warn(
-            "tasks.create_comment() is deprecated and will be removed in 0.5.0; "
-            'use client.comments.create(entity_id=..., content=..., entity_type="task").',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        from megaplan_sdk.resources.comments import CommentsResource
-
-        comments = CommentsResource(self._http, cache=self._cache)
-        return await comments.create(
-            entity_id=task_id,
-            content=text,
-            entity_type="task",
-            work=work,
-            attaches=attaches,
         )
 
     async def create_simple(

@@ -28,6 +28,17 @@ async def test_download_accepts_dict_and_str(megaplan_api, attachments, base_url
     assert route.call_count == 2
 
 
+async def test_download_accepts_dict_with_url_fallback(megaplan_api, attachments, base_url):
+    """FR-C: dict payloads with 'url' (no 'path') fall back correctly."""
+    route = megaplan_api.get(f"{base_url}/attach/File/9/y.png")
+    route.mock(return_value=Response(200, content=b"PNG-url"))
+
+    data = await attachments.download({"url": "/attach/File/9/y.png"})
+
+    assert data == b"PNG-url"
+    assert route.call_count == 1
+
+
 async def test_stream_yields_response(megaplan_api, attachments, base_url):
     """FR-C: stream() is an async context manager over the raw response."""
     route = megaplan_api.get(f"{base_url}/attach/big.bin")

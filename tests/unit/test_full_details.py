@@ -550,3 +550,35 @@ async def test_resolve_participants_leaves_non_employee_items(megaplan_api, task
 
     assert details.auditors[0].name == "Иван Петров"
     assert details.auditors[1] == {"contentType": "Group", "id": 55, "name": "Отдел разработки"}
+
+
+async def test_project_full_details_resolves_auditors_by_default(megaplan_api, projects):
+    """Blocker: projects.get_full_details() must resolve auditors like tasks/deals do."""
+    megaplan_api.get("project/1", data={"id": 1, "contentType": "Project", "name": "Test Project"})
+    megaplan_api.get(
+        "project/1/auditors",
+        data=[{"contentType": "Employee", "id": 21}],
+    )
+    megaplan_api.get(
+        "employee/21", data={"contentType": "Employee", "id": 21, "name": "Ольга Смирнова"}
+    )
+
+    details = await projects.get_full_details(project_id=1, include_auditors=True)
+
+    assert details.auditors is not None
+    assert details.auditors[0].name == "Ольга Смирнова"
+
+
+async def test_project_full_details_resolve_participants_opt_out(megaplan_api, projects):
+    """Blocker: resolve_participants=False keeps raw references untouched for projects."""
+    megaplan_api.get("project/1", data={"id": 1, "contentType": "Project", "name": "Test Project"})
+    megaplan_api.get(
+        "project/1/auditors",
+        data=[{"contentType": "Employee", "id": 21}],
+    )
+
+    details = await projects.get_full_details(
+        project_id=1, include_auditors=True, resolve_participants=False
+    )
+
+    assert details.auditors == [{"contentType": "Employee", "id": 21}]

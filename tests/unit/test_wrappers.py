@@ -1,8 +1,6 @@
-"""Unit tests for wrapper collapse: deals auditors via base helpers, comment deprecations."""
+"""Unit tests for wrapper collapse: deals auditors via base helpers."""
 
 import json
-
-import pytest
 
 
 class TestDealsAuditorsViaBaseHelpers:
@@ -40,30 +38,3 @@ class TestDealsAuditorsViaBaseHelpers:
         await deals.remove_auditor(5, 456)
 
         assert route.call_count == 1
-
-
-class TestCreateCommentDeprecation:
-    """Per-resource create_comment wrappers are deprecated: use client.comments.create."""
-
-    COMMENT = {"id": 1, "contentType": "Comment", "content": "Note"}
-
-    async def test_tasks_create_comment_warns(self, megaplan_api, tasks):
-        megaplan_api.post("task/7/comments", data=self.COMMENT)
-
-        with pytest.warns(DeprecationWarning, match="comments.create"):
-            comment = await tasks.create_comment(7, "Note")
-        assert comment.content == "Note"
-
-    async def test_deals_create_comment_warns(self, megaplan_api, deals):
-        megaplan_api.post("deal/7/comments", data=self.COMMENT)
-
-        with pytest.warns(DeprecationWarning, match="comments.create"):
-            comment = await deals.create_comment(7, "Note")
-        assert comment.content == "Note"
-
-    async def test_projects_create_comment_warns(self, megaplan_api, projects):
-        megaplan_api.post("project/7/comments", data=self.COMMENT)
-
-        with pytest.warns(DeprecationWarning, match="comments.create"):
-            comment = await projects.create_comment(7, "Note")
-        assert comment.content == "Note"
