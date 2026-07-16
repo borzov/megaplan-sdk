@@ -62,6 +62,52 @@ class BaseResource:
     _details_model: ClassVar[type[Any] | None] = None
     _main_field: ClassVar[str | None] = None
 
+    # Linked-entity reference fields that the server deduplicates within a
+    # single list() response (#36). Used by _warn_reduced_linked_fields.
+    _LINKED_REF_FIELDS: ClassVar[tuple[str, ...]] = (
+        "owner",
+        "responsible",
+        "manager",
+        "contractor",
+    )
+
+    def _warn_reduced_linked_fields(
+        self,
+        entities: list[Any],
+        fields: Any | None,
+        expand: list[str] | None,
+    ) -> None:
+        """Warn when a linked field ordered via ``fields=`` came back deduplicated.
+
+        The server embeds a repeated linked entity fully only at its first
+        occurrence per response; later repeats are bare ``{contentType, id}``
+        references (#36). The signature — the same id appearing both named and
+        bare — is unambiguous, so there are no false positives. ``expand=``
+        resolves the references and silences the warning.
+        """
+        if not fields or not isinstance(fields, list | tuple):
+            return
+        expanded = set(expand or [])
+        for field_name in self._LINKED_REF_FIELDS:
+            if field_name not in fields or field_name in expanded:
+                continue
+            named_ids: set[int] = set()
+            bare_ids: set[int] = set()
+            for entity in entities:
+                ref = getattr(entity, field_name, None)
+                if ref is None or not hasattr(ref, "id"):
+                    continue
+                if getattr(ref, "name", None):
+                    named_ids.add(ref.id)
+                else:
+                    bare_ids.add(ref.id)
+            if named_ids & bare_ids:
+                logger.warning(
+                    f"fields=['{field_name}'] returned server-deduplicated bare "
+                    f"references for repeated ids; use expand=['{field_name}'] "
+                    f"to load them fully (#36)"
+                )
+
     def _build_path(self, *parts: str) -> str:
         """Build API path from parts.
 

@@ -214,6 +214,12 @@ class TasksResource(BaseResource, FullDetailsMixin):
                     tasks = await client.tasks.list(fields=list(DEFAULT_TASK_LIST_FIELDS))
                 Without this, those fields are None and time-window filters
                 silently match nothing.
+
+                **Linked entities** (owner/responsible/manager/contractor):
+                the server deduplicates repeated entities within one response,
+                so ``fields=`` fills them only at the first occurrence per
+                page — repeats come back as bare references without ``name``
+                (#36). Use ``expand=`` when you need them fully populated.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["responsible", "owner"]).
@@ -294,6 +300,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         )
 
         tasks = await self._get_list(path, Task, params)
+        self._warn_reduced_linked_fields(tasks, fields, expand)
         return await self._expand_and_wrap(tasks, expand)
 
     async def list_by(self, query: TaskQuery) -> list[Task]:

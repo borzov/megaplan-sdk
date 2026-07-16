@@ -249,6 +249,12 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             page_with: Load page containing this entity.
             page: Page position (replaces page_after/page_before/page_with).
             fields: Additional fields to include.
+
+                **Linked entities** (owner/responsible/manager/contractor):
+                the server deduplicates repeated entities within one response,
+                so ``fields=`` fills them only at the first occurrence per
+                page — repeats come back as bare references without ``name``
+                (#36). Use ``expand=`` when you need them fully populated.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["responsible", "owner"]).
@@ -291,6 +297,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         )
 
         projects = await self._get_list(path, Project, params)
+        self._warn_reduced_linked_fields(projects, fields, expand)
         return await self._expand_and_wrap(projects, expand)
 
     async def get(self, project_id: int, fields: list[str] | None = None) -> Project:

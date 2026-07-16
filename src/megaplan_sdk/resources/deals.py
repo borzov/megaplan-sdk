@@ -194,6 +194,12 @@ class DealsResource(BaseResource, FullDetailsMixin):
                 Must use actual API field names: ``manager``, ``price``,
                 ``timeCreated``, ``timeUpdated``, ``number``, ``cost``, ``debt``,
                 ``result``, ``shortDescription``, ``stateTimeUpdated``.
+
+                **Linked entities** (owner/responsible/manager/contractor):
+                the server deduplicates repeated entities within one response,
+                so ``fields=`` fills them only at the first occurrence per
+                page — repeats come back as bare references without ``name``
+                (#36). Use ``expand=`` when you need them fully populated.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["manager", "contractor"]).
@@ -260,6 +266,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         )
 
         deals = await self._get_list(path, Deal, params)
+        self._warn_reduced_linked_fields(deals, fields, expand)
         return await self._expand_and_wrap(deals, expand)
 
     async def get(self, deal_id: int, fields: list[str] | None = None) -> Deal:
