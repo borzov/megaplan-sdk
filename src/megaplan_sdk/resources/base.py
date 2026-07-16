@@ -423,6 +423,7 @@ class BaseResource:
         entity_type: str,
         entity_id: int,
         model_class: type[T],
+        fields: list[str] | None = None,
     ) -> T:
         """Generic get method.
 
@@ -430,12 +431,15 @@ class BaseResource:
             entity_type: API resource type.
             entity_id: Entity identifier.
             model_class: Pydantic model class.
+            fields: Extra fields to request on the card (additive; the same
+                mechanism ``_get_milestones_generic`` relies on).
 
         Returns:
             Entity instance.
         """
         path = self._build_path("api", "v3", entity_type, str(entity_id))
-        response = await self._http.get(path)
+        params = {"fields": fields} if fields else None
+        response = await self._http.get(path, params=params)
         return model_class(**response["data"])
 
     async def _update_entity(

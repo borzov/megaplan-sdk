@@ -51,6 +51,7 @@ class FullDetailsMixin:
         full_details_class: type[BaseModel],
         config: list[RelatedDataConfig],
         main_entity_field: str,
+        entity_getter_kwargs: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> BaseModel:
         """Generic implementation of get_full_details.
@@ -62,6 +63,8 @@ class FullDetailsMixin:
             config: List of RelatedDataConfig for supported related data.
             main_entity_field: Name of the field in FullDetails for main entity
                 (e.g., "task", "project", "deal").
+            entity_getter_kwargs: Extra kwargs for the main-entity getter
+                (e.g. {"fields": ["commentsCount"]}).
             **kwargs: Parameters from get_full_details call.
 
         Returns:
@@ -69,7 +72,7 @@ class FullDetailsMixin:
         """
         # Get main entity
         getter = getattr(self, entity_getter)
-        main_entity = await getter(entity_id)
+        main_entity = await getter(entity_id, **(entity_getter_kwargs or {}))
 
         # Guard: a *_limit without its include_* flag silently does nothing (#2).
         # Reject it with a clear error instead of returning empty/stub data.

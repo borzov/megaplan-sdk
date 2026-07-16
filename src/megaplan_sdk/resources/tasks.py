@@ -320,16 +320,17 @@ class TasksResource(BaseResource, FullDetailsMixin):
         """
         return cast("list[Task]", await self.list(**query.as_list_kwargs()))
 
-    async def get(self, task_id: int) -> Task:
+    async def get(self, task_id: int, fields: list[str] | None = None) -> Task:
         """Get task by ID.
 
         Args:
             task_id: Task identifier.
+            fields: Extra fields to request (e.g. ``["commentsCount"]``).
 
         Returns:
             Task details.
         """
-        return await self._get_entity("task", task_id, Task)
+        return await self._get_entity("task", task_id, Task, fields=fields)
 
     async def get_many(self, ids: list[int], use_cache: bool = True) -> dict[int, Task]:
         """Batch-fetch tasks by id via the bulk endpoint (#FR-1).
@@ -1126,6 +1127,12 @@ class TasksResource(BaseResource, FullDetailsMixin):
         Returns:
             TaskFullDetails object with all requested data.
 
+        Note:
+            The card is requested with ``fields=["commentsCount"]`` so
+            ``details.comments_count`` is populated regardless of
+            ``comments_limit`` (#34). ``len(details.comments) <
+            details.comments_count`` reliably signals truncation.
+
         Examples:
             >>> # Get task with subtasks and comments
             >>> details = await client.tasks.get_full_details(
@@ -1159,6 +1166,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 full_details_class=TaskFullDetails,
                 config=self._full_details_config,
                 main_entity_field="task",
+                entity_getter_kwargs={"fields": ["commentsCount"]},
                 include_sub_tasks=include_sub_tasks,
                 include_actual_sub_tasks=include_actual_sub_tasks,
                 include_comments=include_comments,

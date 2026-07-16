@@ -357,3 +357,17 @@ def test_deal_full_details_manager_prefers_loaded_details():
 
     assert details.manager.name == "Гусев Максим"
     assert details.contractor.name == "ООО Рога"
+
+
+def test_task_parses_comments_count():
+    """#34: commentsCount is a typed field, not a model_extra leftover."""
+    task = Task(**{"id": 1, "contentType": "Task", "commentsCount": 86})
+    assert task.comments_count == 86
+
+
+def test_deal_and_project_parse_comments_count():
+    """#34: symmetric commentsCount on Deal and Project."""
+    deal = Deal(**{"id": 2, "contentType": "Deal", "commentsCount": 5})
+    project = Project(**{"id": 3, "contentType": "Project", "commentsCount": 7})
+    assert deal.comments_count == 5
+    assert project.comments_count == 7

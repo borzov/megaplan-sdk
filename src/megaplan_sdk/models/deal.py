@@ -92,6 +92,7 @@ class Deal(TimestampMixin):
     deadline: str | DateTime | dict[str, Any] | None = None
     tags: list[BaseEntity] | None = None
     attaches: list[BaseEntity] | None = None
+    comments_count: int | None = Field(alias="commentsCount", default=None)
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 

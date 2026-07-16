@@ -293,16 +293,17 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         projects = await self._get_list(path, Project, params)
         return await self._expand_and_wrap(projects, expand)
 
-    async def get(self, project_id: int) -> Project:
+    async def get(self, project_id: int, fields: list[str] | None = None) -> Project:
         """Get project by ID.
 
         Args:
             project_id: Project identifier.
+            fields: Extra fields to request (e.g. ``["commentsCount"]``).
 
         Returns:
             Project details.
         """
-        return await self._get_entity("project", project_id, Project)
+        return await self._get_entity("project", project_id, Project, fields=fields)
 
     async def update(self, project_id: int, project_data: dict[str, Any]) -> Project:
         """Update project.
@@ -856,6 +857,12 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         Returns:
             ProjectFullDetails object with all requested data.
 
+        Note:
+            The card is requested with ``fields=["commentsCount"]`` so
+            ``details.comments_count`` is populated regardless of
+            ``comments_limit`` (#34). ``len(details.comments) <
+            details.comments_count`` reliably signals truncation.
+
         Examples:
             >>> # Get project with deals and tasks
             >>> details = await client.projects.get_full_details(
@@ -873,6 +880,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             full_details_class=ProjectFullDetails,
             config=self._full_details_config,
             main_entity_field="project",
+            entity_getter_kwargs={"fields": ["commentsCount"]},
             include_deals=include_deals,
             include_issues=include_issues,
             include_actual_issues=include_actual_issues,

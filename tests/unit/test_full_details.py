@@ -431,3 +431,31 @@ async def test_full_details_limit_with_include_ok(megaplan_api, tasks):
 
     details = await tasks.get_full_details(123, include_comments=True, comments_limit=200)
     assert details.task.id == 123
+
+
+# --- #34: comments_count surfaced on FullDetails ---
+
+
+async def test_get_full_details_exposes_comments_count(megaplan_api, tasks):
+    """#34: details.comments_count comes from the card's commentsCount."""
+    route = megaplan_api.get("task/1", data={"id": 1, "contentType": "Task", "commentsCount": 86})
+    megaplan_api.get("task/1/comments", data=[{"id": 10, "contentType": "Comment"}])
+
+    details = await tasks.get_full_details(task_id=1, include_comments=True, comments_limit=1)
+
+    assert details.comments_count == 86
+    assert details.comments is not None and len(details.comments) == 1
+    # Truncation is now detectable: len(comments) < comments_count.
+    decoded = unquote(str(route.calls.last.request.url)).replace(" ", "")
+    assert '"fields":["commentsCount"]' in decoded
+
+
+async def test_get_exposes_comments_count_via_fields(megaplan_api, tasks):
+    """#34: tasks.get(fields=[...]) forwards fields to the card GET."""
+    route = megaplan_api.get("task/1", data={"id": 1, "contentType": "Task", "commentsCount": 3})
+
+    task = await tasks.get(1, fields=["commentsCount"])
+
+    assert task.comments_count == 3
+    decoded = unquote(str(route.calls.last.request.url)).replace(" ", "")
+    assert '"fields":["commentsCount"]' in decoded

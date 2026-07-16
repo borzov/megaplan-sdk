@@ -262,16 +262,17 @@ class DealsResource(BaseResource, FullDetailsMixin):
         deals = await self._get_list(path, Deal, params)
         return await self._expand_and_wrap(deals, expand)
 
-    async def get(self, deal_id: int) -> Deal:
+    async def get(self, deal_id: int, fields: list[str] | None = None) -> Deal:
         """Get deal by ID.
 
         Args:
             deal_id: Deal identifier.
+            fields: Extra fields to request (e.g. ``["commentsCount"]``).
 
         Returns:
             Deal details.
         """
-        return await self._get_entity("deal", deal_id, Deal)
+        return await self._get_entity("deal", deal_id, Deal, fields=fields)
 
     async def get_many(self, ids: list[int], use_cache: bool = True) -> dict[int, Deal]:
         """Batch-fetch deals by id via the bulk endpoint (#FR-1).
@@ -715,6 +716,12 @@ class DealsResource(BaseResource, FullDetailsMixin):
         Returns:
             DealFullDetails object with all requested data.
 
+        Note:
+            The card is requested with ``fields=["commentsCount"]`` so
+            ``details.comments_count`` is populated regardless of
+            ``comments_limit`` (#34). ``len(details.comments) <
+            details.comments_count`` reliably signals truncation.
+
         Examples:
             >>> # Get deal with comments and history
             >>> details = await client.deals.get_full_details(
@@ -732,6 +739,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
             full_details_class=DealFullDetails,
             config=self._full_details_config,
             main_entity_field="deal",
+            entity_getter_kwargs={"fields": ["commentsCount"]},
             include_comments=include_comments,
             include_history=include_history,
             include_status_history=include_status_history,

@@ -51,6 +51,7 @@ class Task(TimestampMixin):
     status_change_time: str | DateTime | None = Field(alias="statusChangeTime", default=None)
     actual_start: str | DateTime | None = Field(alias="actualStart", default=None)
     last_view: str | DateTime | None = Field(alias="lastView", default=None)
+    comments_count: int | None = Field(alias="commentsCount", default=None)
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
