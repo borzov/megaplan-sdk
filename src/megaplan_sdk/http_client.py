@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -413,3 +415,47 @@ class HTTPClient:
             ) from e
         except (httpx.HTTPError, json.JSONDecodeError) as e:
             raise AuthenticationError(f"Authentication request failed: {e}") from e
+
+    def _binary_url(self, path: str) -> str:
+        """Join an attachment path to base_url; pass absolute URLs through."""
+        if path.startswith(("http://", "https://")):
+            return path
+        return f"{self.base_url}{path}"
+
+    @asynccontextmanager
+    async def stream_binary(self, path: str) -> AsyncIterator[httpx.Response]:
+        """Stream an authorized binary resource (attachments; #FR-C).
+
+        Args:
+            path: Relative path from an ``Attache``/``File`` model (e.g.
+                ``/attach/SdfFileM_File/File/1/2/x.png``) or an absolute URL.
+
+        Yields:
+            The open streaming ``httpx.Response``; iterate ``aiter_bytes()``.
+
+        Raises:
+            MegaplanError subclasses mapped from the HTTP status code.
+        """
+        await self._ensure_client()
+        assert self._client is not None  # For mypy: ensured by _ensure_client()
+
+        headers = self._build_headers()
+        headers.pop("Content-Type", None)
+
+        async with self._client.stream("GET", self._binary_url(path), headers=headers) as response:
+            if response.status_code >= 400:
+                await response.aread()
+                raise_for_status(
+                    response.status_code,
+                    {},
+                    f"Binary download failed for {path}",
+                )
+            yield response
+
+    async def get_binary(self, path: str) -> bytes:
+        """Download an authorized binary resource fully into memory (#FR-C).
+
+        For large files prefer :meth:`stream_binary`.
+        """
+        async with self.stream_binary(path) as response:
+            return await response.aread()
