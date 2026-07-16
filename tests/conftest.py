@@ -8,6 +8,7 @@ import respx
 from httpx import Response
 
 from megaplan_sdk.http_client import HTTPClient
+from megaplan_sdk.resources.attachments import AttachmentsResource
 from megaplan_sdk.resources.comments import CommentsResource
 from megaplan_sdk.resources.contractors import ContractorsResource
 from megaplan_sdk.resources.deals import DealsResource
@@ -165,6 +166,12 @@ def projects(http_client: HTTPClient) -> ProjectsResource:
 def deals(http_client: HTTPClient) -> DealsResource:
     """Deals resource over the mocked API."""
     return DealsResource(http_client)
+
+
+@pytest.fixture
+def attachments(http_client: HTTPClient) -> AttachmentsResource:
+    """Attachments resource over the mocked API."""
+    return AttachmentsResource(http_client)
 
 
 @pytest.fixture

@@ -7,6 +7,7 @@ from megaplan_sdk.cache import EntityCache
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger, setup_logging
 from megaplan_sdk.models.auth import AuthTokenResponse
+from megaplan_sdk.resources.attachments import AttachmentsResource
 from megaplan_sdk.resources.auth import AuthResource
 from megaplan_sdk.resources.comments import CommentsResource
 from megaplan_sdk.resources.contractors import ContractorsResource
@@ -121,6 +122,7 @@ class MegaplanClient:
         self.employees = EmployeesResource(self._http, cache=self._cache)
         self.departments = DepartmentsResource(self._http, cache=self._cache)
         self.filters = FiltersResource(self._http, cache=self._cache)
+        self.attachments = AttachmentsResource(self._http, cache=self._cache)
         self.knowledge_article = KnowledgeArticleResource(self._http, cache=self._cache)
         self.knowledge_base = KnowledgeBaseResource(
             self._http, cache=self._cache, article_resource=self.knowledge_article
