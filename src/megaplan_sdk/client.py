@@ -6,6 +6,7 @@ from megaplan_sdk.auth import AuthManager
 from megaplan_sdk.cache import EntityCache
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger, setup_logging
+from megaplan_sdk.models.auth import AuthTokenResponse
 from megaplan_sdk.resources.auth import AuthResource
 from megaplan_sdk.resources.comments import CommentsResource
 from megaplan_sdk.resources.contractors import ContractorsResource
@@ -153,7 +154,7 @@ class MegaplanClient:
         """Async context manager exit."""
         await self.close()
 
-    async def authenticate(self, username: str, password: str) -> str:
+    async def authenticate(self, username: str, password: str) -> AuthTokenResponse:
         """Manually authenticate with username and password.
 
         Args:
@@ -161,7 +162,9 @@ class MegaplanClient:
             password: User password.
 
         Returns:
-            Access token.
+            Full token response. Persist ``.refresh_token`` — the server
+            rotates it on every refresh and the returned one is the only
+            guaranteed-valid token (FR-A).
 
         Note:
             For security, password is not stored. Use refresh tokens for

@@ -4,10 +4,13 @@ import asyncio
 import time
 from typing import cast
 
+from pydantic import ValidationError as PydanticValidationError
+
 from megaplan_sdk.exceptions import AuthenticationError
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger
-from megaplan_sdk.types import AuthTokenResponse
+from megaplan_sdk.models.auth import AuthTokenResponse
+from megaplan_sdk.types import AuthTokenPayload
 
 
 class AuthManager:
@@ -30,26 +33,26 @@ class AuthManager:
         self._expires_at: float | None = None
         self._refresh_lock = asyncio.Lock()
 
-    def _apply_token_response(self, token_data: AuthTokenResponse) -> str:
+    def _apply_token_response(self, token_data: AuthTokenPayload) -> AuthTokenResponse:
         """Store a token endpoint payload and propagate the token to HTTP.
 
         Args:
             token_data: Parsed token endpoint response.
 
         Returns:
-            The new access token.
+            The parsed token response (FR-A/FR-B).
 
         Raises:
-            KeyError: If the payload lacks ``access_token``.
+            pydantic.ValidationError: If the payload lacks ``access_token``.
         """
-        self._access_token = token_data["access_token"]
-        self._refresh_token = token_data.get("refresh_token")
-        expires_in = token_data.get("expires_in", 172800)
-        self._expires_at = time.time() + expires_in
+        token_response = AuthTokenResponse(**token_data)
+        self._access_token = token_response.access_token
+        self._refresh_token = token_response.refresh_token
+        self._expires_at = time.time() + token_response.expires_in
         self._http.set_access_token(self._access_token)
-        return self._access_token
+        return token_response
 
-    async def authenticate(self, username: str, password: str) -> str:
+    async def authenticate(self, username: str, password: str) -> AuthTokenResponse:
         """Authenticate with username and password.
 
         Args:
@@ -57,7 +60,7 @@ class AuthManager:
             password: User password.
 
         Returns:
-            Access token.
+            Full token response (access_token, refresh_token, expires_in).
 
         Raises:
             AuthenticationError: If authentication fails.
@@ -74,23 +77,23 @@ class AuthManager:
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            token_data = cast(AuthTokenResponse, response)
-            access_token = self._apply_token_response(token_data)
-        except KeyError as e:
+            token_data = cast(AuthTokenPayload, response)
+            token_response = self._apply_token_response(token_data)
+        except (KeyError, PydanticValidationError) as e:
             logger.error(f"Authentication response parsing error for {username}: {str(e)}")
             raise AuthenticationError(f"Invalid authentication response: {str(e)}") from e
 
         logger.info("Authentication successful")
-        return access_token
+        return token_response
 
-    async def refresh(self, refresh_token: str | None = None) -> str:
+    async def refresh(self, refresh_token: str | None = None) -> AuthTokenResponse:
         """Refresh access token.
 
         Args:
             refresh_token: Optional refresh token. Uses stored token if not provided.
 
         Returns:
-            New access token.
+            Full token response (access_token, refresh_token, expires_in).
 
         Raises:
             AuthenticationError: If refresh fails.
@@ -111,14 +114,14 @@ class AuthManager:
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            token_data = cast(AuthTokenResponse, response)
-            access_token = self._apply_token_response(token_data)
-        except KeyError as e:
+            token_data = cast(AuthTokenPayload, response)
+            token_response = self._apply_token_response(token_data)
+        except (KeyError, PydanticValidationError) as e:
             logger.error(f"Token refresh response parsing error: {str(e)}")
             raise AuthenticationError(f"Invalid token refresh response: {str(e)}") from e
 
         logger.info("Token refresh successful")
-        return access_token
+        return token_response
 
     def restore_token(self, access_token: str, expires_at: float | None = None) -> None:
         """Restore a previously issued access token.
@@ -177,11 +180,11 @@ class AuthManager:
                 if not self._access_token or self.is_token_expired():
                     if self._refresh_token and not self.is_token_expired(buffer_seconds=3600):
                         try:
-                            return await self.refresh()
+                            return (await self.refresh()).access_token
                         except AuthenticationError:
                             pass
 
-                    return await self.authenticate(username, password)
+                    return (await self.authenticate(username, password)).access_token
 
         return self._access_token
 

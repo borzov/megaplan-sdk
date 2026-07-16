@@ -26,6 +26,7 @@ from megaplan_sdk.helpers import (
     make_task_entity,
 )
 from megaplan_sdk.logging_config import setup_logging
+from megaplan_sdk.models.auth import AuthTokenResponse
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.common import DateInterval, DateTime, Money
 from megaplan_sdk.models.contractor import Contractor, ContractorCompany, ContractorHuman
@@ -67,6 +68,7 @@ __all__ = [
     "RateLimitError",
     "ServerError",
     # Models
+    "AuthTokenResponse",
     "Task",
     "TaskFullDetails",
     "Project",
