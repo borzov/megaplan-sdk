@@ -1473,6 +1473,28 @@ tasks_full = await client.tasks.list(limit=100, expand=["responsible"])
 - С expand: 2 запроса (1 список + 1 батч на 5 сотрудников)
 - **Экономия: 99 запросов (98%)**
 
+### `fields=` vs `expand=` для связанных сущностей
+
+Сервер Мегаплана встраивает повторяющуюся связанную сущность (`owner`,
+`responsible`, `manager`, `contractor`) полностью только при **первом**
+вхождении в ответе `list()`; повторы приходят как голая ссылка
+`{contentType, id}` без `name`. Это относится и к `fields=[...]`, и к
+`expand=[...]`, но ведут себя они по-разному:
+
+```python
+# fields=["owner"] — заказывает поле, но не решает дедупликацию:
+# только первое вхождение каждого owner будет с именем
+tasks = await client.tasks.list(limit=50, fields=["owner"])
+
+# expand=["owner"] — SDK догружает КАЖДОГО owner отдельным батч-запросом
+# с кэшированием, поэтому все задачи получают полное имя
+tasks_full = await client.tasks.list(limit=50, expand=["owner"])
+```
+
+Если SDK обнаруживает, что один и тот же `id` встретился в ответе и
+именованным, и голым (типичный симптом дедупликации под `fields=`), он
+пишет `warning` в лог с подсказкой перейти на `expand=` (#36).
+
 ### Работа с фильтрами
 
 SDK предоставляет удобный `FilterBuilder` для создания фильтров с использованием fluent API. Фильтры поддерживаются для задач (`TaskFilter`) и сделок (`TradeFilter`). **Проекты не поддерживают фильтрацию через API.**
@@ -1644,6 +1666,29 @@ print(comment.work_time.value)    # 9000 (секунды), плюс .minutes / .
 > **Ограничение:** Комментарии контрагентов не поддерживаются API (возвращает 500).
 > Используйте комментарии в связанных сделках или задачах.
 
+### Вложения
+
+Ссылки на файлы (`Comment.attaches`, `Task.attaches` и т.д.) требуют
+авторизованного скачивания через `client.attachments` — путь из ссылки
+относительный и не работает без Bearer-заголовка.
+
+```python
+from pathlib import Path
+
+# Скачать вложение целиком в память
+data = await client.attachments.download(comment.attaches[0])
+Path("report.pdf").write_bytes(data)
+
+# Стриминг для больших файлов
+async with client.attachments.stream(attach) as response:
+    async for chunk in response.aiter_bytes():
+        f.write(chunk)
+```
+
+`download()`/`stream()` принимают модель вложения (`BaseEntity` с `path` в
+`model_extra`), `dict` с `path`/`url`, или сам путь строкой. Загрузка файлов
+(`POST /api/file`) пока не реализована.
+
 ### Настройка HTTP-клиента
 
 ```python
@@ -1700,22 +1745,52 @@ client = MegaplanClient(
 
 ### Ручное управление токенами
 
+`authenticate()` и `refresh_token()` возвращают модель `AuthTokenResponse`
+(`access_token`, `refresh_token`, `expires_in`, `token_type`, `scope`), а не
+голую строку — сервер ротирует `refresh_token` при каждом вызове `refresh_token()`,
+и только последний возвращённый токен гарантированно валиден.
+
 ```python
 # Получить токен доступа
 token = await client.auth.authenticate("user@example.com", "password")
-# Возвращает: str - access_token
+# Возвращает: AuthTokenResponse
+print(token.access_token, token.expires_in)
 
 # Обновить токен
 new_token = await client.auth.refresh_token(refresh_token="refresh_token")
 # Параметры:
 #   refresh_token: str | None - Токен обновления (опционально, используется сохраненный)
-# Возвращает: str - новый access_token
+# Возвращает: AuthTokenResponse
+
+# Сохранение ротированных токенов во внешнем хранилище
+token = await client.auth.refresh_token(refresh_token=stored_refresh)
+save_secrets(
+    access_token=token.access_token,
+    refresh_token=token.refresh_token,
+    expires_in=token.expires_in,
+)
 
 # Установить токен вручную
 client.set_access_token("your_token")
 
 # Очистить токены
 client.auth.clear_tokens()
+```
+
+### Прямые запросы через `_http`
+
+Для эндпоинтов, не покрытых ресурсами SDK, можно использовать
+`client._http` напрямую — но **никогда не собирайте query-строку
+вручную**: Мегаплан ожидает параметры как JSON внутри query-строки
+(`?{"limit":5}`), а не как обычные `?key=value` (#20). Метод `get()`
+сам кодирует `params` в нужном формате:
+
+```python
+# Правильно — params кодируется в JSON автоматически
+response = await client._http.get("/api/v3/some/endpoint", params={"limit": 5})
+
+# Неправильно — вручную собранная строка `?limit=5` сервер не поймёт
+# response = await client._http.get("/api/v3/some/endpoint?limit=5")
 ```
 
 ## Справочная информация

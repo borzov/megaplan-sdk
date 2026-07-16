@@ -36,7 +36,7 @@ async def test_authenticate():
         ) as client:
             print("\n⏳ Выполнение аутентификации...")
             token = await client.auth.authenticate(username, password)
-            print_success(f"Токен получен: {token[:20]}...")
+            print_success(f"Токен получен: {token.access_token[:20]}...")
 
             # Verify token works
             print("\n⏳ Проверка работы токена...")
@@ -81,7 +81,7 @@ async def test_refresh_token():
 
             print("\n⏳ Обновление токена...")
             new_token = await client.auth.refresh_token(refresh_token)
-            print_success(f"Новый токен получен: {new_token[:20]}...")
+            print_success(f"Новый токен получен: {new_token.access_token[:20]}...")
 
             # Verify new token works
             print("\n⏳ Проверка работы нового токена...")
@@ -120,7 +120,7 @@ async def test_set_access_token():
         # Now use that token in a new client
         async with MegaplanClient(
             base_url=base_url,
-            access_token=token
+            access_token=token.access_token
         ) as client2:
             print("\n⏳ Использование установленного токена...")
             user = await client2.employees.get_current()

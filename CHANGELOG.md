@@ -7,6 +7,31 @@
 
 ## [Не выпущено]
 
+## [0.5.0] — 2026-07-16
+
+### ⚠️ Изменения поведения (breaking)
+- `auth.authenticate()`, `auth.refresh_token()` и `MegaplanClient.authenticate()`
+  возвращают модель `AuthTokenResponse` (`access_token`, `refresh_token`,
+  `expires_in`, `token_type`) вместо `str` (#FR-A, #FR-B).
+  Миграция: `token = await mp.auth.refresh_token(...)`; используйте
+  `token.access_token` и сохраняйте `token.refresh_token` — сервер ротирует его
+  при каждом refresh.
+
+### Добавлено
+- `client.attachments` — скачивание вложений: `download(attach) -> bytes` и
+  `stream(attach)` для больших файлов (#FR-C).
+- `comments_count` на `Task`/`Deal`/`Project` и во всех `*FullDetails`;
+  `get_full_details` заказывает `commentsCount` на карточке, признак усечения:
+  `len(details.comments) < details.comments_count` (#34).
+- `get_full_details(..., resolve_participants=True)` — `auditors`/`executors`
+  резолвятся в полные `Employee` батчем через кэш по умолчанию (#35).
+- `tasks.get()`/`deals.get()`/`projects.get()` принимают `fields=[...]`.
+
+### Изменено
+- `list()` логирует warning при серверной дедупликации связанных полей,
+  заказанных через `fields=` (owner/responsible/manager/contractor), с
+  подсказкой использовать `expand=` (#36).
+
 ## [0.4.3] — 2026-07-02
 
 Релиз по итогам повторной регрессии баг-репорта 0.4.2 на живом стенде:
