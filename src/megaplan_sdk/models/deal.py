@@ -111,7 +111,8 @@ class DealFullDetails(MainEntityProxyMixin, BaseModel):
         comments: List of comments (if requested).
         history: Change history entries (if requested).
         status_history: Status change history (if requested).
-        auditors: List of auditors (if requested).
+        auditors: List of auditors (if requested); Employee instances once
+            resolved (default), or raw references with resolve_participants=False.
         manager_details: Full manager (responsible) employee details (if requested).
         contractor_details: Full contractor details (if requested).
         related_tasks: Tasks related to this deal (if requested).
@@ -123,7 +124,7 @@ class DealFullDetails(MainEntityProxyMixin, BaseModel):
     comments: list[Any] | None = None
     history: list[dict[str, Any]] | None = None
     status_history: list[dict[str, Any]] | None = None
-    auditors: list[dict[str, Any]] | None = None
+    auditors: list[Any] | None = None
     manager_details: Any | None = None
     contractor_details: Any | None = None
     related_tasks: list[Any] | None = None

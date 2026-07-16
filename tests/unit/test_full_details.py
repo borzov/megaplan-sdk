@@ -502,6 +502,38 @@ async def test_get_full_details_resolve_participants_opt_out(megaplan_api, tasks
     assert details.auditors == [{"contentType": "Employee", "id": 7}]
 
 
+async def test_deal_full_details_resolves_auditors_by_default(megaplan_api, deals):
+    """#35: include_auditors=True returns full Employee objects for deals."""
+    megaplan_api.get("deal/1", data={"id": 1, "contentType": "Deal", "name": "Test Deal"})
+    megaplan_api.get(
+        "deal/1/auditors",
+        data=[{"contentType": "Employee", "id": 15}],
+    )
+    megaplan_api.get(
+        "employee/15", data={"contentType": "Employee", "id": 15, "name": "Пётр Кузнецов"}
+    )
+
+    details = await deals.get_full_details(deal_id=1, include_auditors=True)
+
+    assert details.auditors is not None
+    assert details.auditors[0].name == "Пётр Кузнецов"
+
+
+async def test_deal_full_details_resolve_participants_opt_out(megaplan_api, deals):
+    """#35: resolve_participants=False keeps raw references untouched for deals."""
+    megaplan_api.get("deal/1", data={"id": 1, "contentType": "Deal", "name": "Test Deal"})
+    megaplan_api.get(
+        "deal/1/auditors",
+        data=[{"contentType": "Employee", "id": 15}],
+    )
+
+    details = await deals.get_full_details(
+        deal_id=1, include_auditors=True, resolve_participants=False
+    )
+
+    assert details.auditors == [{"contentType": "Employee", "id": 15}]
+
+
 async def test_resolve_participants_leaves_non_employee_items(megaplan_api, tasks):
     """#35: non-Employee participants pass through unresolved."""
     megaplan_api.get("task/1", data={"id": 1, "contentType": "Task"})
