@@ -1082,6 +1082,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         include_responsible_details: bool = False,
         include_owner_details: bool = False,
         expand_comment_owners: bool = False,
+        resolve_participants: bool = True,
         comments_limit: int | None = None,
         history_limit: int | None = None,
     ) -> TaskFullDetails:
@@ -1108,6 +1109,11 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 reference. Requires ``include_comments=True``; passing it
                 without the flag raises ValueError. Off by default so that
                 text-only consumers don't pay for the extra batch.
+            resolve_participants: Resolve ``auditors`` and ``executors`` to
+                full Employee objects via one cached batch (#35). On by
+                default — participant lists are small (3-8 entries) and the
+                related-list endpoint returns bare references otherwise.
+                Pass False to keep the raw references.
             comments_limit: Limit for comments (if included).
                 None = use global default (from MegaplanClient) or API default.
                 Explicit value overrides global default.
@@ -1182,6 +1188,11 @@ class TasksResource(BaseResource, FullDetailsMixin):
         )
         if expand_comment_owners and details.comments:
             await self._resolve_comment_owners(details.comments)
+        if resolve_participants:
+            if details.auditors:
+                details.auditors = await self._resolve_employee_entities(details.auditors)
+            if details.executors:
+                details.executors = await self._resolve_employee_entities(details.executors)
         return details
 
     async def get_available_parents(

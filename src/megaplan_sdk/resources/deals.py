@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import AsyncIterator
-from typing import Any, overload
+from typing import Any, cast, overload
 
 from megaplan_sdk.constants import DEFAULT_SORT_RECENT, ContentType
 from megaplan_sdk.models.comment import Comment
@@ -680,6 +680,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         include_manager_details: bool = False,
         include_contractor_details: bool = False,
         include_related_tasks: bool = False,
+        resolve_participants: bool = True,
         comments_limit: int | None = None,
         history_limit: int | None = None,
     ) -> DealFullDetails:
@@ -697,6 +698,11 @@ class DealsResource(BaseResource, FullDetailsMixin):
             include_manager_details: Load full manager (responsible Employee) details.
             include_contractor_details: Load full contractor details.
             include_related_tasks: Load tasks related to this deal.
+            resolve_participants: Resolve ``auditors`` to full Employee
+                objects via one cached batch (#35). On by default —
+                participant lists are small (3-8 entries) and the
+                related-list endpoint returns bare references otherwise.
+                Pass False to keep the raw references.
             comments_limit: Limit for comments (if included).
                 None = use global default (from MegaplanClient) or API default.
                 Explicit value overrides global default.
@@ -733,23 +739,29 @@ class DealsResource(BaseResource, FullDetailsMixin):
             >>> print(details.deal.name)
             >>> print(len(details.comments))
         """
-        return await self._get_full_details_generic(
-            entity_id=deal_id,
-            entity_getter="get",
-            full_details_class=DealFullDetails,
-            config=self._full_details_config,
-            main_entity_field="deal",
-            entity_getter_kwargs={"fields": ["commentsCount"]},
-            include_comments=include_comments,
-            include_history=include_history,
-            include_status_history=include_status_history,
-            include_auditors=include_auditors,
-            include_manager_details=include_manager_details,
-            include_contractor_details=include_contractor_details,
-            include_related_tasks=include_related_tasks,
-            comments_limit=comments_limit,
-            history_limit=history_limit,
+        details = cast(
+            DealFullDetails,
+            await self._get_full_details_generic(
+                entity_id=deal_id,
+                entity_getter="get",
+                full_details_class=DealFullDetails,
+                config=self._full_details_config,
+                main_entity_field="deal",
+                entity_getter_kwargs={"fields": ["commentsCount"]},
+                include_comments=include_comments,
+                include_history=include_history,
+                include_status_history=include_status_history,
+                include_auditors=include_auditors,
+                include_manager_details=include_manager_details,
+                include_contractor_details=include_contractor_details,
+                include_related_tasks=include_related_tasks,
+                comments_limit=comments_limit,
+                history_limit=history_limit,
+            ),
         )
+        if resolve_participants and details.auditors:
+            details.auditors = await self._resolve_employee_entities(details.auditors)
+        return details
 
     async def get_all_participants(
         self,

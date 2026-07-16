@@ -623,6 +623,42 @@ class BaseResource:
             ):
                 comment.owner = owner_map[comment.owner.id]
 
+    async def _resolve_employee_entities(self, items: list[Any]) -> list[Any]:
+        """Resolve bare Employee references in a mixed list to full Employees.
+
+        Related-list endpoints (auditors, executors) return bare
+        ``{contentType, id}`` dicts. Batch-load the Employee ones via
+        ``_load_related_entities`` (cache-first); leave everything else
+        (Group, Contractor*) untouched (#35).
+        """
+        from megaplan_sdk.models.base import BaseEntity
+        from megaplan_sdk.models.employee import Employee
+
+        def _employee_id(item: Any) -> int | None:
+            if isinstance(item, dict):
+                if item.get("contentType") == ContentType.EMPLOYEE and "id" in item:
+                    return int(item["id"])
+                return None
+            if getattr(item, "content_type", None) == ContentType.EMPLOYEE:
+                return getattr(item, "id", None)
+            return None
+
+        refs = [
+            BaseEntity(**{"contentType": ContentType.EMPLOYEE, "id": employee_id})
+            for item in items
+            if (employee_id := _employee_id(item)) is not None
+        ]
+        if not refs:
+            return items
+
+        loaded = await self._load_related_entities(refs, "employee", Employee)
+        return [
+            loaded.get(employee_id, item)
+            if (employee_id := _employee_id(item)) is not None
+            else item
+            for item in items
+        ]
+
     async def _bulk_get_entities_by_links(
         self, links: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
