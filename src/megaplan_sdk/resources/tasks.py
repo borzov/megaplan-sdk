@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, cast, overload
 
@@ -214,6 +213,12 @@ class TasksResource(BaseResource, FullDetailsMixin):
                     tasks = await client.tasks.list(fields=list(DEFAULT_TASK_LIST_FIELDS))
                 Without this, those fields are None and time-window filters
                 silently match nothing.
+
+                **Linked entities** (owner/responsible/manager/contractor):
+                the server deduplicates repeated entities within one response,
+                so ``fields=`` fills them only at the first occurrence per
+                page — repeats come back as bare references without ``name``
+                (#36). Use ``expand=`` when you need them fully populated.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["responsible", "owner"]).
@@ -294,6 +299,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         )
 
         tasks = await self._get_list(path, Task, params)
+        self._warn_reduced_linked_fields(tasks, fields, expand)
         return await self._expand_and_wrap(tasks, expand)
 
     async def list_by(self, query: TaskQuery) -> list[Task]:
@@ -320,16 +326,17 @@ class TasksResource(BaseResource, FullDetailsMixin):
         """
         return cast("list[Task]", await self.list(**query.as_list_kwargs()))
 
-    async def get(self, task_id: int) -> Task:
+    async def get(self, task_id: int, fields: list[str] | None = None) -> Task:
         """Get task by ID.
 
         Args:
             task_id: Task identifier.
+            fields: Extra fields to request (e.g. ``["commentsCount"]``).
 
         Returns:
             Task details.
         """
-        return await self._get_entity("task", task_id, Task)
+        return await self._get_entity("task", task_id, Task, fields=fields)
 
     async def get_many(self, ids: list[int], use_cache: bool = True) -> dict[int, Task]:
         """Batch-fetch tasks by id via the bulk endpoint (#FR-1).
@@ -633,55 +640,6 @@ class TasksResource(BaseResource, FullDetailsMixin):
             page_after,
             page_before,
             page_with,
-        )
-
-    async def create_comment(
-        self,
-        task_id: int,
-        text: str,
-        work: float | None = None,
-        attaches: list[dict[str, Any]] | None = None,
-    ) -> Comment:
-        """Create a comment for a task.
-
-        Thin wrapper over :meth:`CommentsResource.create` (#21/#22): both
-        encode ``work`` identically as ``workTime.value`` (seconds). Prefer
-        ``client.comments.create(entity_id=..., content=...)`` directly; this
-        helper is kept for backwards compatibility.
-
-        Args:
-            task_id: Task identifier.
-            text: Comment text (maps to the API ``content`` field).
-            work: Hours worked (time tracking). ``work=2.5`` ⇒ 2 h 30 min.
-                Serialized as ``{"contentType": "DateInterval",
-                "value": int(work * 3600)}``; the server quantizes to minutes.
-            attaches: List of file attachments.
-
-        Returns:
-            Created comment.
-
-        Examples:
-            >>> comment = await client.tasks.create_comment(
-            ...     task_id=123,
-            ...     text="Work completed",
-            ...     work=2.5
-            ... )
-        """
-        warnings.warn(
-            "tasks.create_comment() is deprecated and will be removed in 0.5.0; "
-            'use client.comments.create(entity_id=..., content=..., entity_type="task").',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        from megaplan_sdk.resources.comments import CommentsResource
-
-        comments = CommentsResource(self._http, cache=self._cache)
-        return await comments.create(
-            entity_id=task_id,
-            content=text,
-            entity_type="task",
-            work=work,
-            attaches=attaches,
         )
 
     async def create_simple(
@@ -1081,6 +1039,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         include_responsible_details: bool = False,
         include_owner_details: bool = False,
         expand_comment_owners: bool = False,
+        resolve_participants: bool = True,
         comments_limit: int | None = None,
         history_limit: int | None = None,
     ) -> TaskFullDetails:
@@ -1107,6 +1066,11 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 reference. Requires ``include_comments=True``; passing it
                 without the flag raises ValueError. Off by default so that
                 text-only consumers don't pay for the extra batch.
+            resolve_participants: Resolve ``auditors`` and ``executors`` to
+                full Employee objects via one cached batch (#35). On by
+                default — participant lists are small (3-8 entries) and the
+                related-list endpoint returns bare references otherwise.
+                Pass False to keep the raw references.
             comments_limit: Limit for comments (if included).
                 None = use global default (from MegaplanClient) or API default.
                 Explicit value overrides global default.
@@ -1125,6 +1089,12 @@ class TasksResource(BaseResource, FullDetailsMixin):
 
         Returns:
             TaskFullDetails object with all requested data.
+
+        Note:
+            The card is requested with ``fields=["commentsCount"]`` so
+            ``details.comments_count`` is populated regardless of
+            ``comments_limit`` (#34). ``len(details.comments) <
+            details.comments_count`` reliably signals truncation.
 
         Examples:
             >>> # Get task with subtasks and comments
@@ -1159,6 +1129,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 full_details_class=TaskFullDetails,
                 config=self._full_details_config,
                 main_entity_field="task",
+                entity_getter_kwargs={"fields": ["commentsCount"]},
                 include_sub_tasks=include_sub_tasks,
                 include_actual_sub_tasks=include_actual_sub_tasks,
                 include_comments=include_comments,
@@ -1174,6 +1145,11 @@ class TasksResource(BaseResource, FullDetailsMixin):
         )
         if expand_comment_owners and details.comments:
             await self._resolve_comment_owners(details.comments)
+        if resolve_participants:
+            if details.auditors:
+                details.auditors = await self._resolve_employee_entities(details.auditors)
+            if details.executors:
+                details.executors = await self._resolve_employee_entities(details.executors)
         return details
 
     async def get_available_parents(

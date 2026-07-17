@@ -30,7 +30,9 @@ async def test_update_comment():
             task = await client.tasks.create({"name": generate_test_name("COMMENT")})
             tracker.add_task(task.id)
 
-            comment = await client.tasks.create_comment(task.id, {"content": generate_test_name("ORIGINAL")})
+            comment = await client.comments.create(
+                entity_id=task.id, content=generate_test_name("ORIGINAL"), entity_type="task"
+            )
             tracker.add_comment(comment.id)
 
             # Update comment
@@ -70,7 +72,9 @@ async def test_delete_comment():
             task = await client.tasks.create({"name": generate_test_name("COMMENT")})
             tracker.add_task(task.id)
 
-            comment = await client.tasks.create_comment(task.id, {"content": generate_test_name("DELETE")})
+            comment = await client.comments.create(
+                entity_id=task.id, content=generate_test_name("DELETE"), entity_type="task"
+            )
             comment_id = comment.id
 
             print(f"\n⏳ Удаление комментария #{comment_id}...")

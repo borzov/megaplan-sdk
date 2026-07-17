@@ -431,3 +431,154 @@ async def test_full_details_limit_with_include_ok(megaplan_api, tasks):
 
     details = await tasks.get_full_details(123, include_comments=True, comments_limit=200)
     assert details.task.id == 123
+
+
+# --- #34: comments_count surfaced on FullDetails ---
+
+
+async def test_get_full_details_exposes_comments_count(megaplan_api, tasks):
+    """#34: details.comments_count comes from the card's commentsCount."""
+    route = megaplan_api.get("task/1", data={"id": 1, "contentType": "Task", "commentsCount": 86})
+    megaplan_api.get("task/1/comments", data=[{"id": 10, "contentType": "Comment"}])
+
+    details = await tasks.get_full_details(task_id=1, include_comments=True, comments_limit=1)
+
+    assert details.comments_count == 86
+    assert details.comments is not None and len(details.comments) == 1
+    # Truncation is now detectable: len(comments) < comments_count.
+    decoded = unquote(str(route.calls.last.request.url)).replace(" ", "")
+    assert '"fields":["commentsCount"]' in decoded
+
+
+async def test_get_exposes_comments_count_via_fields(megaplan_api, tasks):
+    """#34: tasks.get(fields=[...]) forwards fields to the card GET."""
+    route = megaplan_api.get("task/1", data={"id": 1, "contentType": "Task", "commentsCount": 3})
+
+    task = await tasks.get(1, fields=["commentsCount"])
+
+    assert task.comments_count == 3
+    decoded = unquote(str(route.calls.last.request.url)).replace(" ", "")
+    assert '"fields":["commentsCount"]' in decoded
+
+
+# --- #35: auditors/executors resolved to full Employees by default ---
+
+
+async def test_get_full_details_resolves_auditors_by_default(megaplan_api, tasks):
+    """#35: include_auditors=True returns full Employee objects."""
+    megaplan_api.get("task/1", data={"id": 1, "contentType": "Task"})
+    megaplan_api.get(
+        "task/1/auditors",
+        data=[
+            {"contentType": "Employee", "id": 7},
+            {"contentType": "Employee", "id": 8},
+            {"contentType": "Employee", "id": 7},
+        ],
+    )
+    route_7 = megaplan_api.get(
+        "employee/7", data={"contentType": "Employee", "id": 7, "name": "Иван Петров"}
+    )
+    megaplan_api.get(
+        "employee/8", data={"contentType": "Employee", "id": 8, "name": "Мария Сидорова"}
+    )
+
+    details = await tasks.get_full_details(task_id=1, include_auditors=True)
+
+    assert details.auditors is not None
+    assert [a.name for a in details.auditors] == ["Иван Петров", "Мария Сидорова", "Иван Петров"]
+    # Batch loading: repeated id fetched once.
+    assert route_7.call_count == 1
+
+
+async def test_get_full_details_resolve_participants_opt_out(megaplan_api, tasks):
+    """#35: resolve_participants=False keeps raw references untouched."""
+    megaplan_api.get("task/1", data={"id": 1, "contentType": "Task"})
+    megaplan_api.get("task/1/auditors", data=[{"contentType": "Employee", "id": 7}])
+
+    details = await tasks.get_full_details(
+        task_id=1, include_auditors=True, resolve_participants=False
+    )
+
+    assert details.auditors == [{"contentType": "Employee", "id": 7}]
+
+
+async def test_deal_full_details_resolves_auditors_by_default(megaplan_api, deals):
+    """#35: include_auditors=True returns full Employee objects for deals."""
+    megaplan_api.get("deal/1", data={"id": 1, "contentType": "Deal", "name": "Test Deal"})
+    megaplan_api.get(
+        "deal/1/auditors",
+        data=[{"contentType": "Employee", "id": 15}],
+    )
+    megaplan_api.get(
+        "employee/15", data={"contentType": "Employee", "id": 15, "name": "Пётр Кузнецов"}
+    )
+
+    details = await deals.get_full_details(deal_id=1, include_auditors=True)
+
+    assert details.auditors is not None
+    assert details.auditors[0].name == "Пётр Кузнецов"
+
+
+async def test_deal_full_details_resolve_participants_opt_out(megaplan_api, deals):
+    """#35: resolve_participants=False keeps raw references untouched for deals."""
+    megaplan_api.get("deal/1", data={"id": 1, "contentType": "Deal", "name": "Test Deal"})
+    megaplan_api.get(
+        "deal/1/auditors",
+        data=[{"contentType": "Employee", "id": 15}],
+    )
+
+    details = await deals.get_full_details(
+        deal_id=1, include_auditors=True, resolve_participants=False
+    )
+
+    assert details.auditors == [{"contentType": "Employee", "id": 15}]
+
+
+async def test_resolve_participants_leaves_non_employee_items(megaplan_api, tasks):
+    """#35: non-Employee participants pass through unresolved."""
+    megaplan_api.get("task/1", data={"id": 1, "contentType": "Task"})
+    megaplan_api.get(
+        "task/1/auditors",
+        data=[
+            {"contentType": "Employee", "id": 7},
+            {"contentType": "Group", "id": 55, "name": "Отдел разработки"},
+        ],
+    )
+    megaplan_api.get("employee/7", data={"contentType": "Employee", "id": 7, "name": "Иван Петров"})
+
+    details = await tasks.get_full_details(task_id=1, include_auditors=True)
+
+    assert details.auditors[0].name == "Иван Петров"
+    assert details.auditors[1] == {"contentType": "Group", "id": 55, "name": "Отдел разработки"}
+
+
+async def test_project_full_details_resolves_auditors_by_default(megaplan_api, projects):
+    """Blocker: projects.get_full_details() must resolve auditors like tasks/deals do."""
+    megaplan_api.get("project/1", data={"id": 1, "contentType": "Project", "name": "Test Project"})
+    megaplan_api.get(
+        "project/1/auditors",
+        data=[{"contentType": "Employee", "id": 21}],
+    )
+    megaplan_api.get(
+        "employee/21", data={"contentType": "Employee", "id": 21, "name": "Ольга Смирнова"}
+    )
+
+    details = await projects.get_full_details(project_id=1, include_auditors=True)
+
+    assert details.auditors is not None
+    assert details.auditors[0].name == "Ольга Смирнова"
+
+
+async def test_project_full_details_resolve_participants_opt_out(megaplan_api, projects):
+    """Blocker: resolve_participants=False keeps raw references untouched for projects."""
+    megaplan_api.get("project/1", data={"id": 1, "contentType": "Project", "name": "Test Project"})
+    megaplan_api.get(
+        "project/1/auditors",
+        data=[{"contentType": "Employee", "id": 21}],
+    )
+
+    details = await projects.get_full_details(
+        project_id=1, include_auditors=True, resolve_participants=False
+    )
+
+    assert details.auditors == [{"contentType": "Employee", "id": 21}]

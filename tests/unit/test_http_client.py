@@ -132,3 +132,98 @@ async def test_proxy_none_passed_to_async_client():
         mock_async_client.assert_called_once()
         call_kwargs = mock_async_client.call_args.kwargs
         assert call_kwargs["proxy"] is None
+
+
+# --- FR-C: binary download for attachments ---
+
+
+async def test_get_binary_downloads_with_bearer_header(megaplan_api, base_url, access_token):
+    """FR-C: get_binary joins base_url, sends Bearer, returns raw bytes."""
+    route = megaplan_api.get(f"{base_url}/attach/SdfFileM_File/File/237/81/pic.png")
+    route.mock(return_value=Response(200, content=b"\x89PNG-bytes"))
+
+    async with HTTPClient(base_url, access_token=access_token) as client:
+        data = await client.get_binary("/attach/SdfFileM_File/File/237/81/pic.png")
+
+    assert data == b"\x89PNG-bytes"
+    assert route.calls.last.request.headers["Authorization"] == f"Bearer {access_token}"
+
+
+async def test_stream_binary_yields_chunks(megaplan_api, base_url, access_token):
+    """FR-C: stream_binary exposes aiter_bytes for large files."""
+    route = megaplan_api.get(f"{base_url}/attach/big.bin")
+    route.mock(return_value=Response(200, content=b"A" * 1024))
+
+    chunks: list[bytes] = []
+    async with HTTPClient(base_url, access_token=access_token) as client:
+        async with client.stream_binary("/attach/big.bin") as response:
+            async for chunk in response.aiter_bytes():
+                chunks.append(chunk)
+
+    assert b"".join(chunks) == b"A" * 1024
+
+
+async def test_get_binary_maps_errors(megaplan_api, base_url, access_token):
+    """FR-C: HTTP 404 becomes NotFoundError, not a bare httpx error."""
+    route = megaplan_api.get(f"{base_url}/attach/gone.png")
+    route.mock(return_value=Response(404, content=b""))
+
+    async with HTTPClient(base_url, access_token=access_token) as client:
+        with pytest.raises(NotFoundError):
+            await client.get_binary("/attach/gone.png")
+
+
+# --- Same-origin/HTTPS policy for absolute binary URLs (security) ---
+
+
+async def test_get_binary_absolute_same_origin_https_passes_through(
+    megaplan_api, base_url, access_token
+):
+    """An absolute https:// URL matching base_url's host is followed and downloads."""
+    absolute_url = f"{base_url}/attach/File/1/2/report.pdf"
+    route = megaplan_api.get(absolute_url)
+    route.mock(return_value=Response(200, content=b"same-origin-bytes"))
+
+    async with HTTPClient(base_url, access_token=access_token) as client:
+        data = await client.get_binary(absolute_url)
+
+    assert data == b"same-origin-bytes"
+    assert route.calls.last.request.headers["Authorization"] == f"Bearer {access_token}"
+
+
+async def test_get_binary_absolute_cross_host_raises(megaplan_api, base_url, access_token):
+    """A cross-host absolute URL must be rejected; no request is made (SSRF/token-leak guard)."""
+    evil_url = "https://evil.example.com/attach/File/1/2/report.pdf"
+
+    async with HTTPClient(base_url, access_token=access_token) as client:
+        with pytest.raises(ValueError, match="host"):
+            await client.get_binary(evil_url)
+
+    assert not respx.calls
+
+
+async def test_get_binary_absolute_http_raises_without_allow_http(
+    megaplan_api, base_url, access_token
+):
+    """A plaintext http:// absolute URL must be rejected unless allow_http=True."""
+    insecure_url = base_url.replace("https://", "http://") + "/attach/File/1/2/report.pdf"
+
+    async with HTTPClient(base_url, access_token=access_token) as client:
+        with pytest.raises(ValueError, match="HTTPS"):
+            await client.get_binary(insecure_url)
+
+    assert not respx.calls
+
+
+async def test_get_binary_without_access_token_sends_no_authorization_header(
+    megaplan_api, base_url
+):
+    """HTTPClient built without access_token must not send Authorization on binary GET."""
+    route = megaplan_api.get(f"{base_url}/attach/anon.png")
+    route.mock(return_value=Response(200, content=b"anon-bytes"))
+
+    async with HTTPClient(base_url) as client:
+        data = await client.get_binary("/attach/anon.png")
+
+    assert data == b"anon-bytes"
+    assert "Authorization" not in route.calls.last.request.headers

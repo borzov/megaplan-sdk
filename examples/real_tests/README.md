@@ -198,20 +198,20 @@ python3 test_comments_write.py
 - ✅ Упрощенное создание (`create_simple`)
 - ✅ Обновление задачи (`update`)
 - ✅ Удаление задачи (`delete`)
-- ✅ Создание комментария (`create_comment`)
+- ✅ Создание комментария (`comments.create`)
 
 #### Projects (Проекты)
 - ✅ Создание проекта (`create`)
 - ✅ Упрощенное создание (`create_simple`)
 - ✅ Обновление проекта (`update`)
 - ✅ Удаление проекта (`delete`)
-- ✅ Создание комментария (`create_comment`)
+- ✅ Создание комментария (`comments.create`)
 
 #### Deals (Сделки)
 - ✅ Создание сделки (`create`)
 - ✅ Обновление сделки (`update`)
 - ✅ Удаление сделки (`delete`)
-- ✅ Создание комментария (`create_comment`)
+- ✅ Создание комментария (`comments.create`)
 
 #### Comments (Комментарии)
 - ✅ Обновление комментария (`update`)

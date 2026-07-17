@@ -2,7 +2,10 @@
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -55,6 +58,7 @@ class HTTPClient:
         self._access_token: str | None = access_token
         self.timeout = timeout
         self.max_retries = max_retries
+        self._allow_http = allow_http
         self._proxy = proxy
         self._client: httpx.AsyncClient | None = None
 
@@ -413,3 +417,91 @@ class HTTPClient:
             ) from e
         except (httpx.HTTPError, json.JSONDecodeError) as e:
             raise AuthenticationError(f"Authentication request failed: {e}") from e
+
+    def _binary_url(self, path: str) -> str:
+        """Join an attachment path to base_url; pass same-origin URLs through.
+
+        Same-origin policy: an absolute URL is only followed if it uses
+        HTTPS (unless the client was built with ``allow_http=True``) and its
+        host matches ``base_url``'s host exactly (case-insensitive). This
+        keeps the Bearer token from being sent to an arbitrary third-party
+        host or over plaintext HTTP. Relative paths are always joined to
+        ``base_url`` and carry no such risk.
+
+        Args:
+            path: Relative path or absolute ``http(s)://`` URL.
+
+        Returns:
+            Full URL to request.
+
+        Raises:
+            ValueError: If an absolute URL uses ``http://`` without
+                ``allow_http=True``, or targets a host different from
+                ``base_url``.
+        """
+        if path.startswith(("http://", "https://")):
+            if path.startswith("http://") and not self._allow_http:
+                raise ValueError(
+                    f"Only HTTPS URLs are allowed for binary downloads. Got: {path}. "
+                    f"Use allow_http=True only for development/testing."
+                )
+
+            target_host = urlsplit(path).hostname
+            base_host = urlsplit(self.base_url).hostname
+            if not target_host or not base_host or target_host.lower() != base_host.lower():
+                raise ValueError(
+                    f"Refusing to send credentials to a different host than base_url. "
+                    f"Got: {path}, expected host matching base_url: {self.base_url}."
+                )
+
+            return path
+        return f"{self.base_url}{path}"
+
+    @asynccontextmanager
+    async def stream_binary(self, path: str) -> AsyncIterator[httpx.Response]:
+        """Stream an authorized binary resource (attachments; #FR-C).
+
+        Args:
+            path: Relative path from an ``Attache``/``File`` model (e.g.
+                ``/attach/SdfFileM_File/File/1/2/x.png``) or an absolute URL.
+                Absolute URLs must be same-origin with ``base_url`` and use
+                HTTPS (unless ``allow_http=True``); see :meth:`_binary_url`.
+
+        Yields:
+            The open streaming ``httpx.Response``; iterate ``aiter_bytes()``.
+
+        Raises:
+            ValueError: If ``path`` is an absolute URL that fails the
+                same-origin/HTTPS policy (see :meth:`_binary_url`).
+            MegaplanError: Subclasses mapped from the HTTP status code.
+        """
+        await self._ensure_client()
+        assert self._client is not None  # For mypy: ensured by _ensure_client()
+
+        headers = self._build_headers()
+        headers.pop("Content-Type", None)
+
+        async with self._client.stream("GET", self._binary_url(path), headers=headers) as response:
+            if response.status_code >= 400:
+                await response.aread()
+                raise_for_status(
+                    response.status_code,
+                    {},
+                    f"Binary download failed for {path}",
+                )
+            yield response
+
+    async def get_binary(self, path: str) -> bytes:
+        """Download an authorized binary resource fully into memory (#FR-C).
+
+        For large files prefer :meth:`stream_binary`. Absolute ``path``
+        values are subject to the same-origin/HTTPS policy documented on
+        :meth:`stream_binary`.
+
+        Raises:
+            ValueError: If ``path`` is an absolute URL that fails the
+                same-origin/HTTPS policy (see :meth:`_binary_url`).
+            MegaplanError: Subclasses mapped from the HTTP status code.
+        """
+        async with self.stream_binary(path) as response:
+            return await response.aread()

@@ -1,6 +1,7 @@
 """Unit tests for the declarative expand pipeline (ExpandRule + _expand_and_wrap)."""
 
 import dataclasses
+import logging
 
 import pytest
 
@@ -161,3 +162,81 @@ async def test_employees_list_expand_replaces_department(megaplan_api, employees
     assert isinstance(result[0], Employee)
     assert result[0].department is not None
     assert result[0].department.name == "Development"
+
+
+# --- #36: warn when fields=[...] came back server-deduplicated ---
+
+
+async def test_list_warns_on_deduplicated_owner_refs(megaplan_api, tasks, caplog):
+    """#36: same owner id both named and bare in one page triggers a warning."""
+    megaplan_api.get(
+        "task",
+        data=[
+            {
+                "id": 1,
+                "contentType": "Task",
+                "owner": {"contentType": "Employee", "id": 9, "name": "Гусев Максим"},
+            },
+            {
+                "id": 2,
+                "contentType": "Task",
+                "owner": {"contentType": "Employee", "id": 9},
+            },
+        ],
+    )
+
+    with caplog.at_level(logging.WARNING, logger="megaplan_sdk"):
+        await tasks.list(fields=["owner"])
+
+    assert any("expand=['owner']" in record.message for record in caplog.records)
+
+
+async def test_list_no_warning_when_expand_used(megaplan_api, tasks, caplog):
+    """#36: expand=['owner'] resolves everything — no warning."""
+    megaplan_api.get(
+        "task",
+        data=[
+            {
+                "id": 1,
+                "contentType": "Task",
+                "owner": {"contentType": "Employee", "id": 9, "name": "Гусев Максим"},
+            },
+            {
+                "id": 2,
+                "contentType": "Task",
+                "owner": {"contentType": "Employee", "id": 9},
+            },
+        ],
+    )
+    megaplan_api.get(
+        "employee/9", data={"contentType": "Employee", "id": 9, "name": "Гусев Максим"}
+    )
+
+    with caplog.at_level(logging.WARNING, logger="megaplan_sdk"):
+        await tasks.list(fields=["owner"], expand=["owner"])
+
+    assert not any("#36" in record.message for record in caplog.records)
+
+
+async def test_list_no_warning_on_distinct_owners(megaplan_api, tasks, caplog):
+    """#36: different employees, all named — no false positive."""
+    megaplan_api.get(
+        "task",
+        data=[
+            {
+                "id": 1,
+                "contentType": "Task",
+                "owner": {"contentType": "Employee", "id": 9, "name": "Гусев Максим"},
+            },
+            {
+                "id": 2,
+                "contentType": "Task",
+                "owner": {"contentType": "Employee", "id": 10, "name": "Иван Петров"},
+            },
+        ],
+    )
+
+    with caplog.at_level(logging.WARNING, logger="megaplan_sdk"):
+        await tasks.list(fields=["owner"])
+
+    assert not any("#36" in record.message for record in caplog.records)

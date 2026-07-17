@@ -62,6 +62,52 @@ class BaseResource:
     _details_model: ClassVar[type[Any] | None] = None
     _main_field: ClassVar[str | None] = None
 
+    # Linked-entity reference fields that the server deduplicates within a
+    # single list() response (#36). Used by _warn_reduced_linked_fields.
+    _LINKED_REF_FIELDS: ClassVar[tuple[str, ...]] = (
+        "owner",
+        "responsible",
+        "manager",
+        "contractor",
+    )
+
+    def _warn_reduced_linked_fields(
+        self,
+        entities: list[Any],
+        fields: Any | None,
+        expand: list[str] | None,
+    ) -> None:
+        """Warn when a linked field ordered via ``fields=`` came back deduplicated.
+
+        The server embeds a repeated linked entity fully only at its first
+        occurrence per response; later repeats are bare ``{contentType, id}``
+        references (#36). The signature — the same id appearing both named and
+        bare — is unambiguous, so there are no false positives. ``expand=``
+        resolves the references and silences the warning.
+        """
+        if not fields or not isinstance(fields, list | tuple):
+            return
+        expanded = set(expand or [])
+        for field_name in self._LINKED_REF_FIELDS:
+            if field_name not in fields or field_name in expanded:
+                continue
+            named_ids: set[int] = set()
+            bare_ids: set[int] = set()
+            for entity in entities:
+                ref = getattr(entity, field_name, None)
+                if ref is None or not hasattr(ref, "id"):
+                    continue
+                if getattr(ref, "name", None):
+                    named_ids.add(ref.id)
+                else:
+                    bare_ids.add(ref.id)
+            if named_ids & bare_ids:
+                logger.warning(
+                    f"fields=['{field_name}'] returned server-deduplicated bare "
+                    f"references for repeated ids; use expand=['{field_name}'] "
+                    f"to load them fully (#36)"
+                )
+
     def _build_path(self, *parts: str) -> str:
         """Build API path from parts.
 
@@ -345,38 +391,6 @@ class BaseResource:
 
         return [Comment(**item) if isinstance(item, dict) else item for item in data]
 
-    async def _create_entity_comment(
-        self,
-        entity_type: str,
-        entity_id: int,
-        text: str,
-        attaches: "list[dict[str, Any]] | None" = None,
-        **extra_fields: Any,
-    ) -> "Comment":
-        """Generic method to create comment for any entity.
-
-        Args:
-            entity_type: API path segment.
-            entity_id: Entity identifier.
-            text: Comment text.
-            attaches: File attachments.
-            **extra_fields: Additional fields (e.g. work for tasks).
-
-        Returns:
-            Created comment.
-        """
-        from megaplan_sdk.models.comment import Comment
-
-        path = self._build_path("api", "v3", entity_type, str(entity_id), "comments")
-
-        comment_data: dict[str, Any] = {"content": text}
-        if attaches:
-            comment_data["attaches"] = attaches
-        comment_data.update(extra_fields)
-
-        response = await self._http.post(path, json_data=comment_data)
-        return Comment(**response["data"])
-
     async def _get_list(
         self,
         path: str,
@@ -423,6 +437,7 @@ class BaseResource:
         entity_type: str,
         entity_id: int,
         model_class: type[T],
+        fields: list[str] | None = None,
     ) -> T:
         """Generic get method.
 
@@ -430,12 +445,15 @@ class BaseResource:
             entity_type: API resource type.
             entity_id: Entity identifier.
             model_class: Pydantic model class.
+            fields: Extra fields to request on the card (additive; the same
+                mechanism ``_get_milestones_generic`` relies on).
 
         Returns:
             Entity instance.
         """
         path = self._build_path("api", "v3", entity_type, str(entity_id))
-        response = await self._http.get(path)
+        params = {"fields": fields} if fields else None
+        response = await self._http.get(path, params=params)
         return model_class(**response["data"])
 
     async def _update_entity(
@@ -618,6 +636,42 @@ class BaseResource:
                 and comment.owner.id in owner_map
             ):
                 comment.owner = owner_map[comment.owner.id]
+
+    async def _resolve_employee_entities(self, items: list[Any]) -> list[Any]:
+        """Resolve bare Employee references in a mixed list to full Employees.
+
+        Related-list endpoints (auditors, executors) return bare
+        ``{contentType, id}`` dicts. Batch-load the Employee ones via
+        ``_load_related_entities`` (cache-first); leave everything else
+        (Group, Contractor*) untouched (#35).
+        """
+        from megaplan_sdk.models.base import BaseEntity
+        from megaplan_sdk.models.employee import Employee
+
+        def _employee_id(item: Any) -> int | None:
+            if isinstance(item, dict):
+                if item.get("contentType") == ContentType.EMPLOYEE and "id" in item:
+                    return int(item["id"])
+                return None
+            if getattr(item, "content_type", None) == ContentType.EMPLOYEE:
+                return getattr(item, "id", None)
+            return None
+
+        refs = [
+            BaseEntity(**{"contentType": ContentType.EMPLOYEE, "id": employee_id})
+            for item in items
+            if (employee_id := _employee_id(item)) is not None
+        ]
+        if not refs:
+            return items
+
+        loaded = await self._load_related_entities(refs, "employee", Employee)
+        return [
+            loaded.get(employee_id, item)
+            if (employee_id := _employee_id(item)) is not None
+            else item
+            for item in items
+        ]
 
     async def _bulk_get_entities_by_links(
         self, links: list[dict[str, Any]]

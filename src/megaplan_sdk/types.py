@@ -88,8 +88,8 @@ class RequestParams(TypedDict, total=False):
     onlyRequestedFields: bool | None
 
 
-class AuthTokenResponse(TypedDict):
-    """OAuth2 token response."""
+class AuthTokenPayload(TypedDict):
+    """OAuth2 token endpoint wire payload (internal)."""
 
     access_token: str
     expires_in: int

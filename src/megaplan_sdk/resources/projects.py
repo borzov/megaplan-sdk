@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.comment import Comment
@@ -249,6 +248,12 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             page_with: Load page containing this entity.
             page: Page position (replaces page_after/page_before/page_with).
             fields: Additional fields to include.
+
+                **Linked entities** (owner/responsible/manager/contractor):
+                the server deduplicates repeated entities within one response,
+                so ``fields=`` fills them only at the first occurrence per
+                page — repeats come back as bare references without ``name``
+                (#36). Use ``expand=`` when you need them fully populated.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["responsible", "owner"]).
@@ -291,18 +296,20 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         )
 
         projects = await self._get_list(path, Project, params)
+        self._warn_reduced_linked_fields(projects, fields, expand)
         return await self._expand_and_wrap(projects, expand)
 
-    async def get(self, project_id: int) -> Project:
+    async def get(self, project_id: int, fields: list[str] | None = None) -> Project:
         """Get project by ID.
 
         Args:
             project_id: Project identifier.
+            fields: Extra fields to request (e.g. ``["commentsCount"]``).
 
         Returns:
             Project details.
         """
-        return await self._get_entity("project", project_id, Project)
+        return await self._get_entity("project", project_id, Project, fields=fields)
 
     async def update(self, project_id: int, project_data: dict[str, Any]) -> Project:
         """Update project.
@@ -500,41 +507,6 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             page_after,
             page_before,
             page_with,
-        )
-
-    async def create_comment(
-        self,
-        project_id: int,
-        text: str,
-        attaches: list[dict[str, Any]] | None = None,
-    ) -> Comment:
-        """Create a comment for a project.
-
-        Args:
-            project_id: Project identifier.
-            text: Comment text.
-            attaches: List of file attachments.
-
-        Returns:
-            Created comment.
-
-        Examples:
-            >>> comment = await client.projects.create_comment(
-            ...     project_id=123,
-            ...     text="Project update"
-            ... )
-        """
-        warnings.warn(
-            "projects.create_comment() is deprecated and will be removed in 0.5.0; "
-            'use client.comments.create(entity_id=..., content=..., entity_type="project").',
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return await self._create_entity_comment(
-            "project",
-            project_id,
-            text,
-            attaches,
         )
 
     async def get_auditors(
@@ -817,6 +789,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         include_milestones: bool = False,
         include_responsible_details: bool = False,
         include_owner_details: bool = False,
+        resolve_participants: bool = True,
         comments_limit: int | None = None,
         history_limit: int | None = None,
     ) -> ProjectFullDetails:
@@ -837,6 +810,11 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             include_milestones: Load milestones list.
             include_responsible_details: Load full responsible (Employee) details.
             include_owner_details: Load full owner (Employee) details.
+            resolve_participants: Resolve ``auditors`` and ``executors`` to
+                full Employee objects via one cached batch (#35). On by
+                default — participant lists are small (3-8 entries) and the
+                related-list endpoint returns bare references otherwise.
+                Pass False to keep the raw references.
             comments_limit: Limit for comments (if included).
                 None = use global default (from MegaplanClient) or API default.
                 Explicit value overrides global default.
@@ -856,6 +834,12 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         Returns:
             ProjectFullDetails object with all requested data.
 
+        Note:
+            The card is requested with ``fields=["commentsCount"]`` so
+            ``details.comments_count`` is populated regardless of
+            ``comments_limit`` (#34). ``len(details.comments) <
+            details.comments_count`` reliably signals truncation.
+
         Examples:
             >>> # Get project with deals and tasks
             >>> details = await client.projects.get_full_details(
@@ -867,25 +851,35 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             >>> print(details.project.name)
             >>> print(len(details.deals))
         """
-        return await self._get_full_details_generic(
-            entity_id=project_id,
-            entity_getter="get",
-            full_details_class=ProjectFullDetails,
-            config=self._full_details_config,
-            main_entity_field="project",
-            include_deals=include_deals,
-            include_issues=include_issues,
-            include_actual_issues=include_actual_issues,
-            include_comments=include_comments,
-            include_history=include_history,
-            include_auditors=include_auditors,
-            include_executors=include_executors,
-            include_milestones=include_milestones,
-            include_responsible_details=include_responsible_details,
-            include_owner_details=include_owner_details,
-            comments_limit=comments_limit,
-            history_limit=history_limit,
+        details = cast(
+            ProjectFullDetails,
+            await self._get_full_details_generic(
+                entity_id=project_id,
+                entity_getter="get",
+                full_details_class=ProjectFullDetails,
+                config=self._full_details_config,
+                main_entity_field="project",
+                entity_getter_kwargs={"fields": ["commentsCount"]},
+                include_deals=include_deals,
+                include_issues=include_issues,
+                include_actual_issues=include_actual_issues,
+                include_comments=include_comments,
+                include_history=include_history,
+                include_auditors=include_auditors,
+                include_executors=include_executors,
+                include_milestones=include_milestones,
+                include_responsible_details=include_responsible_details,
+                include_owner_details=include_owner_details,
+                comments_limit=comments_limit,
+                history_limit=history_limit,
+            ),
         )
+        if resolve_participants:
+            if details.auditors:
+                details.auditors = await self._resolve_employee_entities(details.auditors)
+            if details.executors:
+                details.executors = await self._resolve_employee_entities(details.executors)
+        return details
 
     async def get_available_parents(
         self,
