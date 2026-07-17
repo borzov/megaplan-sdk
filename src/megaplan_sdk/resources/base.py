@@ -391,38 +391,6 @@ class BaseResource:
 
         return [Comment(**item) if isinstance(item, dict) else item for item in data]
 
-    async def _create_entity_comment(
-        self,
-        entity_type: str,
-        entity_id: int,
-        text: str,
-        attaches: "list[dict[str, Any]] | None" = None,
-        **extra_fields: Any,
-    ) -> "Comment":
-        """Generic method to create comment for any entity.
-
-        Args:
-            entity_type: API path segment.
-            entity_id: Entity identifier.
-            text: Comment text.
-            attaches: File attachments.
-            **extra_fields: Additional fields (e.g. work for tasks).
-
-        Returns:
-            Created comment.
-        """
-        from megaplan_sdk.models.comment import Comment
-
-        path = self._build_path("api", "v3", entity_type, str(entity_id), "comments")
-
-        comment_data: dict[str, Any] = {"content": text}
-        if attaches:
-            comment_data["attaches"] = attaches
-        comment_data.update(extra_fields)
-
-        response = await self._http.post(path, json_data=comment_data)
-        return Comment(**response["data"])
-
     async def _get_list(
         self,
         path: str,
