@@ -28,6 +28,7 @@ from megaplan_sdk.helpers import (
 )
 from megaplan_sdk.logging_config import setup_logging
 from megaplan_sdk.models.auth import AuthTokenResponse
+from megaplan_sdk.models.bulk import ApiCall, BulkCallResult
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.common import DateInterval, DateTime, Money
 from megaplan_sdk.models.contractor import Contractor, ContractorCompany, ContractorHuman
@@ -44,6 +45,12 @@ from megaplan_sdk.models.filter import (
     UserSetting,
 )
 from megaplan_sdk.models.group import Group
+from megaplan_sdk.models.history import (
+    BasedOnHistory,
+    Changeset,
+    FieldChange,
+    LinkEvent,
+)
 from megaplan_sdk.models.knowledge import (
     KnowledgeArticle,
     KnowledgeBase,
@@ -93,6 +100,12 @@ __all__ = [
     "KnowledgeBase",
     "KnowledgeArticle",
     "KnowledgeSectionWithArticles",
+    "ApiCall",
+    "BulkCallResult",
+    "Changeset",
+    "FieldChange",
+    "BasedOnHistory",
+    "LinkEvent",
     "Notification",
     "NotificationCounter",
     "NotificationEntityRef",

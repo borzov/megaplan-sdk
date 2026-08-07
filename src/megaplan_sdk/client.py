@@ -8,6 +8,7 @@ from megaplan_sdk.cache import EntityCache
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger, setup_logging
 from megaplan_sdk.models.auth import AuthTokenResponse
+from megaplan_sdk.models.bulk import BulkCallResult
 from megaplan_sdk.resources.attachments import AttachmentsResource
 from megaplan_sdk.resources.auth import AuthResource
 from megaplan_sdk.resources.comments import CommentsResource
@@ -205,6 +206,29 @@ class MegaplanClient:
             >>> notifications = body["data"]
         """
         return await self._http._request(method.upper(), path, params=query, json_data=json)
+
+    async def bulk(self, calls: list[Any]) -> list[BulkCallResult]:
+        """Send several API calls in one HTTP request (``POST /api/v3/bulk``).
+
+        Use it when the same call has to be made for many entities — links of N
+        deals, cards of N tasks — instead of a loop of N requests. Results keep
+        the order of ``calls``; each one carries its own status, so handle them
+        per element, not per batch.
+
+        Args:
+            calls: ApiCall models or dicts with method/url[/body].
+
+        Returns:
+            One result per call, in the same order.
+
+        Examples:
+            >>> results = await client.bulk(
+            ...     [{"method": "GET", "url": f"/api/v3/deal/{i}/linkedDeals"} for i in (86, 219)]
+            ... )
+            >>> [r.status for r in results]
+            [200, 200]
+        """
+        return await self.deals._bulk_calls(calls)
 
     async def close(self) -> None:
         """Close client and cleanup resources."""
