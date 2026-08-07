@@ -19,6 +19,7 @@ class ContentType:
     GROUP = "Group"
     KNOWLEDGE_BASE = "KnowledgeBase"
     KNOWLEDGE_ARTICLE = "KnowledgeArticle"
+    NOTIFICATION = "Notification"
 
     # Value types (not entities) that the API also tags with contentType
     DATE_TIME = "DateTime"
@@ -49,6 +50,19 @@ UNSUPPORTED_TASK_FIELDS: dict[str, tuple[str, ...]] = {
     "createdAt": ("timeCreated",),
     "created_at": ("timeCreated",),
     "dateCreated": ("timeCreated",),
+}
+
+# Field names the deal list endpoint rejects with a raw 422 (#BUG-3). Verified
+# on a live account 2026-08-07 by requesting each name via `fields=`: the rest
+# of the card fields (description, positions, comments, attaches, tags, ...)
+# are accepted. Maps each rejected name to the real Deal fields to suggest.
+UNSUPPORTED_DEAL_FIELDS: dict[str, tuple[str, ...]] = {
+    "deadline": ("stateTimeUpdated", "timeUpdated", "nearTodo"),
+    "responsible": ("manager",),
+    "createdAt": ("timeCreated",),
+    "created_at": ("timeCreated",),
+    "updatedAt": ("timeUpdated",),
+    "updated_at": ("timeUpdated",),
 }
 
 # Recommended `fields` set for tasks.list() so that date fields are populated.

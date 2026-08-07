@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger
+from megaplan_sdk.models.bulk import ApiCall, BulkCallResult
+from megaplan_sdk.models.history import BasedOnHistory, LinkEvent, parse_history_entry
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
@@ -53,60 +55,99 @@ class BaseResource:
     _page_content_type: str | None = None
 
     # Declarative expand pipeline (see _expand.py). Subclasses fill
-    # _expand_rules with field name -> ExpandRule. Wrap-mode resources also
-    # declare _details_model (the *FullDetails container) and _main_field (the
-    # container attribute holding the wrapped entity); without _details_model
-    # the engine runs in replace mode: loaded entities replace the reference
-    # fields on immutable copies.
+    # _expand_rules with field name -> ExpandRule; the engine loads the
+    # referenced entities and replaces the reference fields on immutable
+    # copies, so expand never changes the listed entity's type (#BUG-2).
     _expand_rules: ClassVar[dict[str, ExpandRule]] = {}
-    _details_model: ClassVar[type[Any] | None] = None
-    _main_field: ClassVar[str | None] = None
 
-    # Linked-entity reference fields that the server deduplicates within a
-    # single list() response (#36). Used by _warn_reduced_linked_fields.
-    _LINKED_REF_FIELDS: ClassVar[tuple[str, ...]] = (
-        "owner",
-        "responsible",
-        "manager",
-        "contractor",
-    )
+    # Field names this resource's list endpoint rejects with a raw 422, mapped
+    # to the fields to suggest instead. A blacklist, not an allowlist: custom
+    # category fields are unknowable in advance and must pass through.
+    _UNSUPPORTED_LIST_FIELDS: ClassVar[dict[str, tuple[str, ...]]] = {}
 
-    def _warn_reduced_linked_fields(
-        self,
-        entities: list[Any],
-        fields: Any | None,
-        expand: list[str] | None,
-    ) -> None:
-        """Warn when a linked field ordered via ``fields=`` came back deduplicated.
+    def _validate_list_fields(self, fields: Any | None) -> None:
+        """Reject ``fields=`` values the list endpoint answers with a raw 422.
 
-        The server embeds a repeated linked entity fully only at its first
-        occurrence per response; later repeats are bare ``{contentType, id}``
-        references (#36). The signature — the same id appearing both named and
-        bare — is unambiguous, so there are no false positives. ``expand=``
-        resolves the references and silences the warning.
+        Args:
+            fields: Value passed to ``list(fields=...)``.
+
+        Raises:
+            ValueError: If a field is known-unsupported, naming the fields to
+                use instead and where the data is available.
         """
         if not fields or not isinstance(fields, list | tuple):
             return
-        expanded = set(expand or [])
-        for field_name in self._LINKED_REF_FIELDS:
-            if field_name not in fields or field_name in expanded:
+        entity = self._page_content_type or type(self).__name__
+        for field in fields:
+            if not isinstance(field, str):
                 continue
-            named_ids: set[int] = set()
-            bare_ids: set[int] = set()
-            for entity in entities:
-                ref = getattr(entity, field_name, None)
-                if ref is None or not hasattr(ref, "id"):
-                    continue
-                if getattr(ref, "name", None):
-                    named_ids.add(ref.id)
-                else:
-                    bare_ids.add(ref.id)
-            if named_ids & bare_ids:
-                logger.warning(
-                    f"fields=['{field_name}'] returned server-deduplicated bare "
-                    f"references for repeated ids; use expand=['{field_name}'] "
-                    f"to load them fully (#36)"
+            suggestions = self._UNSUPPORTED_LIST_FIELDS.get(field)
+            if suggestions:
+                raise ValueError(
+                    f"{entity} list endpoint has no field '{field}' (API returns 422). "
+                    f"Did you mean: {', '.join(suggestions)}? "
+                    f"Card-only data is available via get()."
                 )
+
+    def _backfill_deduplicated_refs(self, data: list[Any]) -> list[Any]:
+        """Fill bare entity references from their full form elsewhere in the page.
+
+        The server embeds a repeated entity fully only once per response; every
+        later mention — in another field, another item, or nested inside another
+        entity — arrives as a bare ``{contentType, id}`` (#36). The full object
+        is already in the payload, so the repeats are repaired locally, without
+        an extra request (#BUG-4). Verified on the stand: for a page of 30 deals
+        every bare ``manager`` had a full form somewhere in the same response,
+        which is why the whole payload is scanned and not just the top level.
+
+        Args:
+            data: Raw list payload as returned by the API.
+
+        Returns:
+            The payload with bare references replaced by their full form.
+        """
+        full_forms: dict[tuple[str, str], dict[str, Any]] = {}
+
+        def collect(node: Any) -> None:
+            if isinstance(node, dict):
+                key = self._ref_key(node)
+                if key is not None and not self._is_bare_ref(node):
+                    known = full_forms.get(key)
+                    if known is None or len(node) > len(known):
+                        full_forms[key] = node
+                for value in node.values():
+                    collect(value)
+            elif isinstance(node, list):
+                for value in node:
+                    collect(value)
+
+        def repair(node: Any) -> Any:
+            if isinstance(node, dict):
+                key = self._ref_key(node)
+                if key is not None and self._is_bare_ref(node):
+                    return full_forms.get(key, node)
+                return {name: repair(value) for name, value in node.items()}
+            if isinstance(node, list):
+                return [repair(value) for value in node]
+            return node
+
+        collect(data)
+        if not full_forms:
+            return data
+        return [repair(item) for item in data]
+
+    @staticmethod
+    def _ref_key(node: dict[str, Any]) -> tuple[str, str] | None:
+        """Identity of an entity reference: (contentType, id), or None."""
+        content_type, entity_id = node.get("contentType"), node.get("id")
+        if isinstance(content_type, str) and isinstance(entity_id, str | int):
+            return content_type, str(entity_id)
+        return None
+
+    @staticmethod
+    def _is_bare_ref(node: dict[str, Any]) -> bool:
+        """Whether the node carries nothing but contentType and id."""
+        return set(node) <= {"contentType", "id"}
 
     def _build_path(self, *parts: str) -> str:
         """Build API path from parts.
@@ -408,7 +449,7 @@ class BaseResource:
             List of model instances.
         """
         response = await self._http.get(path, params=params)
-        data = self._parse_list_response(response)
+        data = self._backfill_deduplicated_refs(self._parse_list_response(response))
 
         return [model_class(**item) if isinstance(item, dict) else item for item in data]
 
@@ -938,6 +979,163 @@ class BaseResource:
         response = await self._http.get(path, params=params if params else None)
         return self._parse_list_response(response)
 
+    async def _bulk_calls(self, calls: list[Any]) -> list[BulkCallResult]:
+        """Send several API calls in one request to ``POST /api/v3/bulk``.
+
+        Results keep the order of ``calls`` and each carries its own status, so
+        a failing call does not sink the batch (verified 2026-08-07).
+
+        Args:
+            calls: ApiCall models or dicts with method/url[/body].
+
+        Returns:
+            One result per call, in the same order.
+        """
+        payload = {
+            "contentType": "BulkApiCall",
+            "calls": [
+                (call if isinstance(call, ApiCall) else ApiCall(**call)).to_payload()
+                for call in calls
+            ],
+        }
+        response = await self._http.post(self._build_path("api", "v3", "bulk"), json_data=payload)
+        return [BulkCallResult.from_payload(item) for item in response.get("data") or []]
+
+    async def _get_linked_entities(
+        self,
+        entity_id: int,
+        subresource: str,
+        model_class: type[T],
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[T]:
+        """Fetch a related-entity subresource of this resource's entity.
+
+        Args:
+            entity_id: Identifier of the owning entity.
+            subresource: Subresource name, e.g. "linkedDeals".
+            model_class: Model the returned entities are parsed into.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to request from the API.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            Parsed related entities.
+        """
+        entity_type = (self._page_content_type or "").lower()
+        path = self._build_path("api", "v3", entity_type, str(entity_id), subresource)
+        params = self._build_list_params(
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+        return await self._get_list(path, model_class, params)
+
+    async def _iterate_entity_history(
+        self,
+        entity_type: str,
+        entity_id: int,
+        limit: int = 100,
+        raw: bool = False,
+    ) -> AsyncIterator[Any]:
+        """Iterate the whole journal of an entity, page by page.
+
+        Args:
+            entity_type: API resource type (e.g. "task", "deal").
+            entity_id: Entity identifier.
+            limit: Number of entries per page.
+            raw: Yield untouched payloads instead of parsed entries.
+
+        Yields:
+            Journal entries, newest first.
+        """
+        page_after: dict[str, Any] | None = None
+        while True:
+            page = await self._get_entity_history(entity_type, entity_id, limit, page_after)
+            if not page:
+                return
+            for payload in page:
+                yield payload if raw else parse_history_entry(payload)
+            if len(page) < limit:
+                return
+            last = page[-1]
+            last_id = last.get("id")
+            if last_id is None:
+                logger.warning("History entry without id during pagination; stopping")
+                return
+            page_after = {"contentType": last.get("contentType"), "id": last_id}
+
+    async def _get_link_events(
+        self,
+        entity_type: str,
+        entity_id: int,
+        since_id: int | None = None,
+        since_time: str | None = None,
+        limit: int = 100,
+    ) -> list[LinkEvent]:
+        """Extract link/unlink events for an entity from its journal.
+
+        The journal is the only place where a *single* link change is visible:
+        the entity card exposes no list of related entities, so without this
+        two states would have to be diffed (#link-tracking). Verified on the
+        stand 2026-08-05: BasedOnHistory records appear on both sides of a link
+        and carry ``unlink`` for removals.
+
+        Args:
+            entity_type: API resource type (e.g. "deal").
+            entity_id: Entity identifier.
+            since_id: Return only events with a larger BasedOnHistory id.
+            since_time: Return only events created strictly after this
+                ISO-8601 timestamp.
+            limit: Number of journal entries per page.
+
+        Returns:
+            Link events, oldest page first, in journal order.
+        """
+        events: list[LinkEvent] = []
+        async for entry in self._iterate_entity_history(entity_type, entity_id, limit):
+            if not isinstance(entry, BasedOnHistory):
+                continue
+            if since_id is not None and (entry.id is None or entry.id <= since_id):
+                continue
+            if since_time is not None and (
+                entry.time_created is None or entry.time_created.value <= since_time
+            ):
+                continue
+            is_source = (
+                entry.based_model is not None
+                and entry.based_model.id == entity_id
+                and entry.based_model.content_type == (self._page_content_type or "")
+            )
+            other = entry.generated_model if is_source else entry.based_model
+            if other is None:
+                continue
+            events.append(
+                LinkEvent(
+                    id=entry.id,
+                    time=entry.time_created,
+                    user=entry.user,
+                    unlink=entry.unlink,
+                    other=other,
+                    is_source=is_source,
+                    description=entry.description,
+                )
+            )
+        return events
+
     async def _search_entity_history(
         self,
         entity_type: str,
@@ -1035,7 +1233,7 @@ class BaseResource:
         data = response.get("data", {})
         return data if isinstance(data, dict) else {}
 
-    async def _expand_and_wrap(
+    async def _expand_references(
         self,
         entities: list[Any],
         expand: list[str] | None,
@@ -1043,11 +1241,9 @@ class BaseResource:
         """Run the declarative expand pipeline over listed entities.
 
         Loads the reference fields requested in ``expand`` per ``_expand_rules``
-        (cache-first, batched), then assembles the result. Wrap mode
-        (``_details_model`` declared): each entity is wrapped into the details
-        container with loaded relatives in the rules' ``details_field``s.
-        Replace mode: reference fields are replaced with loaded entities on
-        immutable copies of the listed entities.
+        (cache-first, batched), then replaces those references with the loaded
+        entities on immutable copies. The listed entity keeps its type, so
+        ``list(expand=[...])`` returns the same model as ``list()`` (#BUG-2).
 
         Args:
             entities: Listed entities to expand.
@@ -1055,8 +1251,7 @@ class BaseResource:
                 None or empty list returns ``entities`` unchanged.
 
         Returns:
-            List of details containers (wrap mode) or entity copies
-            (replace mode).
+            Copies of the entities with the requested references loaded.
         """
         if not expand or not entities:
             return entities
@@ -1076,34 +1271,7 @@ class BaseResource:
                     refs, rule.entity_type, rule.model
                 )
 
-        if self._details_model is not None:
-            return self._wrap_into_details(entities, loaded_maps)
         return self._replace_references(entities, loaded_maps)
-
-    def _wrap_into_details(
-        self,
-        entities: list[Any],
-        loaded_maps: dict[str, dict[int, Any]],
-    ) -> list[Any]:
-        """Wrap entities into the details container with loaded relatives."""
-        if self._details_model is None or self._main_field is None:
-            raise TypeError(
-                f"{type(self).__name__} must declare _details_model and _main_field "
-                "to use wrap mode"
-            )
-        results: list[Any] = []
-        for entity in entities:
-            kwargs: dict[str, Any] = {self._main_field: entity}
-            for field_name, rule in self._expand_rules.items():
-                if rule.details_field is None:
-                    continue
-                ref = getattr(entity, field_name, None)
-                loaded = loaded_maps.get(field_name, {})
-                kwargs[rule.details_field] = (
-                    loaded.get(ref.id) if ref is not None and hasattr(ref, "id") else None
-                )
-            results.append(self._details_model(**kwargs))
-        return results
 
     def _replace_references(
         self,

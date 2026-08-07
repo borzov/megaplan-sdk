@@ -135,7 +135,7 @@ class EmployeesResource(BaseResource):
         )
 
         employees = await self._get_list(path, Employee, params)
-        return await self._expand_and_wrap(employees, expand)
+        return await self._expand_references(employees, expand)
 
     async def get(self, employee_id: int) -> Employee:
         """Get employee by ID.

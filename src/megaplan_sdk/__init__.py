@@ -1,5 +1,6 @@
 """Megaplan Python SDK - Professional SDK for Megaplan API v3."""
 
+from megaplan_sdk._notification_links import NotificationEntityRef
 from megaplan_sdk.client import MegaplanClient
 from megaplan_sdk.constants import DEFAULT_SORT_RECENT, DEFAULT_TASK_LIST_FIELDS
 from megaplan_sdk.exceptions import (
@@ -24,11 +25,13 @@ from megaplan_sdk.helpers import (
     make_entity,
     make_project_entity,
     make_task_entity,
+    normalize_state_name,
 )
 from megaplan_sdk.logging_config import setup_logging
 from megaplan_sdk.models.auth import AuthTokenResponse
+from megaplan_sdk.models.bulk import ApiCall, BulkCallResult
 from megaplan_sdk.models.comment import Comment
-from megaplan_sdk.models.common import DateInterval, DateTime, Money
+from megaplan_sdk.models.common import DateInterval, DateOnly, DateTime, Money
 from megaplan_sdk.models.contractor import Contractor, ContractorCompany, ContractorHuman
 from megaplan_sdk.models.deal import Deal, DealFullDetails
 from megaplan_sdk.models.department import Department
@@ -43,12 +46,23 @@ from megaplan_sdk.models.filter import (
     UserSetting,
 )
 from megaplan_sdk.models.group import Group
+from megaplan_sdk.models.history import (
+    BasedOnHistory,
+    Changeset,
+    FieldChange,
+    LinkEvent,
+)
 from megaplan_sdk.models.knowledge import (
     KnowledgeArticle,
     KnowledgeBase,
     KnowledgeSectionWithArticles,
 )
 from megaplan_sdk.models.milestone import Milestone
+from megaplan_sdk.models.notification import (
+    Notification,
+    NotificationCounter,
+    NotificationType,
+)
 from megaplan_sdk.models.participant import Participant, parse_participant, parse_participants
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task, TaskFullDetails
@@ -87,10 +101,21 @@ __all__ = [
     "KnowledgeBase",
     "KnowledgeArticle",
     "KnowledgeSectionWithArticles",
+    "ApiCall",
+    "BulkCallResult",
+    "Changeset",
+    "FieldChange",
+    "BasedOnHistory",
+    "LinkEvent",
+    "Notification",
+    "NotificationCounter",
+    "NotificationEntityRef",
+    "NotificationType",
     "Participant",
     "parse_participant",
     "parse_participants",
     "DateInterval",
+    "DateOnly",
     "DateTime",
     # Pagination
     "Page",
@@ -114,6 +139,7 @@ __all__ = [
     "make_task_entity",
     "make_deal_entity",
     "make_contractor_entity",
+    "normalize_state_name",
     # Filter Builder
     "FilterBuilder",
     "TaskFilterBuilder",
@@ -124,4 +150,4 @@ __all__ = [
     "DEFAULT_TASK_LIST_FIELDS",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

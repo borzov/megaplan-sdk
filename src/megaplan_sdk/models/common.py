@@ -1,5 +1,6 @@
 """Common models for Megaplan SDK."""
 
+import datetime
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -79,6 +80,38 @@ class File(BaseModel):
     size: int | None = None
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+
+class DateOnly(BaseModel):
+    """Calendar date without a time component (birthdays, deadlines by day).
+
+    The year can be missing or nonsense on real accounts, so ``month``/``day``
+    stay usable independently of it and ``date`` is None when no valid calendar
+    date can be built.
+
+    Attributes:
+        content_type: Always "DateOnly".
+        year: Year, if the account has one.
+        month: Month number.
+        day: Day of month.
+    """
+
+    content_type: str = Field(alias="contentType", default="DateOnly")
+    year: int | None = None
+    month: int | None = None
+    day: int | None = None
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    @property
+    def date(self) -> "datetime.date | None":
+        """The value as ``datetime.date``, or None if it is not a valid date."""
+        if self.year is None or self.month is None or self.day is None:
+            return None
+        try:
+            return datetime.date(self.year, self.month, self.day)
+        except ValueError:
+            return None
 
 
 class DateTime(BaseModel):

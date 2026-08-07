@@ -1,12 +1,14 @@
 """Main client for Megaplan SDK."""
 
 from types import TracebackType
+from typing import Any
 
 from megaplan_sdk.auth import AuthManager
 from megaplan_sdk.cache import EntityCache
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger, setup_logging
 from megaplan_sdk.models.auth import AuthTokenResponse
+from megaplan_sdk.models.bulk import BulkCallResult
 from megaplan_sdk.resources.attachments import AttachmentsResource
 from megaplan_sdk.resources.auth import AuthResource
 from megaplan_sdk.resources.comments import CommentsResource
@@ -17,6 +19,7 @@ from megaplan_sdk.resources.employees import EmployeesResource
 from megaplan_sdk.resources.filters import FiltersResource
 from megaplan_sdk.resources.knowledge_article import KnowledgeArticleResource
 from megaplan_sdk.resources.knowledge_base import KnowledgeBaseResource
+from megaplan_sdk.resources.notifications import NotificationsResource
 from megaplan_sdk.resources.projects import ProjectsResource
 from megaplan_sdk.resources.tasks import TasksResource
 
@@ -123,6 +126,7 @@ class MegaplanClient:
         self.departments = DepartmentsResource(self._http, cache=self._cache)
         self.filters = FiltersResource(self._http, cache=self._cache)
         self.attachments = AttachmentsResource(self._http, cache=self._cache)
+        self.notifications = NotificationsResource(self._http, cache=self._cache)
         self.knowledge_article = KnowledgeArticleResource(self._http, cache=self._cache)
         self.knowledge_base = KnowledgeBaseResource(
             self._http, cache=self._cache, article_resource=self.knowledge_article
@@ -173,6 +177,58 @@ class MegaplanClient:
             subsequent authentications.
         """
         return await self._auth_manager.authenticate(username, password)
+
+    async def raw(
+        self,
+        method: str,
+        path: str,
+        query: dict[str, Any] | None = None,
+        json: dict[str, Any] | list[Any] | None = None,
+    ) -> dict[str, Any]:
+        """Call an API endpoint that has no dedicated resource yet.
+
+        Keeps token refresh, retries and ``meta.errors`` handling — the reason
+        to use this instead of a second HTTP client alongside the SDK. ``query``
+        is encoded into Megaplan's query literal (``?{"limit": 60}``); do not
+        build that literal yourself.
+
+        Args:
+            method: HTTP method (GET, POST, PUT, PATCH, DELETE).
+            path: Full API path, e.g. ``/api/v3/notification``.
+            query: Query parameters, encoded as the Megaplan JSON literal.
+            json: Request body for POST/PUT/PATCH.
+
+        Returns:
+            Parsed response body including ``meta`` and ``data``.
+
+        Examples:
+            >>> body = await client.raw("GET", "/api/v3/notification", query={"limit": 60})
+            >>> notifications = body["data"]
+        """
+        return await self._http._request(method.upper(), path, params=query, json_data=json)
+
+    async def bulk(self, calls: list[Any]) -> list[BulkCallResult]:
+        """Send several API calls in one HTTP request (``POST /api/v3/bulk``).
+
+        Use it when the same call has to be made for many entities — links of N
+        deals, cards of N tasks — instead of a loop of N requests. Results keep
+        the order of ``calls``; each one carries its own status, so handle them
+        per element, not per batch.
+
+        Args:
+            calls: ApiCall models or dicts with method/url[/body].
+
+        Returns:
+            One result per call, in the same order.
+
+        Examples:
+            >>> results = await client.bulk(
+            ...     [{"method": "GET", "url": f"/api/v3/deal/{i}/linkedDeals"} for i in (86, 219)]
+            ... )
+            >>> [r.status for r in results]
+            [200, 200]
+        """
+        return await self.deals._bulk_calls(calls)
 
     async def close(self) -> None:
         """Close client and cleanup resources."""

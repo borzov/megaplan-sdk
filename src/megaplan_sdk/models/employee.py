@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import ConfigDict, Field
 
 from megaplan_sdk.models.base import BaseEntity
-from megaplan_sdk.models.common import DateTime, TimestampMixin
+from megaplan_sdk.models.common import DateOnly, DateTime, TimestampMixin
 
 
 class Employee(BaseEntity, TimestampMixin):
@@ -22,7 +22,8 @@ class Employee(BaseEntity, TimestampMixin):
         position: Job position.
         department: Department entity.
         manager: Direct manager entity.
-        birthday: Birth date (DateOnly entity with year, month, day fields).
+        birthday: Birth date; ``.date`` gives a ``datetime.date`` when the
+            account holds a valid year (#FR-G).
         hired_at: Hire date.
         fired_at: Termination date.
         status: Employment status (EmployeeStatus entity with name, masterType).
@@ -52,7 +53,7 @@ class Employee(BaseEntity, TimestampMixin):
     position: str | None = None
     department: BaseEntity | None = None
     manager: BaseEntity | None = None
-    birthday: dict[str, Any] | None = None  # DateOnly entity (year, month, day)
+    birthday: DateOnly | None = None
     hired_at: str | DateTime | None = Field(alias="hiredAt", default=None)
     fired_at: str | DateTime | None = Field(alias="firedAt", default=None)
     status: BaseEntity | None = None  # EmployeeStatus entity

@@ -81,17 +81,24 @@ class TestHTTPClientOpen:
             await client.close()
 
 
-class TestRelatedTasksNotImplemented:
-    """include_related_tasks must fail loudly: the API has no tasks-by-deal filter.
+class TestRelatedTasksUseLinkedTasks:
+    """include_related_tasks must go through the linkedTasks subresource.
 
-    Verified empirically (2026-07-02, ruvents): every baseOn wire format is
-    either silently ignored (returns ALL account tasks) or rejected with 422;
-    the server states Task has no deal/trade/baseOn fields. The old
-    implementation therefore returned unrelated tasks.
+    The tasks-by-deal *filter* does not exist (verified 2026-07-02, ruvents:
+    every baseOn wire format is either silently ignored — returning ALL account
+    tasks — or rejected with 422). The subresource does (verified 2026-08-05),
+    so the deal's tasks must be read from there and never from a filtered list.
     """
 
-    async def test_include_related_tasks_raises_not_implemented(self, megaplan_api, deals):
+    async def test_include_related_tasks_calls_linked_tasks_route(self, megaplan_api, deals):
         megaplan_api.get("deal/5", data={"id": 5, "contentType": "Deal", "name": "Deal"})
+        linked = megaplan_api.get(
+            "deal/5/linkedTasks", data=[{"id": 7, "contentType": "Task", "name": "Linked"}]
+        )
+        listing = megaplan_api.get("task", data=[{"id": 999, "contentType": "Task"}])
 
-        with pytest.raises(NotImplementedError, match="related"):
-            await deals.get_full_details(5, include_related_tasks=True)
+        details = await deals.get_full_details(5, include_related_tasks=True)
+
+        assert linked.call_count == 1
+        assert listing.call_count == 0, "deal tasks must not come from the task list endpoint"
+        assert [task.id for task in details.related_tasks] == [7]

@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, cast, overload
+from typing import Any, cast
 
-from megaplan_sdk.constants import DEFAULT_SORT_RECENT, ContentType
+from megaplan_sdk.constants import (
+    DEFAULT_SORT_RECENT,
+    UNSUPPORTED_DEAL_FIELDS,
+    ContentType,
+)
+from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
 from megaplan_sdk.models.employee import Employee
+from megaplan_sdk.models.history import LinkEvent, parse_history_entry
+from megaplan_sdk.models.task import Task
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
@@ -24,12 +31,12 @@ class DealsResource(BaseResource, FullDetailsMixin):
     _page_content_type = ContentType.DEAL
     _filter_content_type = filter_content_type_for("deal")
 
+    _UNSUPPORTED_LIST_FIELDS = UNSUPPORTED_DEAL_FIELDS
+
     _expand_rules = {
-        "manager": ExpandRule("employee", Employee, details_field="manager_details"),
-        "contractor": ExpandRule("contractor", Contractor, details_field="contractor_details"),
+        "manager": ExpandRule("employee", Employee),
+        "contractor": ExpandRule("contractor", Contractor),
     }
-    _details_model = DealFullDetails
-    _main_field = "deal"
 
     def __init__(
         self,
@@ -84,21 +91,16 @@ class DealsResource(BaseResource, FullDetailsMixin):
             ),
         ]
 
-    async def _fetch_related_tasks(self, deal_id: int, **kwargs: Any) -> Any:
-        """Related tasks cannot be fetched — the API has no tasks-by-deal filter.
+    async def _fetch_related_tasks(self, deal_id: int, **kwargs: Any) -> list[Task]:
+        """Load the deal's tasks from the dedicated ``linkedTasks`` subresource.
 
-        Verified empirically (2026-07-02): every baseOn wire format is either
-        silently ignored (the endpoint returns ALL account tasks) or rejected
-        with 422; the server reports Task has no deal/trade/baseOn fields, and
-        the deal side exposes only tasksCount. The previous implementation
-        silently returned unrelated tasks.
+        There is still no tasks-by-deal *filter* (every baseOn wire format is
+        either silently ignored or rejected with 422, verified 2026-07-02), so
+        the list endpoint cannot answer this. The subresource can: verified on
+        the stand 2026-08-05, ``/deal/{id}/linkedTasks`` returns exactly the
+        tasks counted by ``tasksCount``.
         """
-        raise NotImplementedError(
-            "Megaplan API has no working tasks-by-deal (baseOn) filter: object "
-            "configs are silently ignored and string configs are rejected with "
-            "422. include_related_tasks previously returned ALL account tasks. "
-            "Use deal.tasksCount for the count; there is no way to list the tasks."
-        )
+        return await self.get_linked_tasks(deal_id)
 
     async def create(self, deal_data: dict[str, Any]) -> Deal:
         """Create a new deal.
@@ -110,46 +112,6 @@ class DealsResource(BaseResource, FullDetailsMixin):
             Created deal.
         """
         return await self._create_entity("deal", deal_data, Deal)
-
-    @overload
-    async def list(
-        self,
-        *,
-        filter: FilterType | None = None,
-        status: ProgramState | None = None,
-        q: str | None = None,
-        q_in: list[str] | None = None,
-        base_on: dict[str, Any] | None = None,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-        page: Page | None = None,
-        fields: Any | None = None,
-        sort_by: list[dict[str, str]] | None = None,
-        only_requested_fields: bool | None = None,
-        expand: None = None,
-    ) -> list[Deal]: ...
-
-    @overload
-    async def list(
-        self,
-        *,
-        filter: FilterType | None = None,
-        status: ProgramState | None = None,
-        q: str | None = None,
-        q_in: list[str] | None = None,
-        base_on: dict[str, Any] | None = None,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-        page: Page | None = None,
-        fields: Any | None = None,
-        sort_by: list[dict[str, str]] | None = None,
-        only_requested_fields: bool | None = None,
-        expand: list[str],
-    ) -> list[DealFullDetails]: ...
 
     async def list(
         self,
@@ -167,7 +129,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         expand: list[str] | None = None,
-    ) -> list[Deal] | list[DealFullDetails]:
+    ) -> list[Deal]:
         """Get list of deals.
 
         Args:
@@ -195,34 +157,37 @@ class DealsResource(BaseResource, FullDetailsMixin):
                 ``result``, ``shortDescription``, ``stateTimeUpdated``.
 
                 **Linked entities** (owner/responsible/manager/contractor):
-                the server deduplicates repeated entities within one response,
-                so ``fields=`` fills them only at the first occurrence per
-                page — repeats come back as bare references without ``name``
-                (#36). Use ``expand=`` when you need them fully populated.
+                the server embeds a repeated entity fully only at its first
+                occurrence per response (#36); the SDK fills the repeats from
+                it, so every reference on the page carries its ``name``
+                (#BUG-4). Use ``expand=`` to load the entities in full.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["manager", "contractor"]).
                 Supported values: "manager", "contractor".
-                If provided, returns list[DealFullDetails] instead of list[Deal].
+                The loaded entities replace the bare references on the
+                returned Deal objects — the type never changes (#BUG-2).
 
         Returns:
-            List of deals (list[Deal] if expand is None, list[DealFullDetails] otherwise).
+            List of Deal objects, with expanded references loaded in place.
 
         Examples:
             >>> # Get deals without expansion
             >>> deals = await client.deals.list(limit=10)
             >>>
-            >>> # Get deals with expanded manager and contractor
-            >>> deals_full = await client.deals.list(
+            >>> # Get deals with manager and contractor loaded in place
+            >>> deals = await client.deals.list(
             ...     limit=10, expand=["manager", "contractor"]
             ... )
-            >>> for deal_full in deals_full:
-            ...     if deal_full.manager_details:
-            ...         print(deal_full.manager_details.display_name())
-            ...     if deal_full.contractor_details:
-            ...         print(deal_full.contractor_details.display_name())
+            >>> for deal in deals:
+            ...     if deal.manager:
+            ...         print(deal.manager.display_name())
+            ...     if deal.contractor:
+            ...         print(deal.contractor.display_name())
         """
         path = self._build_path("api", "v3", "deal")
+
+        self._validate_list_fields(fields)
 
         # #14: default to newest-first; sort_by=[] opts out.
         if sort_by is None:
@@ -265,8 +230,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         )
 
         deals = await self._get_list(path, Deal, params)
-        self._warn_reduced_linked_fields(deals, fields, expand)
-        return await self._expand_and_wrap(deals, expand)
+        return await self._expand_references(deals, expand)
 
     async def get(self, deal_id: int, fields: list[str] | None = None) -> Deal:
         """Get deal by ID.
@@ -592,8 +556,14 @@ class DealsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Get history log for a deal.
+        raw: bool = False,
+    ) -> list[Any]:
+        """Get the journal of a deal.
+
+        The stream is mixed: ``Changeset`` (field changes), ``BasedOnHistory``
+        (link/unlink), comments, trigger logs. Known types are parsed; unknown
+        ones are returned as raw dicts, so a new server-side type never breaks
+        the call.
 
         Args:
             deal_id: Deal identifier.
@@ -601,16 +571,246 @@ class DealsResource(BaseResource, FullDetailsMixin):
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
+            raw: Return untouched payloads (pre-0.6.0 behaviour).
 
         Returns:
-            List of history entries.
+            Journal entries, newest first.
 
         Examples:
             >>> history = await client.deals.get_history(deal_id=123, limit=10)
+            >>> [entry for entry in history if getattr(entry, "unlink", None) is True]
         """
-        return await self._get_entity_history(
+        entries = await self._get_entity_history(
             "deal", deal_id, limit, page_after, page_before, page_with
         )
+        if raw:
+            return list(entries)
+        return [parse_history_entry(entry) for entry in entries]
+
+    async def iterate_history(
+        self,
+        deal_id: int,
+        limit: int = 100,
+        raw: bool = False,
+    ) -> AsyncIterator[Any]:
+        """Iterate the deal's journal with automatic pagination.
+
+        Args:
+            deal_id: Deal identifier.
+            limit: Number of entries per page.
+            raw: Yield untouched payloads instead of parsed entries.
+
+        Yields:
+            Journal entries, newest first.
+        """
+        async for entry in self._iterate_entity_history("deal", deal_id, limit, raw):
+            yield entry
+
+    async def get_link_events(
+        self,
+        deal_id: int,
+        since_id: int | None = None,
+        since_time: str | None = None,
+        limit: int = 100,
+    ) -> list[LinkEvent]:
+        """Get link/unlink events for a deal.
+
+        Megaplan has no webhook for linking (the app event streams only carry
+        on_after_create/update/drop) and the deal card exposes no list of
+        related entities — only counters. The journal does record every link
+        change, so this is the way to learn *which* link appeared or
+        disappeared without diffing two states of the deal.
+
+        Args:
+            deal_id: Deal identifier.
+            since_id: Return only events newer than this event id — store the
+                largest id seen to poll incrementally.
+            since_time: Return only events created strictly after this
+                ISO-8601 timestamp.
+            limit: Number of journal entries fetched per page.
+
+        Returns:
+            Link events, newest first.
+
+        Examples:
+            >>> events = await client.deals.get_link_events(deal_id=219, since_id=1096)
+            >>> for event in events:
+            ...     verb = "отвязал" if event.unlink else "привязал"
+            ...     print(verb, event.other.content_type, event.other.id)
+        """
+        return await self._get_link_events("deal", deal_id, since_id, since_time, limit)
+
+    async def get_linked_deals(
+        self,
+        deal_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Deal]:
+        """Get deals currently linked to this deal.
+
+        Args:
+            deal_id: Deal identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to request from the API.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            Linked deals.
+        """
+        return await self._get_linked_entities(
+            deal_id,
+            "linkedDeals",
+            Deal,
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+
+    async def get_linked_tasks(
+        self,
+        deal_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Task]:
+        """Get tasks linked to this deal.
+
+        The task list endpoint cannot answer this — there is no tasks-by-deal
+        filter (every baseOn wire format is ignored or 422s) — but this
+        subresource returns exactly the tasks counted by ``tasksCount``.
+
+        Args:
+            deal_id: Deal identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to request from the API.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            Linked tasks.
+        """
+        return await self._get_linked_entities(
+            deal_id,
+            "linkedTasks",
+            Task,
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+
+    async def get_actual_linked_tasks(
+        self,
+        deal_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        fields: Any | None = None,
+        sort_by: list[dict[str, str]] | None = None,
+        only_requested_fields: bool | None = None,
+    ) -> list[Task]:
+        """Get the deal's actual (not finished/dropped) linked tasks.
+
+        Args:
+            deal_id: Deal identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            fields: Additional fields to request from the API.
+            sort_by: Sort fields.
+            only_requested_fields: Return only requested fields.
+
+        Returns:
+            Actual linked tasks.
+        """
+        return await self._get_linked_entities(
+            deal_id,
+            "actualLinkedTasks",
+            Task,
+            limit=limit,
+            page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
+            fields=fields,
+            sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
+        )
+
+    async def get_linked_deals_many(self, deal_ids: list[int]) -> dict[int, list[Deal]]:
+        """Get linked deals for several deals in one HTTP request.
+
+        Removes the N+1 pattern when walking a portfolio or a link graph: the
+        API has no server-side join, but ``POST /api/v3/bulk`` batches the N
+        subresource calls into one round trip. Deals whose call failed (no
+        access, deleted) are omitted rather than reported as unlinked.
+
+        Args:
+            deal_ids: Deal identifiers.
+
+        Returns:
+            Mapping of deal id to its linked deals.
+
+        Examples:
+            >>> links = await client.deals.get_linked_deals_many([86, 219])
+            >>> len(links[86])
+            1
+        """
+        if not deal_ids:
+            return {}
+        results = await self._bulk_calls(
+            [
+                {"method": "GET", "url": f"/api/v3/deal/{deal_id}/linkedDeals"}
+                for deal_id in deal_ids
+            ]
+        )
+        linked: dict[int, list[Deal]] = {}
+        for deal_id, result in zip(deal_ids, results, strict=False):
+            if not result.is_success:
+                logger.warning(
+                    f"bulk linkedDeals for deal {deal_id} returned {result.status}; skipped"
+                )
+                continue
+            linked[deal_id] = [Deal(**item) for item in result.data or []]
+        return linked
+
+    async def get_based_on_linked_deals(self, deal_id: int) -> list[int]:
+        """Get ids of deals created on the basis of this deal.
+
+        Args:
+            deal_id: Deal identifier.
+
+        Returns:
+            Deal ids, in the order returned by the server.
+        """
+        path = self._build_path("api", "v3", "deal", str(deal_id), "basedOnLinkedDeals")
+        response = await self._http.get(path)
+        data = response.get("data") or {}
+        return [int(value) for value in data.get("value", [])]
 
     async def search_history(
         self,

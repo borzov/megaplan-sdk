@@ -16,6 +16,7 @@ from megaplan_sdk.resources.departments import DepartmentsResource
 from megaplan_sdk.resources.employees import EmployeesResource
 from megaplan_sdk.resources.filters import FiltersResource
 from megaplan_sdk.resources.knowledge_base import KnowledgeBaseResource
+from megaplan_sdk.resources.notifications import NotificationsResource
 from megaplan_sdk.resources.projects import ProjectsResource
 from megaplan_sdk.resources.tasks import TasksResource
 
@@ -202,6 +203,12 @@ def comments(http_client: HTTPClient) -> CommentsResource:
 def filters(http_client: HTTPClient) -> FiltersResource:
     """Filters resource over the mocked API."""
     return FiltersResource(http_client)
+
+
+@pytest.fixture
+def notifications(http_client: HTTPClient) -> NotificationsResource:
+    """Notifications resource over the mocked API."""
+    return NotificationsResource(http_client)
 
 
 @pytest.fixture
