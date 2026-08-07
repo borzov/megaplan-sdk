@@ -25,12 +25,13 @@ from megaplan_sdk.helpers import (
     make_entity,
     make_project_entity,
     make_task_entity,
+    normalize_state_name,
 )
 from megaplan_sdk.logging_config import setup_logging
 from megaplan_sdk.models.auth import AuthTokenResponse
 from megaplan_sdk.models.bulk import ApiCall, BulkCallResult
 from megaplan_sdk.models.comment import Comment
-from megaplan_sdk.models.common import DateInterval, DateTime, Money
+from megaplan_sdk.models.common import DateInterval, DateOnly, DateTime, Money
 from megaplan_sdk.models.contractor import Contractor, ContractorCompany, ContractorHuman
 from megaplan_sdk.models.deal import Deal, DealFullDetails
 from megaplan_sdk.models.department import Department
@@ -114,6 +115,7 @@ __all__ = [
     "parse_participant",
     "parse_participants",
     "DateInterval",
+    "DateOnly",
     "DateTime",
     # Pagination
     "Page",
@@ -137,6 +139,7 @@ __all__ = [
     "make_task_entity",
     "make_deal_entity",
     "make_contractor_entity",
+    "normalize_state_name",
     # Filter Builder
     "FilterBuilder",
     "TaskFilterBuilder",
@@ -147,4 +150,4 @@ __all__ = [
     "DEFAULT_TASK_LIST_FIELDS",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

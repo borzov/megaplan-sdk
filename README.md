@@ -35,6 +35,8 @@
 - [Задачи](#работа-с-задачами)
 - [Проекты](#работа-с-проектами)
 - [Сделки](#работа-со-сделками)
+- [Связи сущностей и их отслеживание](#связи-сущностей-и-их-отслеживание)
+- [Уведомления и упоминания](#уведомления-и-упоминания)
 - [База знаний](#работа-с-базой-знаний)
 
 ### Продвинутые возможности
@@ -46,6 +48,7 @@
 - [Настройка HTTP-клиента](#настройка-http-клиента)
 - [Работа через прокси](#работа-через-прокси)
 - [Ручное управление токенами](#ручное-управление-токенами)
+- [Эндпоинты без ресурса: raw() и bulk()](#эндпоинты-без-ресурса-clientraw-и-clientbulk)
 
 ### Справочная информация
 - [Известные ограничения API](#известные-ограничения-api)
@@ -63,7 +66,10 @@
 - Автоматические повторы при ошибках сервера (5xx)
 - Кэширование сущностей с LRU и TTL для оптимизации запросов
 - FilterBuilder для создания фильтров с fluent API
-- Параметр `expand` для автоматической подгрузки связанных сущностей
+- Параметр `expand` для автоматической подгрузки связанных сущностей (подставляются на место ссылок)
+- Уведомления с флагом `isMention` — надёжное отслеживание упоминаний
+- Связи сущностей: текущие (`linkedDeals`/`linkedTasks`) и события привязки/отвязки из журнала
+- Батч-вызовы `client.bulk()` и escape hatch `client.raw()` для непокрытых эндпоинтов
 - Метод `iterate()` для автоматической пагинации больших списков
 - Helper-функции для создания BaseEntity объектов
 - Глобальные дефолтные лимиты для комментариев и истории
@@ -1118,7 +1124,7 @@ details = await client.deals.get_full_details(
     include_auditors=True,                  # Загрузить список аудиторов
     include_manager_details=True,          # Загрузить полные данные ответственного
     include_contractor_details=True,       # Загрузить полные данные контрагента
-    include_related_tasks=True,            # Загрузить связанные задачи
+    include_related_tasks=True,            # Загрузить связанные задачи (/deal/{id}/linkedTasks)
     comments_limit=50,                     # Лимит комментариев (опционально)
     history_limit=100                      # Лимит записей истории (опционально)
 )
@@ -1135,6 +1141,128 @@ details = await client.deals.get_full_details(
 - `related_tasks: list[Task] | None` - Связанные задачи
 
 > **Примечание:** Общее описание метода `get_full_details()` и примеры использования см. в разделе [Общие паттерны работы с сущностями](#общие-паттерны-работы-с-сущностями).
+
+## Связи сущностей и их отслеживание
+
+### Текущие связи
+
+```python
+# Связанные сделки и задачи (подресурсы карточки сделки)
+linked_deals = await client.deals.get_linked_deals(deal_id=86)
+linked_tasks = await client.deals.get_linked_tasks(deal_id=86)
+actual_tasks = await client.deals.get_actual_linked_tasks(deal_id=86)
+based_on_ids = await client.deals.get_based_on_linked_deals(deal_id=86)  # list[int]
+
+# Для многих сделок сразу — один HTTP-запрос вместо N
+links = await client.deals.get_linked_deals_many([86, 219, 220])
+```
+
+> Фильтра «задачи по сделке» в API нет (любой формат `baseOn` игнорируется
+> или отдаёт 422), но подресурс `/deal/{id}/linkedTasks` работает и отдаёт
+> ровно те задачи, что учтены в `tasksCount`.
+
+### Кто и когда изменил связь
+
+В API **нет вебхука на привязку/отвязку**: потоки событий приложений
+(`dev.megaplan.ru/apps/events.html`) знают только `on_after_create`,
+`on_after_update`, `on_after_drop`, а карточка сделки не отдаёт список связей —
+только счётчики. Но журнал сущности пишет каждую привязку и отвязку записью
+`BasedOnHistory`, поэтому дельту не нужно вычислять сравнением двух состояний:
+
+```python
+events = await client.deals.get_link_events(deal_id=219)
+
+for event in events:
+    action = "отвязал" if event.unlink else "привязал"
+    print(f"{event.time.value}: {action} {event.other.content_type}#{event.other.id}")
+
+# Инкрементальный опрос: храните наибольший id и передавайте его обратно
+last_seen = max(e.id for e in events)
+new_events = await client.deals.get_link_events(deal_id=219, since_id=last_seen)
+```
+
+Рабочая схема интеграции: вебхук `deals.on_after_update` — только триггер
+«в сделке что-то изменилось», а факт связи берётся из журнала по `since_id`.
+
+### Журнал сущности
+
+```python
+# Типизированные записи: Changeset (изменения полей), BasedOnHistory (связи);
+# неизвестные типы остаются сырыми dict — новый тип на сервере ничего не ломает
+history = await client.deals.get_history(deal_id=219, limit=50)
+
+for entry in history:
+    if isinstance(entry, Changeset):
+        for change in entry.changes or []:
+            print(change.field, change.old_value, "→", change.new_value)
+
+# Автопагинация по всему журналу
+async for entry in client.deals.iterate_history(deal_id=219, limit=100):
+    ...
+
+# Прежнее поведение (list[dict]) — если разбор не нужен
+raw = await client.deals.get_history(deal_id=219, raw=True)
+```
+
+Для массивов сервер пишет **две** записи `FieldChange` — добавленные элементы
+(`old_value=None`) и удалённые (`new_value=None`), — так что изменение уже
+приходит как дельта.
+
+**Ограничения журнала** (проверено на боевом аккаунте): серверного фильтра
+«только связи» нет (`filters=["BasedOnHistory"]` → 422; работает только
+`Self`/`Item`, причём `Self` как раз отсекает записи о связях), а
+`history/search` их не индексирует — фильтровать нужно на клиенте.
+
+> Методы v1 `Deal/saveRelation` и `Deal/removeRelation` (и поле `RelatedObjects`)
+> относятся к API v1 и в SDK не поддерживаются: SDK работает только с v3, где
+> публичного метода создания связи нет — только чтение.
+
+## Уведомления и упоминания
+
+`/api/v3/notification` — единственный надёжный источник факта «пользователя
+упомянули»: сервер сам ставит `isMention`, а регэксп по ФИО пропускает
+упоминания, отрендеренные как HTML.
+
+```python
+mentions = await client.notifications.list(limit=60, only_mentions=True)
+
+for note in mentions:
+    ref = note.entity_ref          # NotificationEntityRef(entity_type='task', entity_id=..., comment_anchor=...)
+    print(note.sender.display_name(), "→", ref.entity_type, ref.entity_id)
+    if note.subject_comment:       # subject полиморфен: Comment / Deal / Task / Todo
+        print(note.subject_comment.content)
+
+# Все упоминания, а не только внутри одной страницы
+async for note in client.notifications.iterate(limit=100, only_mentions=True):
+    ...
+
+counter = await client.notifications.counter()      # {attributes: ["mention"], count: N}
+types = await client.notifications.activity_types()
+```
+
+Сервер принимает только `isActive` и пагинацию (остальные поля → 422), поэтому
+`only_mentions` фильтрует на клиенте: в `list()` — внутри полученной страницы,
+в `iterate()` — после пагинации, так что короткая страница не обрывает обход.
+
+## Эндпоинты без ресурса: `client.raw()` и `client.bulk()`
+
+```python
+# Любой эндпоинт, для которого в SDK ещё нет ресурса — с рефрешем токена,
+# ретраями и разбором meta.errors. Литерал ?{"limit": 60} строится сам.
+body = await client.raw("GET", "/api/v3/todo", query={"limit": 20})
+todos = body["data"]
+
+# N вызовов одним HTTP-запросом; порядок сохраняется, статус у каждого свой
+results = await client.bulk([
+    {"method": "GET", "url": f"/api/v3/deal/{deal_id}/linkedDeals"}
+    for deal_id in (86, 219, 220)
+])
+for result in results:
+    if result.is_success:
+        handle(result.data)
+    else:
+        log.warning("call failed: %s %s", result.status, result.errors)
+```
 
 ## Работа с базой знаний
 
@@ -1353,15 +1481,20 @@ tasks = await client.tasks.list(limit=10)
 for task in tasks:
     print(task.responsible)  # BaseEntity(id=123, contentType='Employee')
 
-# С expand - автоматически подгружаются сотрудники
-tasks_full = await client.tasks.list(limit=10, expand=["responsible", "owner"])
-for task_full in tasks_full:
-    task = task_full.task
-    if task_full.responsible_details:
+# С expand - сущности подставляются на место ссылок, тип не меняется
+tasks = await client.tasks.list(limit=10, expand=["responsible", "owner"])
+for task in tasks:
+    if task.responsible:
         # Доступ к полным данным сотрудника
-        print(task_full.responsible_details.display_name())
+        print(task.responsible.display_name())
         # Вывод: "Максим Борзов (Генеральный директор)"
 ```
+
+> **Изменение в 0.6.0 (ломающее):** `list()`/`iterate()` с `expand=` больше не
+> возвращают `*FullDetails`. Возвращается тот же тип (`list[Task]`,
+> `list[Deal]`, `list[Project]`), а загруженные сущности подставляются вместо
+> голых ссылок. Полей `responsible_details`/`manager_details` в списочном
+> контексте больше нет — они остались только у `get_full_details()`.
 
 **Поддерживаемые поля для expand в задачах:**
 - `responsible` - ответственный сотрудник
@@ -1370,14 +1503,13 @@ for task_full in tasks_full:
 ### Использование expand в сделках
 
 ```python
-deals_full = await client.deals.list(limit=10, expand=["manager", "contractor"])
+deals = await client.deals.list(limit=10, expand=["manager", "contractor"])
 
-for deal_full in deals_full:
-    deal = deal_full.deal
+for deal in deals:
     print(f"Сделка: {deal.name}")
 
-    if deal_full.manager_details:
-        print(f"Ответственный: {deal_full.manager_details.display_name()}")
+    if deal.manager:
+        print(f"Ответственный: {deal.manager.display_name()}")
 
     if deal_full.contractor_details:
         print(f"Контрагент: {deal_full.contractor_details.display_name()}")
@@ -1491,9 +1623,12 @@ tasks = await client.tasks.list(limit=50, fields=["owner"])
 tasks_full = await client.tasks.list(limit=50, expand=["owner"])
 ```
 
-Если SDK обнаруживает, что один и тот же `id` встретился в ответе и
-именованным, и голым (типичный симптом дедупликации под `fields=`), он
-пишет `warning` в лог с подсказкой перейти на `expand=` (#36).
+**С 0.6.0 дедупликация чинится автоматически:** SDK дозаполняет повторные
+ссылки из полного вхождения в том же ответе — включая случай, когда полный
+объект пришёл в другом поле другой записи. Никаких словарей `{id: name}` на
+стороне потребителя и никаких предупреждений в логе больше не нужно (#BUG-4).
+`expand=` по-прежнему нужен, когда требуется не имя, а вся сущность целиком
+(должность, отдел, контакты).
 
 ### Работа с фильтрами
 

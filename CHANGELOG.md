@@ -7,6 +7,67 @@
 
 ## [Не выпущено]
 
+## [0.6.0] — 2026-08-07
+
+### ⚠️ Изменения поведения (breaking)
+- `list()`/`iterate()` с `expand=` больше не возвращают `*FullDetails`.
+  Загруженные сущности подставляются вместо голых ссылок на иммутабельных
+  копиях, тип не меняется: `deals.list(expand=["manager"])` → `list[Deal]`,
+  где `deal.manager` — полный `Employee` (#BUG-2).
+  Миграция: `deal_full.manager_details` → `deal.manager`,
+  `task_full.task` → сам `task`. `get_full_details()` не изменился.
+- `deals.get_history()` возвращает типизированные записи (`Changeset`,
+  `BasedOnHistory`) вместо сырых `dict`; неизвестные типы остаются `dict`.
+  Прежнее поведение — `get_history(..., raw=True)`.
+- `Employee.birthday` — модель `DateOnly` вместо `dict` (#FR-G).
+  Миграция: `emp.birthday["month"]` → `emp.birthday.month`, плюс
+  `emp.birthday.date` → `datetime.date | None`.
+- Удалено предупреждение о серверной дедупликации ссылок (#36): SDK теперь
+  дозаполняет повторные ссылки сам, советовать обход больше нечего.
+
+### Добавлено
+- `client.notifications` — ресурс уведомлений (#FR-F): `list()`/`iterate()` с
+  флагом `is_mention`, `counter()`, `activity_types()`. Модель `Notification`
+  с `entity_ref` (разбор ссылки на сущность из HTML) и `subject_comment`.
+  Сервер принимает только `isActive` и пагинацию, поэтому `only_mentions`
+  фильтрует на клиенте, а в `iterate()` — после пагинации.
+- `client.raw(method, path, query=, json=)` — вызов эндпоинтов без ресурса с
+  авторефрешем токена, ретраями и разбором `meta.errors` (#BUG-1). Транспорт
+  был исправен и раньше: `_http.get(path, {"limit": 60})` сам строит
+  `?{"limit": 60}` — литерал руками собирать не нужно.
+- `client.bulk(calls=[...])` над `POST /api/v3/bulk` и
+  `deals.get_linked_deals_many()` — N вызовов одним HTTP-запросом (#FR-E).
+  Порядок ответов сохраняется, статус у каждого вызова свой.
+- Связи сделок: `get_linked_deals()`, `get_linked_tasks()`,
+  `get_actual_linked_tasks()`, `get_based_on_linked_deals()`.
+- `deals.get_link_events(deal_id, since_id=, since_time=)` — кто, когда и какую
+  связь добавил или удалил, без сравнения двух состояний сделки. Вебхука на
+  связи в API нет, карточка отдаёт только счётчики, но журнал пишет
+  `BasedOnHistory` с флагом `unlink`.
+- `deals.iterate_history()` — автопагинация по журналу.
+- Модели журнала: `Changeset`, `FieldChange`, `BasedOnHistory`, `LinkEvent`.
+- `normalize_state_name()` — нормализация имён состояний (эмодзи, регистр,
+  пробелы) для сравнения (#NOTE-2).
+
+### Исправлено
+- `deals.get_full_details(include_related_tasks=True)` больше не бросает
+  `NotImplementedError`: задачи читаются из `/deal/{id}/linkedTasks`. Фильтра
+  tasks-by-deal по-прежнему нет, но подресурс отдаёт ровно задачи из
+  `tasksCount` (проверено на стенде).
+- Повторные ссылки (`owner`/`responsible`/`manager`/`contractor`), которые
+  сервер дедуплицирует в пределах одного ответа, дозаполняются из полного
+  вхождения в том же ответе — в том числе из другого поля другой записи
+  (#BUG-4). Ни словарь `{id: name}`, ни `expand=` для этого больше не нужны.
+- `deals.list(fields=[...])` проверяет поля на клиенте и объясняет ошибку
+  вместо сырого 422 (#BUG-3). Отвергаемые сервером имена сняты со стенда:
+  `deadline`, `responsible`, `createdAt`, `updatedAt`.
+
+### Известные ограничения
+- Загрузка вложений (`attachments.upload`, #FR-D) и ресурс `client.todos`
+  (#NOTE-1) перенесены в 0.6.1 — обе требуют write-проверок на стенде.
+- Вехи у сделок невозможны: `GET /api/v3/deal/{id}/milestones` → 404,
+  `GET /api/v3/milestone` → 405 (только POST).
+
 ## [0.5.0] — 2026-07-16
 
 ### ⚠️ Изменения поведения (breaking)

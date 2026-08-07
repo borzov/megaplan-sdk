@@ -4,6 +4,7 @@ Provides convenience functions for creating BaseEntity objects and simplifying
 common operations.
 """
 
+import unicodedata
 from typing import Any
 
 from megaplan_sdk.constants import ContentType
@@ -106,3 +107,28 @@ def make_contractor_entity(contractor_id: int) -> dict[str, Any]:
         {"contentType": "Contractor", "id": 202}
     """
     return make_entity(ContentType.CONTRACTOR, contractor_id)
+
+
+def normalize_state_name(name: str | None) -> str:
+    """Normalize a state/status name for comparison (#NOTE-2).
+
+    Accounts routinely hold the same state twice — «Договор» and «Договор 📝» —
+    so a naive equality check silently undercounts. Strips emoji and variation
+    selectors, collapses whitespace and lowercases.
+
+    Args:
+        name: Raw state name, e.g. ``deal.state.name``.
+
+    Returns:
+        Normalized name, or an empty string when there is no name.
+
+    Examples:
+        >>> normalize_state_name("Договор 📝")
+        'договор'
+    """
+    if not name:
+        return ""
+    cleaned = "".join(
+        char for char in name if unicodedata.category(char) not in {"So", "Sk", "Cf", "Mn"}
+    )
+    return " ".join(cleaned.split()).lower()
