@@ -52,6 +52,19 @@ UNSUPPORTED_TASK_FIELDS: dict[str, tuple[str, ...]] = {
     "dateCreated": ("timeCreated",),
 }
 
+# Field names the deal list endpoint rejects with a raw 422 (#BUG-3). Verified
+# on a live account 2026-08-07 by requesting each name via `fields=`: the rest
+# of the card fields (description, positions, comments, attaches, tags, ...)
+# are accepted. Maps each rejected name to the real Deal fields to suggest.
+UNSUPPORTED_DEAL_FIELDS: dict[str, tuple[str, ...]] = {
+    "deadline": ("stateTimeUpdated", "timeUpdated", "nearTodo"),
+    "responsible": ("manager",),
+    "createdAt": ("timeCreated",),
+    "created_at": ("timeCreated",),
+    "updatedAt": ("timeUpdated",),
+    "updated_at": ("timeUpdated",),
+}
+
 # Recommended `fields` set for tasks.list() so that date fields are populated.
 # Megaplan list endpoints omit these unless explicitly requested, which makes
 # client-side time-window filtering silently return nothing (#8).

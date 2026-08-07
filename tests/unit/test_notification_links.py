@@ -10,7 +10,9 @@ from megaplan_sdk._notification_links import parse_entity_ref
 
 def test_parses_task_link_with_comment_anchor():
     """The most common shape: a comment inside a task."""
-    ref = parse_entity_ref('Иван написал: текст :: задача <a href="/task/1006256/card/#c189191">Имя</a>')
+    ref = parse_entity_ref(
+        'Иван написал: текст :: задача <a href="/task/1006256/card/#c189191">Имя</a>'
+    )
 
     assert ref is not None
     assert ref.entity_type == "task"
@@ -50,9 +52,7 @@ def test_ignores_links_without_an_entity_id():
 
 def test_takes_the_first_entity_link():
     """Content may mention several entities; the subject is the first one."""
-    ref = parse_entity_ref(
-        '<a href="/task/1/card/">одна</a> и <a href="/deals/2/card/">другая</a>'
-    )
+    ref = parse_entity_ref('<a href="/task/1/card/">одна</a> и <a href="/deals/2/card/">другая</a>')
 
     assert ref is not None
     assert (ref.entity_type, ref.entity_id) == ("task", 1)

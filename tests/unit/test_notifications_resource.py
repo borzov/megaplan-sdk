@@ -124,9 +124,9 @@ async def test_iterate_paginates_with_page_after(megaplan_api, notifications):
 
         return Response(200, json={"meta": {"status": 200}, "data": responses.pop(0)})
 
-    megaplan_api.router.request(
-        "GET", f"{megaplan_api.base_url}/api/v3/notification"
-    ).mock(side_effect=handler)
+    megaplan_api.router.request("GET", f"{megaplan_api.base_url}/api/v3/notification").mock(
+        side_effect=handler
+    )
 
     collected = [item.id async for item in notifications.iterate(limit=2)]
 
@@ -150,9 +150,9 @@ async def test_iterate_only_mentions_does_not_truncate_pagination(megaplan_api, 
         page = pages.pop(0) if pages else []
         return Response(200, json={"meta": {"status": 200}, "data": page})
 
-    megaplan_api.router.request(
-        "GET", f"{megaplan_api.base_url}/api/v3/notification"
-    ).mock(side_effect=handler)
+    megaplan_api.router.request("GET", f"{megaplan_api.base_url}/api/v3/notification").mock(
+        side_effect=handler
+    )
 
     collected = [item.id async for item in notifications.iterate(limit=2, only_mentions=True)]
 

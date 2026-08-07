@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, cast, overload
+from typing import TYPE_CHECKING, Any, cast
 
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.comment import Comment
@@ -28,11 +28,9 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
     _page_content_type = ContentType.PROJECT
 
     _expand_rules = {
-        "responsible": ExpandRule("employee", Employee, details_field="responsible_details"),
-        "owner": ExpandRule("employee", Employee, details_field="owner_details"),
+        "responsible": ExpandRule("employee", Employee),
+        "owner": ExpandRule("employee", Employee),
     }
-    _details_model = ProjectFullDetails
-    _main_field = "project"
 
     _full_details_config = [
         RelatedDataConfig("deals", "include_deals", "get_deals"),
@@ -184,38 +182,6 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
 
         return await self.create(project_data, auto_fill_required=False)
 
-    @overload
-    async def list(
-        self,
-        *,
-        filter: FilterType | None = None,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-        page: Page | None = None,
-        fields: Any | None = None,
-        sort_by: list[dict[str, str]] | None = None,
-        only_requested_fields: bool | None = None,
-        expand: None = None,
-    ) -> list[Project]: ...
-
-    @overload
-    async def list(
-        self,
-        *,
-        filter: FilterType | None = None,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-        page: Page | None = None,
-        fields: Any | None = None,
-        sort_by: list[dict[str, str]] | None = None,
-        only_requested_fields: bool | None = None,
-        expand: list[str],
-    ) -> list[ProjectFullDetails]: ...
-
     async def list(
         self,
         filter: FilterType | None = None,
@@ -228,7 +194,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         expand: list[str] | None = None,
-    ) -> list[Project] | list[ProjectFullDetails]:
+    ) -> list[Project]:
         """Get list of projects.
 
         Args:
@@ -250,18 +216,19 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             fields: Additional fields to include.
 
                 **Linked entities** (owner/responsible/manager/contractor):
-                the server deduplicates repeated entities within one response,
-                so ``fields=`` fills them only at the first occurrence per
-                page — repeats come back as bare references without ``name``
-                (#36). Use ``expand=`` when you need them fully populated.
+                the server embeds a repeated entity fully only at its first
+                occurrence per response (#36); the SDK fills the repeats from
+                it, so every reference on the page carries its ``name``
+                (#BUG-4). Use ``expand=`` to load the entities in full.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["responsible", "owner"]).
                 Supported values: "responsible", "owner".
-                If provided, returns list[ProjectFullDetails] instead of list[Project].
+                The loaded entities replace the bare references on the
+                returned Project objects — the type never changes (#BUG-2).
 
         Returns:
-            List of projects (list[Project] if expand is None, list[ProjectFullDetails] otherwise).
+            List of Project objects, with expanded references loaded in place.
 
         Examples:
             >>> # Get projects without expansion
@@ -272,13 +239,13 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             >>> f = ProjectFilterBuilder().field("name").contains("SDK").build()
             >>> projects = await client.projects.list(filter=f)
             >>>
-            >>> # Get projects with expanded responsible and owner
-            >>> projects_full = await client.projects.list(
+            >>> # Get projects with responsible and owner loaded in place
+            >>> projects = await client.projects.list(
             ...     limit=10, expand=["responsible", "owner"]
             ... )
-            >>> for project_full in projects_full:
-            ...     if project_full.responsible_details:
-            ...         print(project_full.responsible_details.display_name())
+            >>> for project in projects:
+            ...     if project.responsible:
+            ...         print(project.responsible.display_name())
         """
         path = self._build_path("api", "v3", "project")
 
@@ -296,8 +263,8 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         )
 
         projects = await self._get_list(path, Project, params)
-        self._warn_reduced_linked_fields(projects, fields, expand)
-        return await self._expand_and_wrap(projects, expand)
+        projects = self._backfill_deduplicated_refs(projects)
+        return await self._expand_references(projects, expand)
 
     async def get(self, project_id: int, fields: list[str] | None = None) -> Project:
         """Get project by ID.

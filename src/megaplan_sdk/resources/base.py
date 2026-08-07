@@ -53,17 +53,13 @@ class BaseResource:
     _page_content_type: str | None = None
 
     # Declarative expand pipeline (see _expand.py). Subclasses fill
-    # _expand_rules with field name -> ExpandRule. Wrap-mode resources also
-    # declare _details_model (the *FullDetails container) and _main_field (the
-    # container attribute holding the wrapped entity); without _details_model
-    # the engine runs in replace mode: loaded entities replace the reference
-    # fields on immutable copies.
+    # _expand_rules with field name -> ExpandRule; the engine loads the
+    # referenced entities and replaces the reference fields on immutable
+    # copies, so expand never changes the listed entity's type (#BUG-2).
     _expand_rules: ClassVar[dict[str, ExpandRule]] = {}
-    _details_model: ClassVar[type[Any] | None] = None
-    _main_field: ClassVar[str | None] = None
 
     # Linked-entity reference fields that the server deduplicates within a
-    # single list() response (#36). Used by _warn_reduced_linked_fields.
+    # single list() response (#36). Used by _backfill_deduplicated_refs.
     _LINKED_REF_FIELDS: ClassVar[tuple[str, ...]] = (
         "owner",
         "responsible",
@@ -71,42 +67,74 @@ class BaseResource:
         "contractor",
     )
 
-    def _warn_reduced_linked_fields(
-        self,
-        entities: list[Any],
-        fields: Any | None,
-        expand: list[str] | None,
-    ) -> None:
-        """Warn when a linked field ordered via ``fields=`` came back deduplicated.
+    # Field names this resource's list endpoint rejects with a raw 422, mapped
+    # to the fields to suggest instead. A blacklist, not an allowlist: custom
+    # category fields are unknowable in advance and must pass through.
+    _UNSUPPORTED_LIST_FIELDS: ClassVar[dict[str, tuple[str, ...]]] = {}
 
-        The server embeds a repeated linked entity fully only at its first
-        occurrence per response; later repeats are bare ``{contentType, id}``
-        references (#36). The signature — the same id appearing both named and
-        bare — is unambiguous, so there are no false positives. ``expand=``
-        resolves the references and silences the warning.
+    def _validate_list_fields(self, fields: Any | None) -> None:
+        """Reject ``fields=`` values the list endpoint answers with a raw 422.
+
+        Args:
+            fields: Value passed to ``list(fields=...)``.
+
+        Raises:
+            ValueError: If a field is known-unsupported, naming the fields to
+                use instead and where the data is available.
         """
         if not fields or not isinstance(fields, list | tuple):
             return
-        expanded = set(expand or [])
-        for field_name in self._LINKED_REF_FIELDS:
-            if field_name not in fields or field_name in expanded:
+        entity = self._page_content_type or type(self).__name__
+        for field in fields:
+            if not isinstance(field, str):
                 continue
-            named_ids: set[int] = set()
-            bare_ids: set[int] = set()
-            for entity in entities:
-                ref = getattr(entity, field_name, None)
-                if ref is None or not hasattr(ref, "id"):
-                    continue
-                if getattr(ref, "name", None):
-                    named_ids.add(ref.id)
-                else:
-                    bare_ids.add(ref.id)
-            if named_ids & bare_ids:
-                logger.warning(
-                    f"fields=['{field_name}'] returned server-deduplicated bare "
-                    f"references for repeated ids; use expand=['{field_name}'] "
-                    f"to load them fully (#36)"
+            suggestions = self._UNSUPPORTED_LIST_FIELDS.get(field)
+            if suggestions:
+                raise ValueError(
+                    f"{entity} list endpoint has no field '{field}' (API returns 422). "
+                    f"Did you mean: {', '.join(suggestions)}? "
+                    f"Card-only data is available via get()."
                 )
+
+    def _backfill_deduplicated_refs(self, entities: list[Any]) -> list[Any]:
+        """Fill bare linked references from their full occurrence in the same page.
+
+        The server embeds a repeated linked entity fully only at its first
+        occurrence per response; later mentions — including in a different
+        field of another item — arrive as bare ``{contentType, id}`` (#36).
+        The full object is already in the payload, so repeats are repaired
+        locally, with no extra request (#BUG-4). References with no full
+        occurrence anywhere in the page are left untouched.
+
+        Args:
+            entities: Parsed entities from one list response.
+
+        Returns:
+            The entities, with repaired copies where a repeat was filled in.
+        """
+        full_refs: dict[tuple[str, int], Any] = {}
+        for entity in entities:
+            for field_name in self._LINKED_REF_FIELDS:
+                ref = getattr(entity, field_name, None)
+                if ref is None or not hasattr(ref, "id") or not getattr(ref, "name", None):
+                    continue
+                full_refs.setdefault((getattr(ref, "content_type", ""), ref.id), ref)
+
+        if not full_refs:
+            return entities
+
+        results: list[Any] = []
+        for entity in entities:
+            updates: dict[str, Any] = {}
+            for field_name in self._LINKED_REF_FIELDS:
+                ref = getattr(entity, field_name, None)
+                if ref is None or not hasattr(ref, "id") or getattr(ref, "name", None):
+                    continue
+                full = full_refs.get((getattr(ref, "content_type", ""), ref.id))
+                if full is not None:
+                    updates[field_name] = full
+            results.append(entity.model_copy(update=updates) if updates else entity)
+        return results
 
     def _build_path(self, *parts: str) -> str:
         """Build API path from parts.
@@ -1035,7 +1063,7 @@ class BaseResource:
         data = response.get("data", {})
         return data if isinstance(data, dict) else {}
 
-    async def _expand_and_wrap(
+    async def _expand_references(
         self,
         entities: list[Any],
         expand: list[str] | None,
@@ -1043,11 +1071,9 @@ class BaseResource:
         """Run the declarative expand pipeline over listed entities.
 
         Loads the reference fields requested in ``expand`` per ``_expand_rules``
-        (cache-first, batched), then assembles the result. Wrap mode
-        (``_details_model`` declared): each entity is wrapped into the details
-        container with loaded relatives in the rules' ``details_field``s.
-        Replace mode: reference fields are replaced with loaded entities on
-        immutable copies of the listed entities.
+        (cache-first, batched), then replaces those references with the loaded
+        entities on immutable copies. The listed entity keeps its type, so
+        ``list(expand=[...])`` returns the same model as ``list()`` (#BUG-2).
 
         Args:
             entities: Listed entities to expand.
@@ -1055,8 +1081,7 @@ class BaseResource:
                 None or empty list returns ``entities`` unchanged.
 
         Returns:
-            List of details containers (wrap mode) or entity copies
-            (replace mode).
+            Copies of the entities with the requested references loaded.
         """
         if not expand or not entities:
             return entities
@@ -1076,34 +1101,7 @@ class BaseResource:
                     refs, rule.entity_type, rule.model
                 )
 
-        if self._details_model is not None:
-            return self._wrap_into_details(entities, loaded_maps)
         return self._replace_references(entities, loaded_maps)
-
-    def _wrap_into_details(
-        self,
-        entities: list[Any],
-        loaded_maps: dict[str, dict[int, Any]],
-    ) -> list[Any]:
-        """Wrap entities into the details container with loaded relatives."""
-        if self._details_model is None or self._main_field is None:
-            raise TypeError(
-                f"{type(self).__name__} must declare _details_model and _main_field "
-                "to use wrap mode"
-            )
-        results: list[Any] = []
-        for entity in entities:
-            kwargs: dict[str, Any] = {self._main_field: entity}
-            for field_name, rule in self._expand_rules.items():
-                if rule.details_field is None:
-                    continue
-                ref = getattr(entity, field_name, None)
-                loaded = loaded_maps.get(field_name, {})
-                kwargs[rule.details_field] = (
-                    loaded.get(ref.id) if ref is not None and hasattr(ref, "id") else None
-                )
-            results.append(self._details_model(**kwargs))
-        return results
 
     def _replace_references(
         self,

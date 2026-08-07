@@ -1,13 +1,12 @@
-"""Unit tests for the declarative expand pipeline (ExpandRule + _expand_and_wrap)."""
+"""Unit tests for the declarative expand pipeline (ExpandRule + _expand_references)."""
 
 import dataclasses
-import logging
 
 import pytest
 
 from megaplan_sdk.models.department import Department
 from megaplan_sdk.models.employee import Employee
-from megaplan_sdk.models.task import Task, TaskFullDetails
+from megaplan_sdk.models.task import Task
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 
@@ -21,19 +20,17 @@ EMPLOYEE_10 = {
 DEPARTMENT_5 = {"id": 5, "contentType": "Department", "name": "Development"}
 
 
-class WrapModeResource(BaseResource):
-    """Fake resource exercising wrap mode through class-level declarations."""
+class TaskLikeResource(BaseResource):
+    """Fake resource declaring two expandable employee references."""
 
     _expand_rules = {
-        "responsible": ExpandRule("employee", Employee, details_field="responsible_details"),
-        "owner": ExpandRule("employee", Employee, details_field="owner_details"),
+        "responsible": ExpandRule("employee", Employee),
+        "owner": ExpandRule("employee", Employee),
     }
-    _details_model = TaskFullDetails
-    _main_field = "task"
 
 
 class ReplaceModeResource(BaseResource):
-    """Fake resource exercising replace mode (no details model declared)."""
+    """Fake resource with references to two different entity types."""
 
     _expand_rules = {
         "department": ExpandRule("department", Department),
@@ -41,20 +38,19 @@ class ReplaceModeResource(BaseResource):
     }
 
 
-def test_expand_rule_is_frozen_with_optional_details_field():
-    """ExpandRule is an immutable declaration; details_field defaults to None."""
+def test_expand_rule_is_frozen():
+    """ExpandRule is an immutable declaration of how a reference is loaded."""
     rule = ExpandRule("employee", Employee)
 
     assert rule.entity_type == "employee"
     assert rule.model is Employee
-    assert rule.details_field is None
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         rule.entity_type = "department"  # type: ignore[misc]
 
 
-async def test_wrap_mode_builds_details_containers(megaplan_api, http_client):
-    """Wrap mode loads requested fields and wraps entities into _details_model."""
+async def test_only_requested_fields_are_expanded(megaplan_api, http_client):
+    """Declared but unrequested references stay as they came from the server."""
     megaplan_api.get("employee/10", data=EMPLOYEE_10)
 
     tasks = [
@@ -69,19 +65,17 @@ async def test_wrap_mode_builds_details_containers(megaplan_api, http_client):
         )
     ]
 
-    resource = WrapModeResource(http_client)
-    result = await resource._expand_and_wrap(tasks, ["responsible"])
+    resource = TaskLikeResource(http_client)
+    result = await resource._expand_references(tasks, ["responsible"])
 
-    assert isinstance(result[0], TaskFullDetails)
-    assert result[0].task is tasks[0]
-    assert result[0].responsible_details is not None
-    assert result[0].responsible_details.first_name == "John"
-    # "owner" was not requested: declared but unexpanded fields stay None
-    assert result[0].owner_details is None
+    assert isinstance(result[0], Task)
+    assert isinstance(result[0].responsible, Employee)
+    assert result[0].responsible.first_name == "John"
+    assert not isinstance(result[0].owner, Employee)
 
 
-async def test_wrap_mode_missing_reference_yields_none(megaplan_api, http_client):
-    """Entities without the reference get None in the details field."""
+async def test_entities_without_the_reference_are_left_alone(megaplan_api, http_client):
+    """A missing reference is not an error and not a fabricated empty entity."""
     megaplan_api.get("employee/10", data=EMPLOYEE_10)
 
     tasks = [
@@ -96,19 +90,19 @@ async def test_wrap_mode_missing_reference_yields_none(megaplan_api, http_client
         ),
     ]
 
-    resource = WrapModeResource(http_client)
-    result = await resource._expand_and_wrap(tasks, ["responsible"])
+    resource = TaskLikeResource(http_client)
+    result = await resource._expand_references(tasks, ["responsible"])
 
-    assert result[0].responsible_details is None
-    assert result[1].responsible_details is not None
+    assert result[0].responsible is None
+    assert isinstance(result[1].responsible, Employee)
 
 
 async def test_expand_none_returns_entities_unchanged(http_client):
     """expand=None short-circuits: the same objects come back, no HTTP calls."""
     tasks = [Task(**{"id": 1, "contentType": "Task", "name": "Task 1"})]
 
-    resource = WrapModeResource(http_client)
-    result = await resource._expand_and_wrap(tasks, None)
+    resource = TaskLikeResource(http_client)
+    result = await resource._expand_references(tasks, None)
 
     assert result is tasks
 
@@ -129,7 +123,7 @@ async def test_replace_mode_replaces_fields_immutably(megaplan_api, http_client)
     ]
 
     resource = ReplaceModeResource(http_client)
-    result = await resource._expand_and_wrap(employees, ["department", "invalid_field"])
+    result = await resource._expand_references(employees, ["department", "invalid_field"])
 
     assert isinstance(result[0], Employee)
     assert result[0].department is not None
@@ -162,81 +156,3 @@ async def test_employees_list_expand_replaces_department(megaplan_api, employees
     assert isinstance(result[0], Employee)
     assert result[0].department is not None
     assert result[0].department.name == "Development"
-
-
-# --- #36: warn when fields=[...] came back server-deduplicated ---
-
-
-async def test_list_warns_on_deduplicated_owner_refs(megaplan_api, tasks, caplog):
-    """#36: same owner id both named and bare in one page triggers a warning."""
-    megaplan_api.get(
-        "task",
-        data=[
-            {
-                "id": 1,
-                "contentType": "Task",
-                "owner": {"contentType": "Employee", "id": 9, "name": "Гусев Максим"},
-            },
-            {
-                "id": 2,
-                "contentType": "Task",
-                "owner": {"contentType": "Employee", "id": 9},
-            },
-        ],
-    )
-
-    with caplog.at_level(logging.WARNING, logger="megaplan_sdk"):
-        await tasks.list(fields=["owner"])
-
-    assert any("expand=['owner']" in record.message for record in caplog.records)
-
-
-async def test_list_no_warning_when_expand_used(megaplan_api, tasks, caplog):
-    """#36: expand=['owner'] resolves everything — no warning."""
-    megaplan_api.get(
-        "task",
-        data=[
-            {
-                "id": 1,
-                "contentType": "Task",
-                "owner": {"contentType": "Employee", "id": 9, "name": "Гусев Максим"},
-            },
-            {
-                "id": 2,
-                "contentType": "Task",
-                "owner": {"contentType": "Employee", "id": 9},
-            },
-        ],
-    )
-    megaplan_api.get(
-        "employee/9", data={"contentType": "Employee", "id": 9, "name": "Гусев Максим"}
-    )
-
-    with caplog.at_level(logging.WARNING, logger="megaplan_sdk"):
-        await tasks.list(fields=["owner"], expand=["owner"])
-
-    assert not any("#36" in record.message for record in caplog.records)
-
-
-async def test_list_no_warning_on_distinct_owners(megaplan_api, tasks, caplog):
-    """#36: different employees, all named — no false positive."""
-    megaplan_api.get(
-        "task",
-        data=[
-            {
-                "id": 1,
-                "contentType": "Task",
-                "owner": {"contentType": "Employee", "id": 9, "name": "Гусев Максим"},
-            },
-            {
-                "id": 2,
-                "contentType": "Task",
-                "owner": {"contentType": "Employee", "id": 10, "name": "Иван Петров"},
-            },
-        ],
-    )
-
-    with caplog.at_level(logging.WARNING, logger="megaplan_sdk"):
-        await tasks.list(fields=["owner"])
-
-    assert not any("#36" in record.message for record in caplog.records)

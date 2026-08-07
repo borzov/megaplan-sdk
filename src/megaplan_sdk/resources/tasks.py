@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, cast, overload
+from typing import TYPE_CHECKING, Any, cast
 
 from megaplan_sdk.constants import (
     DEFAULT_SORT_RECENT,
@@ -43,11 +43,9 @@ class TasksResource(BaseResource, FullDetailsMixin):
     _filter_content_type = filter_content_type_for("task")
 
     _expand_rules = {
-        "responsible": ExpandRule("employee", Employee, details_field="responsible_details"),
-        "owner": ExpandRule("employee", Employee, details_field="owner_details"),
+        "responsible": ExpandRule("employee", Employee),
+        "owner": ExpandRule("employee", Employee),
     }
-    _details_model = TaskFullDetails
-    _main_field = "task"
 
     _full_details_config = [
         RelatedDataConfig("sub_tasks", "include_sub_tasks", "get_sub_tasks"),
@@ -128,44 +126,6 @@ class TasksResource(BaseResource, FullDetailsMixin):
 
         return await self._create_entity("task", task_data, Task)
 
-    @overload
-    async def list(
-        self,
-        *,
-        filter: FilterType | None = None,
-        statuses: list[str] | None = None,
-        q: str | None = None,
-        q_in: list[str] | None = None,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-        page: Page | None = None,
-        fields: Any | None = None,
-        sort_by: list[dict[str, str]] | None = None,
-        only_requested_fields: bool | None = None,
-        expand: None = None,
-    ) -> list[Task]: ...
-
-    @overload
-    async def list(
-        self,
-        *,
-        filter: FilterType | None = None,
-        statuses: list[str] | None = None,
-        q: str | None = None,
-        q_in: list[str] | None = None,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-        page: Page | None = None,
-        fields: Any | None = None,
-        sort_by: list[dict[str, str]] | None = None,
-        only_requested_fields: bool | None = None,
-        expand: list[str],
-    ) -> list[TaskFullDetails]: ...
-
     async def list(
         self,
         filter: FilterType | None = None,
@@ -181,7 +141,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         expand: list[str] | None = None,
-    ) -> list[Task] | list[TaskFullDetails]:
+    ) -> list[Task]:
         """Get list of tasks.
 
         Args:
@@ -215,18 +175,19 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 silently match nothing.
 
                 **Linked entities** (owner/responsible/manager/contractor):
-                the server deduplicates repeated entities within one response,
-                so ``fields=`` fills them only at the first occurrence per
-                page — repeats come back as bare references without ``name``
-                (#36). Use ``expand=`` when you need them fully populated.
+                the server embeds a repeated entity fully only at its first
+                occurrence per response (#36); the SDK fills the repeats from
+                it, so every reference on the page carries its ``name``
+                (#BUG-4). Use ``expand=`` to load the entities in full.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["responsible", "owner"]).
                 Supported values: "responsible", "owner".
-                If provided, returns list[TaskFullDetails] instead of list[Task].
+                The loaded entities replace the bare references on the
+                returned Task objects — the type never changes (#BUG-2).
 
         Returns:
-            List of tasks (list[Task] if expand is None, list[TaskFullDetails] otherwise).
+            List of Task objects, with expanded references loaded in place.
 
         Examples:
             >>> # Get tasks without expansion
@@ -241,13 +202,13 @@ class TasksResource(BaseResource, FullDetailsMixin):
             >>> # Get tasks with filter object
             >>> tasks = await client.tasks.list(filter={"contentType": "TaskFilter", "id": "incoming"})
             >>>
-            >>> # Get tasks with expanded responsible and owner
-            >>> tasks_full = await client.tasks.list(
+            >>> # Get tasks with responsible and owner loaded in place
+            >>> tasks = await client.tasks.list(
             ...     limit=10, expand=["responsible", "owner"]
             ... )
-            >>> for task_full in tasks_full:
-            ...     if task_full.responsible_details:
-            ...         print(task_full.responsible_details.display_name())
+            >>> for task in tasks:
+            ...     if task.responsible:
+            ...         print(task.responsible.display_name())
         """
         path = self._build_path("api", "v3", "task")
 
@@ -299,8 +260,8 @@ class TasksResource(BaseResource, FullDetailsMixin):
         )
 
         tasks = await self._get_list(path, Task, params)
-        self._warn_reduced_linked_fields(tasks, fields, expand)
-        return await self._expand_and_wrap(tasks, expand)
+        tasks = self._backfill_deduplicated_refs(tasks)
+        return await self._expand_references(tasks, expand)
 
     async def list_by(self, query: TaskQuery) -> list[Task]:
         """Get list of tasks described by a :class:`TaskQuery`.

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, cast, overload
+from typing import Any, cast
 
-from megaplan_sdk.constants import DEFAULT_SORT_RECENT, ContentType
+from megaplan_sdk.constants import (
+    DEFAULT_SORT_RECENT,
+    UNSUPPORTED_DEAL_FIELDS,
+    ContentType,
+)
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
@@ -25,12 +29,12 @@ class DealsResource(BaseResource, FullDetailsMixin):
     _page_content_type = ContentType.DEAL
     _filter_content_type = filter_content_type_for("deal")
 
+    _UNSUPPORTED_LIST_FIELDS = UNSUPPORTED_DEAL_FIELDS
+
     _expand_rules = {
-        "manager": ExpandRule("employee", Employee, details_field="manager_details"),
-        "contractor": ExpandRule("contractor", Contractor, details_field="contractor_details"),
+        "manager": ExpandRule("employee", Employee),
+        "contractor": ExpandRule("contractor", Contractor),
     }
-    _details_model = DealFullDetails
-    _main_field = "deal"
 
     def __init__(
         self,
@@ -108,46 +112,6 @@ class DealsResource(BaseResource, FullDetailsMixin):
         """
         return await self._create_entity("deal", deal_data, Deal)
 
-    @overload
-    async def list(
-        self,
-        *,
-        filter: FilterType | None = None,
-        status: ProgramState | None = None,
-        q: str | None = None,
-        q_in: list[str] | None = None,
-        base_on: dict[str, Any] | None = None,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-        page: Page | None = None,
-        fields: Any | None = None,
-        sort_by: list[dict[str, str]] | None = None,
-        only_requested_fields: bool | None = None,
-        expand: None = None,
-    ) -> list[Deal]: ...
-
-    @overload
-    async def list(
-        self,
-        *,
-        filter: FilterType | None = None,
-        status: ProgramState | None = None,
-        q: str | None = None,
-        q_in: list[str] | None = None,
-        base_on: dict[str, Any] | None = None,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-        page: Page | None = None,
-        fields: Any | None = None,
-        sort_by: list[dict[str, str]] | None = None,
-        only_requested_fields: bool | None = None,
-        expand: list[str],
-    ) -> list[DealFullDetails]: ...
-
     async def list(
         self,
         filter: FilterType | None = None,
@@ -164,7 +128,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         expand: list[str] | None = None,
-    ) -> list[Deal] | list[DealFullDetails]:
+    ) -> list[Deal]:
         """Get list of deals.
 
         Args:
@@ -192,34 +156,37 @@ class DealsResource(BaseResource, FullDetailsMixin):
                 ``result``, ``shortDescription``, ``stateTimeUpdated``.
 
                 **Linked entities** (owner/responsible/manager/contractor):
-                the server deduplicates repeated entities within one response,
-                so ``fields=`` fills them only at the first occurrence per
-                page — repeats come back as bare references without ``name``
-                (#36). Use ``expand=`` when you need them fully populated.
+                the server embeds a repeated entity fully only at its first
+                occurrence per response (#36); the SDK fills the repeats from
+                it, so every reference on the page carries its ``name``
+                (#BUG-4). Use ``expand=`` to load the entities in full.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["manager", "contractor"]).
                 Supported values: "manager", "contractor".
-                If provided, returns list[DealFullDetails] instead of list[Deal].
+                The loaded entities replace the bare references on the
+                returned Deal objects — the type never changes (#BUG-2).
 
         Returns:
-            List of deals (list[Deal] if expand is None, list[DealFullDetails] otherwise).
+            List of Deal objects, with expanded references loaded in place.
 
         Examples:
             >>> # Get deals without expansion
             >>> deals = await client.deals.list(limit=10)
             >>>
-            >>> # Get deals with expanded manager and contractor
-            >>> deals_full = await client.deals.list(
+            >>> # Get deals with manager and contractor loaded in place
+            >>> deals = await client.deals.list(
             ...     limit=10, expand=["manager", "contractor"]
             ... )
-            >>> for deal_full in deals_full:
-            ...     if deal_full.manager_details:
-            ...         print(deal_full.manager_details.display_name())
-            ...     if deal_full.contractor_details:
-            ...         print(deal_full.contractor_details.display_name())
+            >>> for deal in deals:
+            ...     if deal.manager:
+            ...         print(deal.manager.display_name())
+            ...     if deal.contractor:
+            ...         print(deal.contractor.display_name())
         """
         path = self._build_path("api", "v3", "deal")
+
+        self._validate_list_fields(fields)
 
         # #14: default to newest-first; sort_by=[] opts out.
         if sort_by is None:
@@ -262,8 +229,8 @@ class DealsResource(BaseResource, FullDetailsMixin):
         )
 
         deals = await self._get_list(path, Deal, params)
-        self._warn_reduced_linked_fields(deals, fields, expand)
-        return await self._expand_and_wrap(deals, expand)
+        deals = self._backfill_deduplicated_refs(deals)
+        return await self._expand_references(deals, expand)
 
     async def get(self, deal_id: int, fields: list[str] | None = None) -> Deal:
         """Get deal by ID.
