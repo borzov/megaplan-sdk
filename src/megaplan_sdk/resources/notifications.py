@@ -1,5 +1,7 @@
 """Notifications resource for Megaplan API (#FR-F)."""
 
+from __future__ import annotations
+
 from collections.abc import AsyncIterator
 from typing import Any
 
