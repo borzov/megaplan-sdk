@@ -19,6 +19,7 @@ class ContentType:
     GROUP = "Group"
     KNOWLEDGE_BASE = "KnowledgeBase"
     KNOWLEDGE_ARTICLE = "KnowledgeArticle"
+    NOTIFICATION = "Notification"
 
     # Value types (not entities) that the API also tags with contentType
     DATE_TIME = "DateTime"

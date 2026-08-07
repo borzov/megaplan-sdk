@@ -1,5 +1,6 @@
 """Megaplan Python SDK - Professional SDK for Megaplan API v3."""
 
+from megaplan_sdk._notification_links import NotificationEntityRef
 from megaplan_sdk.client import MegaplanClient
 from megaplan_sdk.constants import DEFAULT_SORT_RECENT, DEFAULT_TASK_LIST_FIELDS
 from megaplan_sdk.exceptions import (
@@ -49,6 +50,11 @@ from megaplan_sdk.models.knowledge import (
     KnowledgeSectionWithArticles,
 )
 from megaplan_sdk.models.milestone import Milestone
+from megaplan_sdk.models.notification import (
+    Notification,
+    NotificationCounter,
+    NotificationType,
+)
 from megaplan_sdk.models.participant import Participant, parse_participant, parse_participants
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task, TaskFullDetails
@@ -87,6 +93,10 @@ __all__ = [
     "KnowledgeBase",
     "KnowledgeArticle",
     "KnowledgeSectionWithArticles",
+    "Notification",
+    "NotificationCounter",
+    "NotificationEntityRef",
+    "NotificationType",
     "Participant",
     "parse_participant",
     "parse_participants",

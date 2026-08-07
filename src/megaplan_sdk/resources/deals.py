@@ -10,6 +10,7 @@ from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
 from megaplan_sdk.models.employee import Employee
+from megaplan_sdk.models.task import Task
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
@@ -84,21 +85,17 @@ class DealsResource(BaseResource, FullDetailsMixin):
             ),
         ]
 
-    async def _fetch_related_tasks(self, deal_id: int, **kwargs: Any) -> Any:
-        """Related tasks cannot be fetched — the API has no tasks-by-deal filter.
+    async def _fetch_related_tasks(self, deal_id: int, **kwargs: Any) -> list[Task]:
+        """Load the deal's tasks from the dedicated ``linkedTasks`` subresource.
 
-        Verified empirically (2026-07-02): every baseOn wire format is either
-        silently ignored (the endpoint returns ALL account tasks) or rejected
-        with 422; the server reports Task has no deal/trade/baseOn fields, and
-        the deal side exposes only tasksCount. The previous implementation
-        silently returned unrelated tasks.
+        There is still no tasks-by-deal *filter* (every baseOn wire format is
+        either silently ignored or rejected with 422, verified 2026-07-02), so
+        the list endpoint cannot answer this. The subresource can: verified on
+        the stand 2026-08-05, ``/deal/{id}/linkedTasks`` returns exactly the
+        tasks counted by ``tasksCount``.
         """
-        raise NotImplementedError(
-            "Megaplan API has no working tasks-by-deal (baseOn) filter: object "
-            "configs are silently ignored and string configs are rejected with "
-            "422. include_related_tasks previously returned ALL account tasks. "
-            "Use deal.tasksCount for the count; there is no way to list the tasks."
-        )
+        path = self._build_path("api", "v3", "deal", str(deal_id), "linkedTasks")
+        return await self._get_list(path, Task)
 
     async def create(self, deal_data: dict[str, Any]) -> Deal:
         """Create a new deal.

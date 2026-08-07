@@ -322,16 +322,25 @@ async def test_fetch_method_loading(megaplan_api, tasks):
     assert len(full_details.history) == 2
 
 
-async def test_custom_fetcher_related_tasks_raises_not_implemented(megaplan_api, deals):
-    """include_related_tasks fails loudly: the API has no tasks-by-deal filter.
+async def test_related_tasks_come_from_linked_tasks_endpoint(megaplan_api, deals):
+    """include_related_tasks reads /deal/{id}/linkedTasks.
 
-    Verified empirically (2026-07-02): the old implementation silently
-    returned ALL account tasks instead of the deal's tasks.
+    There is no tasks-by-deal filter (verified 2026-07-02), but the dedicated
+    subresource exists and returns exactly the deal's tasks (verified
+    2026-08-05 on the stand: deal 1964 → task 1006283, matching tasksCount).
     """
     megaplan_api.get("deal/1", data={"id": 1, "contentType": "Deal", "name": "Test Deal"})
+    route = megaplan_api.get(
+        "deal/1/linkedTasks",
+        data=[{"id": 1006283, "contentType": "Task", "name": "Согласование договора"}],
+    )
 
-    with pytest.raises(NotImplementedError, match="tasks-by-deal"):
-        await deals.get_full_details(deal_id=1, include_related_tasks=True)
+    details = await deals.get_full_details(deal_id=1, include_related_tasks=True)
+
+    assert route.call_count == 1
+    assert details.related_tasks is not None
+    assert [task.id for task in details.related_tasks] == [1006283]
+    assert details.related_tasks[0].name == "Согласование договора"
 
 
 async def test_default_limits_applied_when_not_specified(megaplan_api, http_client):

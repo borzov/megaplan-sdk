@@ -24,6 +24,7 @@ async def test_client_initialization():
     assert client.employees is not None
     assert client.departments is not None
     assert client.auth is not None
+    assert client.notifications is not None
 
     await client.close()
 
