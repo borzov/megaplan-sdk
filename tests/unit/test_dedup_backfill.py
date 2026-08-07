@@ -101,3 +101,40 @@ async def test_no_dedup_warning_once_references_are_backfilled(megaplan_api, tas
         await tasks.list(limit=2, fields=["owner"])
 
     assert "deduplicated" not in caplog.text
+
+
+async def test_backfill_finds_the_full_form_anywhere_in_the_payload(megaplan_api, deals):
+    """The full object often sits in a nested field, not in a sibling's manager.
+
+    Verified on the stand: for a page of 30 deals every bare manager id had a
+    full form somewhere in the same response — inside another entity — so a
+    top-level-only scan repairs less than half of them.
+    """
+    megaplan_api.get(
+        "deal",
+        data=[
+            {
+                "id": 1,
+                "contentType": "Deal",
+                "name": "First",
+                "manager": {"contentType": "Employee", "id": 10},
+                "contractor": {
+                    "contentType": "Contractor",
+                    "id": 55,
+                    "name": "ООО Ромашка",
+                    "owner": {"contentType": "Employee", "id": 10, "name": "Гусев Максим"},
+                },
+            },
+            {
+                "id": 2,
+                "contentType": "Deal",
+                "name": "Second",
+                "manager": {"contentType": "Employee", "id": 10},
+            },
+        ],
+    )
+
+    listed = await deals.list(limit=2, fields=["manager", "contractor"])
+
+    assert listed[0].manager is not None and listed[0].manager.name == "Гусев Максим"
+    assert listed[1].manager is not None and listed[1].manager.name == "Гусев Максим"

@@ -263,7 +263,6 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         )
 
         projects = await self._get_list(path, Project, params)
-        projects = self._backfill_deduplicated_refs(projects)
         return await self._expand_references(projects, expand)
 
     async def get(self, project_id: int, fields: list[str] | None = None) -> Project:

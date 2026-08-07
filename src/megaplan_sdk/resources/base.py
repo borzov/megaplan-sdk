@@ -60,15 +60,6 @@ class BaseResource:
     # copies, so expand never changes the listed entity's type (#BUG-2).
     _expand_rules: ClassVar[dict[str, ExpandRule]] = {}
 
-    # Linked-entity reference fields that the server deduplicates within a
-    # single list() response (#36). Used by _backfill_deduplicated_refs.
-    _LINKED_REF_FIELDS: ClassVar[tuple[str, ...]] = (
-        "owner",
-        "responsible",
-        "manager",
-        "contractor",
-    )
-
     # Field names this resource's list endpoint rejects with a raw 422, mapped
     # to the fields to suggest instead. A blacklist, not an allowlist: custom
     # category fields are unknowable in advance and must pass through.
@@ -98,45 +89,65 @@ class BaseResource:
                     f"Card-only data is available via get()."
                 )
 
-    def _backfill_deduplicated_refs(self, entities: list[Any]) -> list[Any]:
-        """Fill bare linked references from their full occurrence in the same page.
+    def _backfill_deduplicated_refs(self, data: list[Any]) -> list[Any]:
+        """Fill bare entity references from their full form elsewhere in the page.
 
-        The server embeds a repeated linked entity fully only at its first
-        occurrence per response; later mentions — including in a different
-        field of another item — arrive as bare ``{contentType, id}`` (#36).
-        The full object is already in the payload, so repeats are repaired
-        locally, with no extra request (#BUG-4). References with no full
-        occurrence anywhere in the page are left untouched.
+        The server embeds a repeated entity fully only once per response; every
+        later mention — in another field, another item, or nested inside another
+        entity — arrives as a bare ``{contentType, id}`` (#36). The full object
+        is already in the payload, so the repeats are repaired locally, without
+        an extra request (#BUG-4). Verified on the stand: for a page of 30 deals
+        every bare ``manager`` had a full form somewhere in the same response,
+        which is why the whole payload is scanned and not just the top level.
 
         Args:
-            entities: Parsed entities from one list response.
+            data: Raw list payload as returned by the API.
 
         Returns:
-            The entities, with repaired copies where a repeat was filled in.
+            The payload with bare references replaced by their full form.
         """
-        full_refs: dict[tuple[str, int], Any] = {}
-        for entity in entities:
-            for field_name in self._LINKED_REF_FIELDS:
-                ref = getattr(entity, field_name, None)
-                if ref is None or not hasattr(ref, "id") or not getattr(ref, "name", None):
-                    continue
-                full_refs.setdefault((getattr(ref, "content_type", ""), ref.id), ref)
+        full_forms: dict[tuple[str, str], dict[str, Any]] = {}
 
-        if not full_refs:
-            return entities
+        def collect(node: Any) -> None:
+            if isinstance(node, dict):
+                key = self._ref_key(node)
+                if key is not None and not self._is_bare_ref(node):
+                    known = full_forms.get(key)
+                    if known is None or len(node) > len(known):
+                        full_forms[key] = node
+                for value in node.values():
+                    collect(value)
+            elif isinstance(node, list):
+                for value in node:
+                    collect(value)
 
-        results: list[Any] = []
-        for entity in entities:
-            updates: dict[str, Any] = {}
-            for field_name in self._LINKED_REF_FIELDS:
-                ref = getattr(entity, field_name, None)
-                if ref is None or not hasattr(ref, "id") or getattr(ref, "name", None):
-                    continue
-                full = full_refs.get((getattr(ref, "content_type", ""), ref.id))
-                if full is not None:
-                    updates[field_name] = full
-            results.append(entity.model_copy(update=updates) if updates else entity)
-        return results
+        def repair(node: Any) -> Any:
+            if isinstance(node, dict):
+                key = self._ref_key(node)
+                if key is not None and self._is_bare_ref(node):
+                    return full_forms.get(key, node)
+                return {name: repair(value) for name, value in node.items()}
+            if isinstance(node, list):
+                return [repair(value) for value in node]
+            return node
+
+        collect(data)
+        if not full_forms:
+            return data
+        return [repair(item) for item in data]
+
+    @staticmethod
+    def _ref_key(node: dict[str, Any]) -> tuple[str, str] | None:
+        """Identity of an entity reference: (contentType, id), or None."""
+        content_type, entity_id = node.get("contentType"), node.get("id")
+        if isinstance(content_type, str) and isinstance(entity_id, str | int):
+            return content_type, str(entity_id)
+        return None
+
+    @staticmethod
+    def _is_bare_ref(node: dict[str, Any]) -> bool:
+        """Whether the node carries nothing but contentType and id."""
+        return set(node) <= {"contentType", "id"}
 
     def _build_path(self, *parts: str) -> str:
         """Build API path from parts.
@@ -438,7 +449,7 @@ class BaseResource:
             List of model instances.
         """
         response = await self._http.get(path, params=params)
-        data = self._parse_list_response(response)
+        data = self._backfill_deduplicated_refs(self._parse_list_response(response))
 
         return [model_class(**item) if isinstance(item, dict) else item for item in data]
 

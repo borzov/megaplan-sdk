@@ -230,7 +230,6 @@ class DealsResource(BaseResource, FullDetailsMixin):
         )
 
         deals = await self._get_list(path, Deal, params)
-        deals = self._backfill_deduplicated_refs(deals)
         return await self._expand_references(deals, expand)
 
     async def get(self, deal_id: int, fields: list[str] | None = None) -> Deal:

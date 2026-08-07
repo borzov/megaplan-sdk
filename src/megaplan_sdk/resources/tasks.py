@@ -260,7 +260,6 @@ class TasksResource(BaseResource, FullDetailsMixin):
         )
 
         tasks = await self._get_list(path, Task, params)
-        tasks = self._backfill_deduplicated_refs(tasks)
         return await self._expand_references(tasks, expand)
 
     async def list_by(self, query: TaskQuery) -> list[Task]:
