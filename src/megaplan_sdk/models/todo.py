@@ -8,13 +8,29 @@ wire format.
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.base import BaseEntity
 from megaplan_sdk.models.common import DateOnly, DateTime
 
 FINISHED_MASTER_TYPES = frozenset({"finished", "success", "fail", "finish_without_result"})
+
+
+def _bound_shape(bound: dict[str, Any] | None) -> str | None:
+    """Infer a `when` bound's shape from its own keys, not from an outer tag.
+
+    Returns "date" for DateOnly-shaped bounds (year/month/day), "time" for
+    DateTime-shaped bounds (value), or None when the bound is empty or
+    carries neither set of keys.
+    """
+    if not bound:
+        return None
+    if "value" in bound:
+        return "time"
+    if any(key in bound for key in ("year", "month", "day")):
+        return "date"
+    return None
 
 
 class TodoStatus(BaseEntity):
@@ -36,16 +52,19 @@ class TodoCategory(BaseEntity):
 class TodoWhen(BaseModel):
     """When a todo happens — an all-day date range or a timed interval.
 
-    ``content_type`` has no default: unlike ``DateTime``/``DateOnly``, where a
-    single wire shape exists, ``TodoWhen`` covers two mutually exclusive
-    shapes and there is no safe default to pick between them. Real API
-    responses always carry ``contentType``, so this only affects manual
-    construction (e.g. in tests) — requiring it explicitly avoids a
-    ``TodoWhen`` silently being treated as one shape when it was meant as the
-    other.
+    ``content_type`` has no default and stays optional: an SDK must survive
+    unexpected server payloads (every model here uses ``extra="allow"`` for
+    the same reason), so a `when` object missing its `contentType` must not
+    fail the whole `Todo` it belongs to. When `content_type` is missing or
+    unrecognized, the shape is inferred from the bounds' own keys instead
+    (DateOnly carries year/month/day, DateTime carries value — see
+    `_bound_shape`). If neither the tag nor the bounds resolve the shape,
+    `is_all_day` defaults to False and the accessor properties return None
+    rather than raise — malformed data degrades to "unknown", never to an
+    exception.
     """
 
-    content_type: str = Field(alias="contentType")
+    content_type: str | None = Field(alias="contentType", default=None)
     from_: dict[str, Any] | None = Field(alias="from", default=None)
     to: dict[str, Any] | None = None
 
@@ -53,28 +72,50 @@ class TodoWhen(BaseModel):
 
     @property
     def is_all_day(self) -> bool:
-        """True when the interval is expressed in calendar dates."""
-        return self.content_type == "IntervalDates"
+        """True when the interval is expressed in calendar dates.
+
+        Falls back to inferring the shape from the bounds themselves when
+        `content_type` is missing or not one of the two known tags.
+        """
+        if self.content_type == "IntervalDates":
+            return True
+        if self.content_type == "IntervalTime":
+            return False
+        shape = _bound_shape(self.from_) or _bound_shape(self.to)
+        return shape == "date"
 
     @property
     def start_date(self) -> DateOnly | None:
-        """Start as a calendar date, or None for a timed interval."""
+        """Start as a calendar date, or None for a timed/unrecognized interval.
+
+        DateOnly has no required fields, so construction cannot raise here.
+        """
         return DateOnly(**self.from_) if self.is_all_day and self.from_ else None
 
     @property
     def start_datetime(self) -> DateTime | None:
-        """Start as a datetime, or None for an all-day interval."""
-        return DateTime(**self.from_) if not self.is_all_day and self.from_ else None
+        """Start as a datetime, or None for an all-day/unrecognized interval."""
+        if self.is_all_day or not self.from_:
+            return None
+        try:
+            return DateTime(**self.from_)
+        except ValidationError:
+            return None
 
     @property
     def end_date(self) -> DateOnly | None:
-        """End as a calendar date, or None for a timed interval."""
+        """End as a calendar date, or None for a timed/unrecognized interval."""
         return DateOnly(**self.to) if self.is_all_day and self.to else None
 
     @property
     def end_datetime(self) -> DateTime | None:
-        """End as a datetime, or None for an all-day interval."""
-        return DateTime(**self.to) if not self.is_all_day and self.to else None
+        """End as a datetime, or None for an all-day/unrecognized interval."""
+        if self.is_all_day or not self.to:
+            return None
+        try:
+            return DateTime(**self.to)
+        except ValidationError:
+            return None
 
 
 class Todo(BaseEntity):

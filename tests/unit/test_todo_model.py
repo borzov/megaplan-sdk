@@ -1,9 +1,6 @@
 """Tests for the Todo ("Дела") model (task 4 of the 0.6.1 release)."""
 
-import pytest
-from pydantic import ValidationError
-
-from megaplan_sdk.models.todo import Todo, TodoCategory, TodoStatus, TodoWhen
+from megaplan_sdk.models.todo import Todo, TodoCategory, TodoStatus
 
 ALL_DAY = {
     "contentType": "Todo",
@@ -257,9 +254,55 @@ def test_todo_status_and_category_construct_without_explicit_content_type():
     assert category.content_type == "TodoCategory"
 
 
-def test_todo_when_requires_explicit_content_type():
-    """No safe default exists between IntervalDates and IntervalTime, so
-    content_type is required — omitting it must fail loudly rather than
-    silently picking a shape."""
-    with pytest.raises(ValidationError):
-        TodoWhen(from_={"contentType": "DateTime", "value": "2026-08-21T10:00:00+00:00"})
+def test_when_without_content_type_infers_timed_shape_from_bounds():
+    """A `when` object missing `contentType` must not fail the whole Todo —
+    the shape is inferred from the bounds' own keys instead (#fix-round-2)."""
+    todo = Todo(
+        **{
+            **TIMED,
+            "when": {
+                "from": {"value": "2026-08-21T10:00:00+00:00"},
+                "to": {"value": "2026-08-21T11:00:00+00:00"},
+            },
+        }
+    )
+    assert todo.when is not None
+    assert todo.when.is_all_day is False
+    assert todo.when.start_datetime is not None
+    assert todo.when.start_datetime.value == "2026-08-21T10:00:00+00:00"
+
+
+def test_when_without_content_type_infers_all_day_shape_from_bounds():
+    """Same inference, DateOnly-shaped bounds (year/month/day, no contentType)."""
+    todo = Todo(
+        **{
+            **TIMED,
+            "when": {
+                "from": {"year": 2026, "month": 8, "day": 21},
+                "to": {"year": 2026, "month": 8, "day": 21},
+            },
+        }
+    )
+    assert todo.when is not None
+    assert todo.when.is_all_day is True
+    assert todo.when.start_date is not None
+    assert todo.when.start_date.day == 21
+
+
+def test_when_with_unrecognizable_bounds_returns_none_without_raising():
+    """Empty or unrecognizable bounds degrade to None, never an exception."""
+    empty = Todo(**{**TIMED, "when": {"from": {}, "to": {}}})
+    assert empty.when is not None
+    assert empty.when.is_all_day is False
+    assert empty.when.start_date is None
+    assert empty.when.start_datetime is None
+    assert empty.when.end_date is None
+    assert empty.when.end_datetime is None
+
+    garbage = Todo(**{**TIMED, "when": {"from": {"foo": "bar"}, "to": {"foo": "bar"}}})
+    assert garbage.when is not None
+    assert garbage.when.is_all_day is False
+    assert garbage.when.start_date is None
+    assert garbage.when.start_datetime is None
+    assert garbage.when.end_date is None
+    assert garbage.when.end_datetime is None
