@@ -406,7 +406,7 @@ class BaseResource:
         """Generic method to get comments for any entity.
 
         Args:
-            entity_type: API path segment (e.g. "todo" for tasks, "project", "deal", "contractor").
+            entity_type: API path segment (e.g. "task", "todo", "project", "deal", "contractor").
             entity_id: Entity identifier.
             limit: Number of items per page.
             page_after: Load page starting from this entity.
@@ -806,7 +806,7 @@ class BaseResource:
             >>> BaseResource._entity_type_to_content_type("task")
             'Task'
             >>> BaseResource._entity_type_to_content_type("todo")
-            'Task'
+            'Todo'
             >>> BaseResource._entity_type_to_content_type("contractorCompany")
             'ContractorCompany'
         """

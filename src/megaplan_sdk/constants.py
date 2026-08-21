@@ -7,6 +7,7 @@ class ContentType:
     """Content type constants for Megaplan API entities."""
 
     TASK = "Task"
+    TODO = "Todo"
     PROJECT = "Project"
     DEAL = "Deal"
     EMPLOYEE = "Employee"
