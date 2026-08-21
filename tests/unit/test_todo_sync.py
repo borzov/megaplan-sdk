@@ -143,6 +143,59 @@ def test_new_server_field_does_not_fake_an_update():
     assert a == b
 
 
+def test_fingerprint_ignores_volatile_responsible_profile_fields():
+    """Regression guard for task 12b fix-round 2.
+
+    Confirmed on a live account: the server embeds ``responsible`` as a full
+    ``Employee`` profile, which carries presence fields (``isOnline``,
+    ``lastOnline``) that change on essentially every request while the
+    responsible person is active — independent of the todo itself. Hashing
+    the full embed made ``TodoSync.poll()`` report a todo as "updated" on an
+    idle repeat, purely because its responsible employee's `lastOnline`
+    ticked forward between the two polls. The fingerprint must reduce a
+    reference field like ``responsible`` to its id before hashing.
+    """
+    bare = {
+        **TODO,
+        "responsible": {"contentType": "Employee", "id": "1000003"},
+    }
+    full_profile_a = {
+        **TODO,
+        "responsible": {
+            "contentType": "Employee",
+            "id": "1000003",
+            "name": "Борзов Максим",
+            "isOnline": True,
+            "lastOnline": {"contentType": "DateTime", "value": "2026-08-21T15:26:34+00:00"},
+        },
+    }
+    full_profile_b = {
+        **TODO,
+        "responsible": {
+            "contentType": "Employee",
+            "id": "1000003",
+            "name": "Борзов Максим",
+            "isOnline": True,
+            # Same person, later timestamp — as if fetched a few seconds later.
+            "lastOnline": {"contentType": "DateTime", "value": "2026-08-21T15:27:03+00:00"},
+        },
+    }
+
+    fp_bare = _fingerprint(Todo(**bare))
+    fp_a = _fingerprint(Todo(**full_profile_a))
+    fp_b = _fingerprint(Todo(**full_profile_b))
+
+    assert fp_bare == fp_a == fp_b
+
+
+def test_fingerprint_changes_when_responsible_id_actually_changes():
+    """A real reassignment must still be detected once reduced to id."""
+    assigned_to_one = {**TODO, "responsible": {"contentType": "Employee", "id": "1000003"}}
+    assigned_to_another = {**TODO, "responsible": {"contentType": "Employee", "id": "1000004"}}
+
+    assert _fingerprint(Todo(**assigned_to_one)) != _fingerprint(Todo(**assigned_to_another))
+
+
 async def test_finishing_a_todo_produces_an_update_not_a_deletion(megaplan_api, todos):
     """A todo that changed from unfinished to finished is an update, as long as
     its `when` still falls inside the window — the server didn't drop it, its

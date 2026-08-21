@@ -69,14 +69,33 @@ FINGERPRINT_FIELDS = (
 )
 
 
+# Fields whose value is a reference to another entity (embedded fully by the
+# server, e.g. `responsible` -> a full `Employee` profile). Reduced to just
+# `id` before hashing — see `_fingerprint`.
+_REFERENCE_FIELDS = ("responsible",)
+
+
 def _fingerprint(todo: Todo) -> str:
     """Hash of the fields in :data:`FINGERPRINT_FIELDS`.
 
     A fixed field list is used deliberately: hashing the whole payload would
     turn any new server-side field into a fake "updated" for every todo.
+
+    Reference fields (`_REFERENCE_FIELDS`) are reduced to their `id` before
+    hashing. Confirmed on a live account (task 12b, fix-round 2): the server
+    embeds `responsible` as a full `Employee` profile, which carries
+    presence data (`isOnline`, `lastOnline`) that changes on nearly every
+    request while that employee is active — nothing to do with the todo
+    itself. Hashing the full embed made an idle repeat of `TodoSync.poll()`
+    report a todo as "updated" purely because its responsible employee's
+    `lastOnline` ticked forward between the two polls.
     """
     dump = todo.model_dump(mode="json")
     payload = {name: dump.get(name) for name in FINGERPRINT_FIELDS}
+    for field_name in _REFERENCE_FIELDS:
+        value = payload.get(field_name)
+        if isinstance(value, dict) and "id" in value:
+            payload[field_name] = {"id": value["id"]}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
