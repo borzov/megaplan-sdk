@@ -66,6 +66,7 @@ from megaplan_sdk.models.notification import (
 from megaplan_sdk.models.participant import Participant, parse_participant, parse_participants
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task, TaskFullDetails
+from megaplan_sdk.models.todo import Todo, TodoCategory, TodoStatus, TodoWhen
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.filters import FiltersResource
 from megaplan_sdk.task_query import TaskQuery
@@ -111,6 +112,10 @@ __all__ = [
     "NotificationCounter",
     "NotificationEntityRef",
     "NotificationType",
+    "Todo",
+    "TodoStatus",
+    "TodoCategory",
+    "TodoWhen",
     "Participant",
     "parse_participant",
     "parse_participants",
