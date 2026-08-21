@@ -7,6 +7,7 @@ tests avoid juggling dates for the common cases, and window-dependent tests
 below build their own ``when`` payloads for the current day explicitly.
 """
 
+import json
 from datetime import date
 
 from megaplan_sdk.models.todo import Todo
@@ -16,6 +17,18 @@ TODO = {
     "contentType": "Todo",
     "id": "501",
     "name": "Созвон",
+    "status": {"contentType": "TodoStatus", "id": "1", "masterType": "scheduled"},
+    "timeCreated": {"contentType": "DateTime", "value": "2026-08-20T09:00:00+00:00"},
+}
+
+# A second, independent todo — used wherever a test needs a non-empty server
+# response while one specific todo disappears or changes, so the scenario
+# under test is not confused with "the server returned nothing at all"
+# (see TodoChanges.looks_truncated).
+TODO_2 = {
+    "contentType": "Todo",
+    "id": "502",
+    "name": "Второй",
     "status": {"contentType": "TodoStatus", "id": "1", "masterType": "scheduled"},
     "timeCreated": {"contentType": "DateTime", "value": "2026-08-20T09:00:00+00:00"},
 }
@@ -74,6 +87,29 @@ async def test_changed_field_produces_update(megaplan_api, todos):
 
 
 async def test_disappeared_todo_is_reported_deleted(megaplan_api, todos):
+    """A todo missing from an otherwise non-empty response is a real
+    deletion — unlike the whole response going empty, see
+    test_empty_response_with_nonempty_snapshot_does_not_delete_everything.
+    """
+    megaplan_api.get("todo", data=[TODO, TODO_2])
+    sync = TodoSync(todos)
+    first = await sync.poll()
+
+    megaplan_api.get("todo", data=[TODO_2])
+    second = await sync.poll(first.state)
+
+    assert second.deleted == [501]
+    assert second.looks_truncated is False
+
+
+async def test_empty_response_with_nonempty_snapshot_does_not_delete_everything(
+    megaplan_api, todos
+):
+    """A fully empty response after a non-empty snapshot reads as a suspect
+    response (permission hiccup, empty page, pagination cut short), not a
+    mass deletion: nothing is reported deleted, and state is handed back
+    untouched so the caller can safely retry without losing its snapshot.
+    """
     megaplan_api.get("todo", data=[TODO])
     sync = TodoSync(todos)
     first = await sync.poll()
@@ -81,13 +117,19 @@ async def test_disappeared_todo_is_reported_deleted(megaplan_api, todos):
     megaplan_api.get("todo", data=[])
     second = await sync.poll(first.state)
 
-    assert second.deleted == [501]
+    assert second.deleted == []
+    assert second.created == [] and second.updated == []
+    assert second.looks_truncated is True
+    assert second.state == first.state
 
 
 def test_state_survives_serialization():
+    """Round-trip through real json.dumps/json.loads, not just the dict form —
+    this is exactly how a caller persists the state between polls.
+    """
     state = TodoSyncState(cursor_id=501, fingerprints={501: "abc"})
 
-    restored = TodoSyncState.from_dict(state.to_dict())
+    restored = TodoSyncState.from_dict(json.loads(json.dumps(state.to_dict())))
 
     assert restored.cursor_id == 501
     assert restored.fingerprints == {501: "abc"}
@@ -118,10 +160,12 @@ async def test_finishing_a_todo_produces_an_update_not_a_deletion(megaplan_api, 
     assert second.deleted == []
 
 
-async def test_snapshot_forgets_todos_that_fall_out_of_window(megaplan_api, todos):
-    """State must only carry ids seen in the current run's window — otherwise
-    it grows without bound on an account where todos keep leaving scope
-    (finished, no longer within window_days) without ever being deleted.
+async def test_todo_leaving_window_is_dropped_from_state_not_reported_deleted(megaplan_api, todos):
+    """A todo the server still returns, but which fell out of the window, must
+    be dropped from the next snapshot (so it does not grow without bound)
+    WITHOUT being reported in `deleted` — `deleted` is reserved for ids the
+    server stops returning at all, and this one is still right there in the
+    response.
     """
     megaplan_api.get("todo", data=[TODO])
     sync = TodoSync(todos)
@@ -135,7 +179,9 @@ async def test_snapshot_forgets_todos_that_fall_out_of_window(megaplan_api, todo
     second = await sync.poll(first.state)
 
     assert second.state.fingerprints == {}
-    assert second.deleted == [501]
+    assert second.deleted == []
+    assert second.created == [] and second.updated == []
+    assert second.looks_truncated is False
 
 
 async def test_finished_todo_with_timed_when_in_window_is_updated(megaplan_api, todos):
@@ -153,7 +199,8 @@ async def test_finished_todo_with_timed_when_in_window_is_updated(megaplan_api, 
 
 async def test_finished_todo_with_unparseable_when_falls_out_of_window(megaplan_api, todos):
     """A `when` bound that cannot be parsed as a date degrades to "unknown",
-    same as `TodoWhen` itself does, and drops the todo out of the window.
+    same as `TodoWhen` itself does, and drops the todo out of the window —
+    but the server still returned it, so it is not `deleted`.
     """
     megaplan_api.get("todo", data=[TODO])
     sync = TodoSync(todos)
@@ -164,11 +211,14 @@ async def test_finished_todo_with_unparseable_when_falls_out_of_window(megaplan_
     second = await sync.poll(first.state)
 
     assert second.updated == [] and second.created == []
-    assert second.deleted == [501]
+    assert second.deleted == []
+    assert 501 not in second.state.fingerprints
 
 
 async def test_finished_todo_with_empty_when_bounds_falls_out_of_window(megaplan_api, todos):
-    """A timed `when` with no `from`/`to` at all resolves to no reference date."""
+    """A timed `when` with no `from`/`to` at all resolves to no reference
+    date, so the todo falls out of the window — again, not `deleted`.
+    """
     megaplan_api.get("todo", data=[TODO])
     sync = TodoSync(todos)
     first = await sync.poll()
@@ -177,7 +227,8 @@ async def test_finished_todo_with_empty_when_bounds_falls_out_of_window(megaplan
     megaplan_api.get("todo", data=[finished])
     second = await sync.poll(first.state)
 
-    assert second.deleted == [501]
+    assert second.deleted == []
+    assert 501 not in second.state.fingerprints
 
 
 async def test_cursor_id_tracks_highest_seen_id_and_survives_empty_polls(megaplan_api, todos):
@@ -190,3 +241,4 @@ async def test_cursor_id_tracks_highest_seen_id_and_survives_empty_polls(megapla
     second = await sync.poll(first.state)
 
     assert second.state.cursor_id == 501
+    assert second.looks_truncated is True

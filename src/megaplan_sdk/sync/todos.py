@@ -1,20 +1,46 @@
 """Incremental synchronization of todos.
 
 The Todo entity has no ``timeUpdated`` and the API has no "changed after"
-filter, so "what changed" cannot be asked for directly. TodoSync answers it by
-keeping a cursor over ids for new todos and a fingerprint per known todo for
-changed ones. State is serializable and owned by the caller — the SDK stores
-nothing itself.
+filter, so "what changed" cannot be asked for directly. TodoSync answers it
+with a fingerprint per known todo for changed ones, plus a `cursor_id` in the
+state that tracks the highest todo id ever observed. ``cursor_id`` is
+informational only as of this writing: `poll()` does not use it to narrow the
+fetch, every call walks the whole todo list via `iterate()` regardless of its
+value (see the 0.6.1 task report for a note on turning it into a real
+fetch-side optimization). State is serializable and owned by the caller — the
+SDK stores nothing itself.
 
 The primary channel for todo changes on a live account is the "events"
 webhook stream. TodoSync exists for the initial load and as a safety net for
 missed webhooks, not as a replacement for them.
 
-Honest limitation: a todo that changes while it sits outside the current
-window (see ``_in_window``), and whose change is not otherwise caught by a
-webhook, will not be detected until the window is widened enough to see it
-again — ``TodoSync`` does not (and, without a "changed after" filter, cannot)
-scan the whole account on every poll.
+``TodoChanges.deleted`` means exactly one thing: the server stopped
+returning this id at all. It never means "this todo left the sync window" —
+a todo that is still live on the server but falls outside `window_days` is
+simply dropped from the next state's fingerprints, silently, without being
+reported as deleted (see `_in_window`). Conflating the two would turn a
+routine window change into what looks like data loss to a caller mirroring
+`deleted` onto a local store.
+
+Because of that, an apparently-empty server response is dangerous: if it
+were trusted at face value, a transient hiccup (a permission error, an empty
+page, pagination cut short) would read as "every known todo just got
+deleted." `poll()` guards against exactly this — see
+`TodoChanges.looks_truncated`.
+
+Honest limitations:
+
+- A todo that changes while it sits outside the current window, and whose
+  change is not otherwise caught by a webhook, will not be detected until
+  the window is widened enough to see it again — ``TodoSync`` does not (and,
+  without a "changed after" filter, cannot) scan the whole account for
+  changes beyond the window on every poll.
+- The empty-response guard only catches a *fully* empty page. If pagination
+  is cut short after some todos were already yielded (server returns an
+  empty page mid-walk, which `TodosResource.iterate()` cannot distinguish
+  from "no more pages"), the missing tail will look like real deletions.
+  There is no cheap way to detect that case without a total-count signal the
+  API does not provide.
 """
 
 from __future__ import annotations
@@ -97,11 +123,14 @@ class TodoSyncState:
     """Serializable sync state. Persisting it across polls is the caller's job.
 
     Attributes:
-        cursor_id: Highest todo id observed by any poll so far.
+        cursor_id: Highest todo id observed by any poll so far. Informational
+            only — `TodoSync.poll` does not use it to narrow what it fetches.
         fingerprints: `_fingerprint()` result per todo id, for todos seen in
             the most recent poll's window. Ids that fall out of the window
             are dropped from here (see `TodoSync.poll`), so this dict does
-            not grow without bound on an active account.
+            not grow without bound on an active account. Dropping out of
+            here is not the same as `TodoChanges.deleted` — see the module
+            docstring.
     """
 
     cursor_id: int | None = None
@@ -125,12 +154,33 @@ class TodoSyncState:
 
 @dataclass
 class TodoChanges:
-    """What changed since the previous poll."""
+    """What changed since the previous poll.
+
+    Attributes:
+        created: Todos seen for the first time, within the current window.
+        updated: Previously known todos whose fingerprint changed, within
+            the current window.
+        deleted: Ids the server stopped returning at all this poll, computed
+            against *every* todo the server sent back before the window was
+            applied. This does NOT include todos that are still live on the
+            server but fell outside the current window — those are dropped
+            from `state.fingerprints` without being reported here (see the
+            module docstring).
+        state: State to pass into the next `poll()` call.
+        looks_truncated: True when the server returned no todos at all while
+            the previous state was non-empty — a signal of a suspect
+            response (permission hiccup, empty page, pagination cut short)
+            rather than a genuine mass deletion. When True, `deleted` is
+            always empty and `state` is the *previous* state, returned
+            unchanged — callers must not delete anything locally on this
+            response and should simply retry the poll later.
+    """
 
     created: list[Todo]
     updated: list[Todo]
     deleted: list[int]
     state: TodoSyncState
+    looks_truncated: bool = False
 
 
 class TodoSync:
@@ -160,7 +210,12 @@ class TodoSync:
         changed or in-window todos — an unrecognized filter field is
         silently ignored, and the server answers with the unfiltered list
         instead of an error — so every todo the account exposes is paged
-        through, and the window is applied client-side to the result.
+        through in one walk. Two views of that one walk are kept apart:
+        every todo returned (used for `deleted`, since only the server can
+        say a todo is gone) and the subset that passes the window (used for
+        `created`/`updated`, since fingerprints are only tracked in-window).
+        Conflating them would make a todo that merely left the window look
+        deleted — see the module docstring.
 
         Args:
             state: State from a previous poll, or None for the first poll —
@@ -168,20 +223,32 @@ class TodoSync:
 
         Returns:
             Created/updated/deleted todos, plus the state to pass into the
-            next `poll()` call.
+            next `poll()` call. See `TodoChanges.looks_truncated` for the
+            case where the response is not trusted and nothing is reported
+            deleted.
         """
         state = state or TodoSyncState()
         today = datetime.now(UTC).date()
 
-        seen: dict[int, Todo] = {}
+        seen_all: dict[int, Todo] = {}
+        in_window: dict[int, Todo] = {}
         async for todo in self._todos.iterate():
+            seen_all[todo.id] = todo
             if _in_window(todo, today, self._window_days):
-                seen[todo.id] = todo
+                in_window[todo.id] = todo
+
+        if not seen_all and state.fingerprints:
+            # A fully empty response while we know about todos from a
+            # previous poll looks like a transient hiccup, not a mass
+            # deletion. Refuse to touch the snapshot; let the caller retry.
+            return TodoChanges(
+                created=[], updated=[], deleted=[], state=state, looks_truncated=True
+            )
 
         created: list[Todo] = []
         updated: list[Todo] = []
         fingerprints: dict[int, str] = {}
-        for todo_id, todo in seen.items():
+        for todo_id, todo in in_window.items():
             fingerprint = _fingerprint(todo)
             fingerprints[todo_id] = fingerprint
             previous = state.fingerprints.get(todo_id)
@@ -190,9 +257,9 @@ class TodoSync:
             elif previous != fingerprint:
                 updated.append(todo)
 
-        deleted = [todo_id for todo_id in state.fingerprints if todo_id not in seen]
+        deleted = [todo_id for todo_id in state.fingerprints if todo_id not in seen_all]
 
-        cursor_candidates = list(seen)
+        cursor_candidates = list(seen_all)
         if state.cursor_id is not None:
             cursor_candidates.append(state.cursor_id)
         cursor_id = max(cursor_candidates) if cursor_candidates else None
