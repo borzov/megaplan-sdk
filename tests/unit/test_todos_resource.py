@@ -1,9 +1,24 @@
-"""Tests for TodosResource — read-only access to todos ("Дела").
+"""Tests for TodosResource — reads and writes over todos ("Дела").
 
-Routes were confirmed by a live-account probe (2026-08-21): GET todo,
+Read routes were confirmed by a live-account probe (2026-08-21): GET todo,
 GET todo/{id}, GET todo/{id}/deals, GET todo/{id}/issues (note: issues, not
 tasks — that is what test_linked_tasks_use_issues_subresource guards against),
 GET todo/search, GET todo/busyDays, GET todo/{id}/comments.
+
+Write routes were confirmed by a second live-account probe (2026-08-21, Task
+7): POST todo (create), POST todo/{id} (update), DELETE todo/{id} — all 200.
+POST todo/{id}/finish, /renew, /take all 404 "No route found" — those are not
+real routes (a hypothesis from the RAML action-request types that Task 1's
+probe disproved), so no finish()/renew()/take() actions are implemented that
+way. A plain status update via POST todo/{id} was verified separately to
+persist (confirmed by polling GET after the write) — see finish() below,
+which is thin sugar over update().
+
+Writes on live Todo were observed to be eventually consistent: a POST
+returns 200 with the intended state immediately, but a GET issued right after
+can still show the previous value for a few seconds before catching up
+(worse under several rapid concurrent writes to the same todo). This is a
+server-side characteristic, not something the SDK compensates for.
 """
 
 import json
@@ -156,3 +171,60 @@ async def test_linked_tasks_use_issues_subresource(megaplan_api, todos):
 def test_todo_resource_is_exported_from_the_package():
     """Consumers import the resource from megaplan_sdk, not from internals."""
     from megaplan_sdk import TodosResource  # noqa: F401
+
+
+async def test_create_sends_content_type_and_name(megaplan_api, todos):
+    route = megaplan_api.post("todo", data={**TODO, "id": "600"})
+
+    todo = await todos.create(name="Созвон с клиентом")
+
+    assert todo.id == 600
+    body = json.loads(route.calls[0].request.content)
+    assert body["contentType"] == "Todo"
+    assert body["name"] == "Созвон с клиентом"
+
+
+async def test_create_passes_extra_fields_through(megaplan_api, todos):
+    """**fields is a pure pass-through, in API notation (e.g. responsible)."""
+    route = megaplan_api.post("todo", data={**TODO, "id": "600"})
+
+    await todos.create(name="Созвон", responsible={"contentType": "Employee", "id": 5})
+
+    body = json.loads(route.calls[0].request.content)
+    assert body["responsible"] == {"contentType": "Employee", "id": 5}
+
+
+async def test_update_sends_post_to_todo_id(megaplan_api, todos):
+    route = megaplan_api.post("todo/501", data={**TODO, "name": "Перенесённый созвон"})
+
+    todo = await todos.update(501, {"name": "Перенесённый созвон"})
+
+    assert todo.name == "Перенесённый созвон"
+    body = json.loads(route.calls[0].request.content)
+    assert body == {"name": "Перенесённый созвон"}
+
+
+async def test_delete_sends_delete_to_todo_id(megaplan_api, todos):
+    route = megaplan_api.delete("todo/501")
+
+    await todos.delete(501)
+
+    assert route.called
+
+
+async def test_finish_updates_status_via_plain_update(megaplan_api, todos):
+    """finish() has no dedicated action route (confirmed 404) — it is sugar
+    over update() that only changes `status`, confirmed on a live account to
+    actually persist.
+    """
+    finished = {
+        **TODO,
+        "status": {"contentType": "TodoStatus", "id": "2", "masterType": "finished"},
+    }
+    route = megaplan_api.post("todo/501", data=finished)
+
+    todo = await todos.finish(501, status_id=2)
+
+    assert todo.is_finished() is True
+    body = json.loads(route.calls[0].request.content)
+    assert body == {"status": {"contentType": "TodoStatus", "id": "2"}}

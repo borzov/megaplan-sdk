@@ -1,4 +1,4 @@
-"""Todos resource for Megaplan API — read-only access to todos ("Дела")."""
+"""Todos resource for Megaplan API — read and write access to todos ("Дела")."""
 
 from __future__ import annotations
 
@@ -15,14 +15,91 @@ from megaplan_sdk.resources.base import BaseResource
 
 
 class TodosResource(BaseResource):
-    """Resource for todos ("Дела"), read-only.
+    """Resource for todos ("Дела").
 
     Unlike tasks and deals, a todo has no ``timeUpdated`` and the API offers
     no "changed after" filter — incremental sync must go through app event
     streams instead.
+
+    Note:
+        Writes on this entity are eventually consistent on the live API: a
+        write POST returns 200 with the intended state right away, but a GET
+        issued immediately after can still show the previous value for a few
+        seconds — worse under several rapid writes to the same todo. This is
+        a server-side characteristic; the SDK does not poll to mask it.
     """
 
     _page_content_type = ContentType.TODO
+
+    async def create(self, name: str, **fields: Any) -> Todo:
+        """Create a todo.
+
+        Args:
+            name: Todo name.
+            **fields: Any other Todo fields, in API notation (e.g.
+                ``responsible``, ``category``, ``status``).
+
+        Returns:
+            The created todo.
+
+        Note:
+            ``when`` cannot be set through this method: any shape tried for
+            it (``IntervalDates``/``IntervalTime``) gives a 422 on the live
+            API (``'stdClass' is not assignable to 'IntervalDates|
+            IntervalTime'``) — the wire format the server expects for
+            scheduling on create has not been found.
+        """
+        payload: dict[str, Any] = {"contentType": ContentType.TODO, "name": name, **fields}
+        return await self._create_entity("todo", payload, Todo)
+
+    async def update(self, todo_id: int, todo_data: dict[str, Any]) -> Todo:
+        """Update a todo.
+
+        Args:
+            todo_id: Todo identifier.
+            todo_data: Updated todo fields, in API notation.
+
+        Returns:
+            Updated todo.
+        """
+        return await self._update_entity("todo", todo_id, todo_data, Todo)
+
+    async def delete(self, todo_id: int) -> None:
+        """Delete a todo.
+
+        Args:
+            todo_id: Todo identifier.
+        """
+        await self._delete_entity("todo", todo_id)
+
+    async def finish(self, todo_id: int, status_id: int) -> Todo:
+        """Finish a todo by switching it to a closed status.
+
+        Args:
+            todo_id: Todo identifier.
+            status_id: Id of a ``TodoStatus`` whose ``masterType`` is one of
+                "finished", "success", "fail", "finish_without_result" — see
+                ``GET /api/v3/todoStatus`` for the account's actual status
+                list, since ids are not stable across accounts.
+
+        Returns:
+            The updated todo.
+
+        Note:
+            There is no dedicated finish action route: ``POST
+            /todo/{id}/finish`` 404s "No route found" on a live account
+            (RAML's ``TodoFinishActionRequest`` type is not reachable that
+            way). This method is plain sugar over :meth:`update` that only
+            changes ``status`` — confirmed on a live account to actually
+            persist. RAML separately documents a unified ``POST
+            /todo/{id}/doAction`` route accepting a discriminated
+            ``TodoFinishActionRequest`` (also carrying ``resultText``,
+            ``resultAttaches``, ``notifyContractors``); that route was not
+            probed for this release and is not used here.
+        """
+        return await self.update(
+            todo_id, {"status": {"contentType": "TodoStatus", "id": str(status_id)}}
+        )
 
     async def list(
         self,
