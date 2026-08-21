@@ -8,6 +8,7 @@ from typing import Any
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal
+from megaplan_sdk.models.history import LinkEvent, parse_history_entry
 from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.base import BaseResource
@@ -241,3 +242,84 @@ class ContractorsResource(BaseResource):
             Todos of the contractor.
         """
         return await self._get_entity_todos("contractor", contractor_id, limit)
+
+    async def get_history(
+        self,
+        contractor_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        raw: bool = False,
+    ) -> list[Any]:
+        """Get the journal of a contractor.
+
+        The stream is mixed: ``Changeset`` (field changes), ``BasedOnHistory``
+        (link/unlink), comments, trigger logs. Known types are parsed; unknown
+        ones are returned as raw dicts, so a new server-side type never breaks
+        the call.
+
+        Args:
+            contractor_id: Contractor identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            raw: Return untouched payloads (pre-0.6.1 behaviour).
+
+        Returns:
+            Journal entries, newest first.
+
+        Examples:
+            >>> history = await client.contractors.get_history(contractor_id=123, limit=10)
+        """
+        entries = await self._get_entity_history(
+            "contractor", contractor_id, limit, page_after, page_before, page_with
+        )
+        if raw:
+            return list(entries)
+        return [parse_history_entry(entry) for entry in entries]
+
+    async def iterate_history(
+        self,
+        contractor_id: int,
+        limit: int = 100,
+        raw: bool = False,
+    ) -> AsyncIterator[Any]:
+        """Iterate the contractor's journal with automatic pagination.
+
+        Args:
+            contractor_id: Contractor identifier.
+            limit: Number of entries per page.
+            raw: Yield untouched payloads instead of parsed entries.
+
+        Yields:
+            Journal entries, newest first.
+        """
+        async for entry in self._iterate_entity_history("contractor", contractor_id, limit, raw):
+            yield entry
+
+    async def get_link_events(
+        self,
+        contractor_id: int,
+        since_id: int | None = None,
+        since_time: str | None = None,
+        limit: int = 100,
+    ) -> list[LinkEvent]:
+        """Get link/unlink events for a contractor.
+
+        Args:
+            contractor_id: Contractor identifier.
+            since_id: Return only events newer than this event id — store the
+                largest id seen to poll incrementally.
+            since_time: Return only events created strictly after this
+                ISO-8601 timestamp.
+            limit: Number of journal entries fetched per page.
+
+        Returns:
+            Link events, newest first.
+
+        Examples:
+            >>> events = await client.contractors.get_link_events(contractor_id=66)
+        """
+        return await self._get_link_events("contractor", contractor_id, since_id, since_time, limit)

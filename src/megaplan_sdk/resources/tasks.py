@@ -11,6 +11,7 @@ from megaplan_sdk.constants import (
 )
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.employee import Employee
+from megaplan_sdk.models.history import LinkEvent, parse_history_entry
 from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
@@ -54,7 +55,14 @@ class TasksResource(BaseResource, FullDetailsMixin):
         RelatedDataConfig(
             "comments", "include_comments", "get_comments", limit_param="comments_limit"
         ),
-        RelatedDataConfig("history", "include_history", "get_history", limit_param="history_limit"),
+        RelatedDataConfig(
+            "history",
+            "include_history",
+            "get_history",
+            limit_param="history_limit",
+            # TaskFullDetails.history keeps its pre-0.6.1 list[dict] contract.
+            fetch_args={"raw": True},
+        ),
         RelatedDataConfig("auditors", "include_auditors", "get_auditors"),
         RelatedDataConfig("executors", "include_executors", "get_executors"),
         RelatedDataConfig("milestones", "include_milestones", "get_milestones"),
@@ -938,8 +946,14 @@ class TasksResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Get history log for a task.
+        raw: bool = False,
+    ) -> list[Any]:
+        """Get the journal of a task.
+
+        The stream is mixed: ``Changeset`` (field changes), ``BasedOnHistory``
+        (link/unlink), comments, trigger logs. Known types are parsed; unknown
+        ones are returned as raw dicts, so a new server-side type never breaks
+        the call.
 
         Args:
             task_id: Task identifier.
@@ -947,16 +961,64 @@ class TasksResource(BaseResource, FullDetailsMixin):
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
+            raw: Return untouched payloads (pre-0.6.1 behaviour).
 
         Returns:
-            List of history entries.
+            Journal entries, newest first.
 
         Examples:
             >>> history = await client.tasks.get_history(task_id=123, limit=10)
         """
-        return await self._get_entity_history(
+        entries = await self._get_entity_history(
             "task", task_id, limit, page_after, page_before, page_with
         )
+        if raw:
+            return list(entries)
+        return [parse_history_entry(entry) for entry in entries]
+
+    async def iterate_history(
+        self,
+        task_id: int,
+        limit: int = 100,
+        raw: bool = False,
+    ) -> AsyncIterator[Any]:
+        """Iterate the task's journal with automatic pagination.
+
+        Args:
+            task_id: Task identifier.
+            limit: Number of entries per page.
+            raw: Yield untouched payloads instead of parsed entries.
+
+        Yields:
+            Journal entries, newest first.
+        """
+        async for entry in self._iterate_entity_history("task", task_id, limit, raw):
+            yield entry
+
+    async def get_link_events(
+        self,
+        task_id: int,
+        since_id: int | None = None,
+        since_time: str | None = None,
+        limit: int = 100,
+    ) -> list[LinkEvent]:
+        """Get link/unlink events for a task.
+
+        Args:
+            task_id: Task identifier.
+            since_id: Return only events newer than this event id — store the
+                largest id seen to poll incrementally.
+            since_time: Return only events created strictly after this
+                ISO-8601 timestamp.
+            limit: Number of journal entries fetched per page.
+
+        Returns:
+            Link events, newest first.
+
+        Examples:
+            >>> events = await client.tasks.get_link_events(task_id=77)
+        """
+        return await self._get_link_events("task", task_id, since_id, since_time, limit)
 
     async def search_history(
         self,

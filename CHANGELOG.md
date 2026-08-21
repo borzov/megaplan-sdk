@@ -7,6 +7,21 @@
 
 ## [Не выпущено]
 
+### ⚠️ Изменения поведения (breaking)
+- `tasks.get_history()`, `projects.get_history()` и новые `contractors.get_history()`,
+  `todos.get_history()` возвращают типизированные записи журнала (`Changeset`,
+  `BasedOnHistory`) вместо сырых `dict`, как это уже было сделано для
+  `deals.get_history()` в 0.6.0; неизвестные типы записей по-прежнему
+  остаются `dict`. Прежнее поведение — `get_history(..., raw=True)`. У всех
+  четырёх ресурсов также появились `iterate_history()` и `get_link_events()`,
+  зеркальные методам `deals`. `get_full_details(include_history=True)` у
+  `tasks`/`projects` не затронут: он по-прежнему собирает `history` как
+  `list[dict]`.
+  Это финальный шаг раскатки типизированного журнала: контракт
+  `get_history()` теперь единообразен для всех сущностей, у которых API
+  отдаёт `/history` (deals, tasks, projects, contractors, todos); дальнейшие
+  изменения в этой части будут только аддитивными.
+
 ## [0.6.0] — 2026-08-07
 
 ### ⚠️ Изменения поведения (breaking)

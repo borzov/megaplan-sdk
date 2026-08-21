@@ -9,6 +9,7 @@ from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.base import BaseEntity
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.deal import Deal
+from megaplan_sdk.models.history import LinkEvent, parse_history_entry
 from megaplan_sdk.models.task import Task
 from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.resources.base import BaseResource
@@ -313,3 +314,84 @@ class TodosResource(BaseResource):
             the API surface this method hides from callers.
         """
         return await self._get_linked_entities(todo_id, "issues", Task)
+
+    async def get_history(
+        self,
+        todo_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        raw: bool = False,
+    ) -> list[Any]:
+        """Get the journal of a todo.
+
+        The stream is mixed: ``Changeset`` (field changes), ``BasedOnHistory``
+        (link/unlink), comments, trigger logs. Known types are parsed; unknown
+        ones are returned as raw dicts, so a new server-side type never breaks
+        the call.
+
+        Args:
+            todo_id: Todo identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            raw: Return untouched payloads (pre-0.6.1 behaviour).
+
+        Returns:
+            Journal entries, newest first.
+
+        Examples:
+            >>> history = await client.todos.get_history(todo_id=88, limit=10)
+        """
+        entries = await self._get_entity_history(
+            "todo", todo_id, limit, page_after, page_before, page_with
+        )
+        if raw:
+            return list(entries)
+        return [parse_history_entry(entry) for entry in entries]
+
+    async def iterate_history(
+        self,
+        todo_id: int,
+        limit: int = 100,
+        raw: bool = False,
+    ) -> AsyncIterator[Any]:
+        """Iterate the todo's journal with automatic pagination.
+
+        Args:
+            todo_id: Todo identifier.
+            limit: Number of entries per page.
+            raw: Yield untouched payloads instead of parsed entries.
+
+        Yields:
+            Journal entries, newest first.
+        """
+        async for entry in self._iterate_entity_history("todo", todo_id, limit, raw):
+            yield entry
+
+    async def get_link_events(
+        self,
+        todo_id: int,
+        since_id: int | None = None,
+        since_time: str | None = None,
+        limit: int = 100,
+    ) -> list[LinkEvent]:
+        """Get link/unlink events for a todo.
+
+        Args:
+            todo_id: Todo identifier.
+            since_id: Return only events newer than this event id — store the
+                largest id seen to poll incrementally.
+            since_time: Return only events created strictly after this
+                ISO-8601 timestamp.
+            limit: Number of journal entries fetched per page.
+
+        Returns:
+            Link events, newest first.
+
+        Examples:
+            >>> events = await client.todos.get_link_events(todo_id=88)
+        """
+        return await self._get_link_events("todo", todo_id, since_id, since_time, limit)
