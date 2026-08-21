@@ -142,8 +142,11 @@ class TodoSyncState:
     """Serializable sync state. Persisting it across polls is the caller's job.
 
     Attributes:
-        cursor_id: Highest todo id observed by any poll so far. Informational
-            only — `TodoSync.poll` does not use it to narrow what it fetches.
+        cursor_id: Highest todo id observed by any poll so far. Reserved for
+            future use — `TodoSync.poll` computes and serializes it but does
+            not read it back, and there is no catch-up/resume path built on
+            it yet. Do not rely on it for anything today; treat it as opaque
+            state to persist and forward, not as an API to build on.
         fingerprints: `_fingerprint()` result per todo id, for todos seen in
             the most recent poll's window. Ids that fall out of the window
             are dropped from here (see `TodoSync.poll`), so this dict does
@@ -176,7 +179,14 @@ class TodoChanges:
     """What changed since the previous poll.
 
     Attributes:
-        created: Todos seen for the first time, within the current window.
+        created: Todos with no fingerprint in the previous `state`, within
+            the current window — not necessarily seen for the first time
+            ever. A todo that drops out of the window and later re-enters
+            it, or one whose fingerprint was lost (e.g. state loss on the
+            caller's side), is reported here again even though it already
+            existed. Treat this as "new to this state", not "new to the
+            account" — an idempotent upsert on the receiving end handles
+            both cases correctly.
         updated: Previously known todos whose fingerprint changed, within
             the current window.
         deleted: Ids the server stopped returning at all this poll, computed

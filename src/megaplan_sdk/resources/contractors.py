@@ -28,6 +28,18 @@ class ContractorsResource(BaseResource):
         bums\\crm\\api\\v03\\Entity\\Contractor`` — a server-side bug in
         instantiating the polymorphic ``Contractor`` type for this endpoint,
         not something the SDK can work around.
+
+    Note:
+        ``get_history()``/``iterate_history()``/``get_link_events()`` hit the
+        **same** server-side polymorphism bug as ``get_todos()`` above:
+        confirmed on the 0.6.1 stand gate (2026-08-21), ``GET
+        /contractor/{id}/history`` also 500s with the identical ``There is no
+        model class for bums\\crm\\api\\v03\\Entity\\Contractor`` error on
+        this account. Unlike ``get_todos()``, these three methods are kept
+        (not removed) pending a maintainer decision — do not assume they work
+        on any given account; a caller should be prepared to catch
+        ``ServerError`` here specifically, and this may need revisiting
+        (removal, or a documented "known-broken" status) in a future release.
     """
 
     _page_content_type = ContentType.CONTRACTOR

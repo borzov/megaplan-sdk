@@ -1888,8 +1888,24 @@ async with client.attachments.stream(attach) as response:
 ```
 
 `download()`/`stream()` принимают модель вложения (`BaseEntity` с `path` в
-`model_extra`), `dict` с `path`/`url`, или сам путь строкой. Загрузка файлов
-(`POST /api/file`) пока не реализована.
+`model_extra`), `dict` с `path`/`url`, или сам путь строкой.
+
+Загрузка файла — `upload()` — отправляет `POST /api/file` (вне префикса
+`/api/v3`) и возвращает ссылку `{"contentType": "File", "id": ...}`, готовую
+для передачи в `attaches` любой сущности (например, комментарию):
+
+```python
+# Загрузить файл и прикрепить его к комментарию
+ref = await client.attachments.upload("report.pdf")
+comment = await client.comments.create(
+    entity_id=task.id,
+    content="Отчёт во вложении",
+    attaches=[ref],
+)
+```
+
+Файл читается синхронно (без стриминга) — для очень больших файлов это
+блокирует event loop на время чтения.
 
 ### Настройка HTTP-клиента
 

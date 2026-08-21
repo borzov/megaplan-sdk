@@ -170,22 +170,24 @@ async def next_run(client: MegaplanClient, saved_state_json: str) -> str:
     state = TodoSyncState.from_dict(json.loads(saved_state_json))
     changes = await sync.poll(state)
 
+    # `created` is "new to this state", not "new to the account" — a todo
+    # that fell out of the window and came back, or one whose fingerprint
+    # was lost (state loss on our side), lands in `created` again even
+    # though it already exists locally. Use upsert for both `created` and
+    # `updated`; a plain INSERT on `created` will hit a duplicate-key error
+    # the first time that happens.
     for todo in changes.created:
-        apply_create(todo)
+        apply_upsert(todo)
     for todo in changes.updated:
-        apply_update(todo)
+        apply_upsert(todo)
     for todo_id in changes.deleted:
         apply_delete(todo_id)
 
     return json.dumps(changes.state.to_dict())
 
 
-def apply_create(todo: object) -> None:
-    """Placeholder: insert the todo into your local store."""
-
-
-def apply_update(todo: object) -> None:
-    """Placeholder: update the todo in your local store."""
+def apply_upsert(todo: object) -> None:
+    """Placeholder: insert or update the todo in your local store."""
 
 
 def apply_delete(todo_id: int) -> None:
@@ -251,18 +253,29 @@ def apply_delete(todo_id: int) -> None:
 
 ## Честное ограничение окна
 
-`window_days` — не серверный, а клиентский фильтр: незавершённые дела в окне
-всегда, завершённые/сброшенные — только если их `when` попадает в
-`±window_days` от сегодня. Дело, которое **изменилось, находясь вне текущего
-окна**, и которое не поймал вебхук, `TodoSync` не найдёт — ни в этот опрос,
-ни в следующие, пока окно не расширят настолько, чтобы это дело снова в него
-попало. Это не баг, а прямое следствие того, что серверного фильтра "что
-изменилось" для `Todo` не существует: `TodoSync` может либо пройти весь
-список целиком (дорого при большом окне), либо ограничить себя окном ценой
-этого слепого пятна. Если вашему сценарию нужна гарантия "ничего не
-пропущено" без ограничения по времени — полагайтесь на вебхуки как основной
-канал, а `TodoSync` используйте только для восстановления после сбоев в
-пределах разумного окна.
+`window_days` — не серверный, а клиентский фильтр, и он **не влияет на то,
+сколько запросов делает `poll()`**. Серверного фильтра "что изменилось" для
+`Todo` не существует, поэтому каждый вызов `poll()` целиком проходит список
+дел аккаунта через `iterate()`, постранично по 100 штук, независимо от
+значения `window_days`. Окно решает только, какие дела попадают в
+`fingerprints` (а значит — сколько памяти займёт `TodoSyncState` и что может
+оказаться в `created`/`updated`); на цену самого опроса оно не влияет.
+
+Отсюда прямая оценка стоимости: 500 дел в аккаунте — это около 6 запросов на
+`poll()` (5 полных страниц по 100 плюс завершающая), 50 000 дел — около 500
+запросов. Частоту опроса выбирайте от размера аккаунта, а не от значения
+`window_days` — на большом аккаунте частый `poll()` (например, раз в минуту)
+может создать заметную нагрузку и на SDK, и на API Мегаплана.
+
+Отдельно от стоимости — окно всё ещё создаёт слепое пятно: дело, которое
+**изменилось, находясь вне текущего окна**, и которое не поймал вебхук,
+`TodoSync` не найдёт — ни в этот опрос, ни в следующие, пока окно не
+расширят настолько, чтобы это дело снова в него попало. Расширение окна не
+снижает число запросов (оно и так покрывает весь список) — оно только
+увеличивает `fingerprints` и вероятность поймать такое дело. Если вашему
+сценарию нужна гарантия "ничего не пропущено" без ограничения по времени —
+полагайтесь на вебхуки как основной канал, а `TodoSync` используйте только
+для восстановления после сбоев в пределах разумного окна.
 
 ## Итоговая схема
 

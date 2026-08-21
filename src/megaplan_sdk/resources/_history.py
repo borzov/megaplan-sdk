@@ -117,7 +117,11 @@ class HistoryMixin:
             raw: Yield untouched payloads instead of parsed entries.
 
         Yields:
-            Journal entries, newest first.
+            Journal entries, newest first — the server's default order for
+            `GET .../history` (no `sort_by` is sent). Confirmed empirically
+            against a live account's deal journal (monotonically descending
+            `timeCreated` across 6 entries, 2026-08-21); not a documented API
+            contract, so treat it as an observation, not a guarantee.
         """
         page_after: dict[str, Any] | None = None
         while True:
@@ -160,7 +164,16 @@ class HistoryMixin:
             limit: Number of journal entries per page.
 
         Returns:
-            Link events, oldest page first, in journal order.
+            Link events, newest first — this method just filters the stream
+            from `_iterate_entity_history`, in the order that method yields
+            it (see its docstring; this description previously said "oldest
+            page first", which contradicted every public facade and was
+            simply wrong — confirmed newest-first empirically against a live
+            account's deal journal on 2026-08-21). No `sort_by` is sent to
+            the server for either call, so this is the server's default
+            order, not a documented contract — do not rely on it holding
+            across accounts or API versions; use `since_id`/`since_time` to
+            poll incrementally instead of indexing into the result.
         """
         events: list[LinkEvent] = []
         async for entry in self._iterate_entity_history(entity_type, entity_id, limit):

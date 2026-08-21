@@ -424,11 +424,54 @@ async def check_entity_todos_routes(client: MegaplanClient, report: Report) -> N
         await report.run(f"GET /{label}/{{id}}/todos", _check)
 
 
+# --- 4b: todo <-> deal/task linked subresources (RAML-only, never exercised live) --
+
+
+async def check_todo_linked_subresources(client: MegaplanClient, report: Report) -> None:
+    """Confirm ``GET /todo/{id}/deals`` and ``GET /todo/{id}/issues`` from RAML.
+
+    ``TodosResource.get_linked_deals()``/``get_linked_tasks()`` were taken
+    on faith from RAML and never called against the live API before 0.6.1 —
+    the same trap that made ``contractors.get_todos()`` 500 despite RAML
+    listing the route. Read-only: picks an existing todo and just reads its
+    linked entities, no assumption that the list is non-empty.
+    """
+
+    async def _deals() -> str:
+        todos = await client.todos.list(limit=5)
+        if not todos:
+            raise Skip("no existing todos to probe")
+        todo_id = todos[0].id
+        linked = await client.todos.get_linked_deals(todo_id)
+        return f"todo#{todo_id}: route confirmed, {len(linked)} linked deals"
+
+    await report.run("GET /todo/{id}/deals", _deals)
+
+    async def _tasks() -> str:
+        todos = await client.todos.list(limit=5)
+        if not todos:
+            raise Skip("no existing todos to probe")
+        todo_id = todos[0].id
+        linked = await client.todos.get_linked_tasks(todo_id)
+        return f"todo#{todo_id}: route confirmed ('issues'), {len(linked)} linked tasks"
+
+    await report.run("GET /todo/{id}/issues (get_linked_tasks)", _tasks)
+
+
 # --- 5: raw q on GET /todo -------------------------------------------------------
 
 
 async def check_todo_q_filter(client: MegaplanClient, report: Report) -> None:
-    """Check whether raw ``q`` actually filters ``GET /todo`` server-side (#11-style)."""
+    """Gate that ``todos.list(q=...)`` actually filters server-side.
+
+    ``TodosResource.list()`` no longer sends a raw ``q`` — it converts it into
+    a real ``TodoFilter`` name filter first (``_q_to_filter``), the same way
+    ``TasksResource``/``DealsResource`` do, because a raw ``q`` is silently
+    ignored by the server (#5, same #11-class trap). This check must actually
+    fail if that conversion regresses: an "ignored" or "no-op" outcome is a
+    bug, not an alternate acceptable result, so it is asserted against rather
+    than just reported.
+    """
 
     async def _check() -> str:
         sample = await client.todos.list(limit=20)
@@ -444,18 +487,24 @@ async def check_todo_q_filter(client: MegaplanClient, report: Report) -> None:
         filtered_ids = [t.id for t in filtered]
         all_match = all(fragment.lower() in (t.name or "").lower() for t in filtered)
 
-        if filtered_ids != baseline_ids and all_match:
-            return (
-                f"q={fragment!r} IS honored server-side: {len(filtered_ids)} of "
-                f"{len(baseline_ids)} unfiltered rows, all match the fragment"
+        if not all_match:
+            raise AssertionError(
+                f"q={fragment!r}: {len(filtered)} filtered rows include names that don't "
+                "contain the fragment — server-side filter is not doing what it claims"
+            )
+        if len(filtered_ids) >= len(baseline_ids):
+            raise AssertionError(
+                f"q={fragment!r}: filtered rows ({len(filtered_ids)}) did not shrink "
+                f"vs. unfiltered ({len(baseline_ids)}) — filter looks IGNORED by the "
+                "server, same #11-class trap as tasks/deals; TodosResource.list(q=...) "
+                "is supposed to convert this into a real TodoFilter, not a no-op"
             )
         return (
-            f"q={fragment!r} is IGNORED by the server: filtered rows "
-            f"({len(filtered_ids)}) == unfiltered ({len(baseline_ids)}), "
-            f"all_match_fragment={all_match} — same #11-style quirk as tasks/deals"
+            f"q={fragment!r} filters server-side: {len(filtered_ids)} of "
+            f"{len(baseline_ids)} unfiltered rows, all match the fragment"
         )
 
-    await report.run("todos.list(q=...) — is raw q honored server-side?", _check)
+    await report.run("todos.list(q=...) filters server-side (TodoFilter, not raw q)", _check)
 
 
 # --- 6: link events, read-only -------------------------------------------------
@@ -487,6 +536,109 @@ async def check_link_events_readonly(client: MegaplanClient, report: Report) -> 
         return f"task#{task_id}: {len(events)} link events parsed"
 
     await report.run("tasks.get_link_events() read-only", _task_events)
+
+
+# --- 6b: contractor journal (three public methods never called live) -----------
+
+
+async def check_contractor_journal(client: MegaplanClient, report: Report) -> None:
+    """Confirm ``get_history()``/``iterate_history()``/``get_link_events()`` on contractors.
+
+    These three public methods were shipped in 0.6.0/0.6.1 but never exercised
+    against a live account — the same class of gap that let
+    ``/contractor/{id}/todos`` 500 unnoticed despite being straight out of
+    RAML (``contractors.get_todos()`` was removed for exactly that reason;
+    see the module docstring above). Read-only.
+    """
+
+    async def _get_history() -> str:
+        contractors = await client.contractors.list(limit=5)
+        if not contractors:
+            raise Skip("no existing contractors to probe")
+        contractor_id = contractors[0].id
+        history = await client.contractors.get_history(contractor_id, limit=10)
+        return f"contractor#{contractor_id}: {len(history)} history entries"
+
+    await report.run("contractors.get_history()", _get_history)
+
+    async def _iterate_history() -> str:
+        contractors = await client.contractors.list(limit=5)
+        if not contractors:
+            raise Skip("no existing contractors to probe")
+        contractor_id = contractors[0].id
+        count = 0
+        async for _entry in client.contractors.iterate_history(contractor_id, limit=5):
+            count += 1
+            if count >= 10:
+                break
+        return f"contractor#{contractor_id}: iterated {count} entries across pages"
+
+    await report.run("contractors.iterate_history()", _iterate_history)
+
+    async def _link_events() -> str:
+        contractors = await client.contractors.list(limit=5)
+        if not contractors:
+            raise Skip("no existing contractors to probe")
+        contractor_id = contractors[0].id
+        events = await client.contractors.get_link_events(contractor_id, limit=20)
+        if events and not all(isinstance(e, LinkEvent) for e in events):
+            raise AssertionError("get_link_events returned non-LinkEvent items")
+        return f"contractor#{contractor_id}: {len(events)} link events parsed"
+
+    await report.run("contractors.get_link_events()", _link_events)
+
+
+# --- 6c: empirical journal order (docstrings disagree — settle it live) --------
+
+
+async def check_journal_order(client: MegaplanClient, report: Report) -> None:
+    """Settle whether the journal is newest-first or oldest-first, on real data.
+
+    ``_history.py``'s ``_get_link_events`` docstring claims "oldest page
+    first, in journal order" while every one of the five public facades
+    (``deals``/``tasks``/``projects``/``contractors``/``todos``
+    ``get_history``/``iterate_history``/``get_link_events``) claims "newest
+    first". Both cannot be right, and neither call site passes a `sort_by`,
+    so the true order is whatever the server's default is — this check reads
+    it off a real multi-entry journal instead of guessing.
+    """
+
+    async def _check() -> str:
+        deals = await client.deals.list(limit=25)
+        chosen: tuple[int, list[Any]] | None = None
+        for deal in deals:
+            history = await client.deals.get_history(deal.id, limit=10)
+            if len(history) >= 3:
+                chosen = (deal.id, history)
+                break
+        if chosen is None:
+            raise Skip("no existing deal with >= 3 journal entries to order-check")
+        deal_id, history = chosen
+
+        timestamps: list[str] = []
+        for entry in history:
+            time_created = getattr(entry, "time_created", None)
+            value = getattr(time_created, "value", None) if time_created else None
+            if value is None:
+                continue
+            timestamps.append(value)
+        if len(timestamps) < 3:
+            raise Skip(
+                f"deal#{deal_id}: only {len(timestamps)} entries had a usable "
+                "time_created — not enough to determine order"
+            )
+
+        is_descending = all(a >= b for a, b in zip(timestamps, timestamps[1:], strict=False))
+        is_ascending = all(a <= b for a, b in zip(timestamps, timestamps[1:], strict=False))
+        if is_descending and not is_ascending:
+            verdict = "NEWEST FIRST (descending time_created)"
+        elif is_ascending and not is_descending:
+            verdict = "OLDEST FIRST (ascending time_created)"
+        else:
+            verdict = "NOT MONOTONIC — order is not guaranteed by time_created"
+        return f"deal#{deal_id}: {len(timestamps)} timestamps -> {verdict}: {timestamps}"
+
+    await report.run("journal order: get_history() empirical check on a live deal", _check)
 
 
 # --- 7: get_full_details(include_history=True) ---------------------------------
@@ -723,8 +875,11 @@ async def main() -> None:
             await check_todo_writes(client, report, todo.id)
             await check_todo_sync(client, report, todo.id)
             await check_entity_todos_routes(client, report)
+            await check_todo_linked_subresources(client, report)
             await check_todo_q_filter(client, report)
             await check_link_events_readonly(client, report)
+            await check_contractor_journal(client, report)
+            await check_journal_order(client, report)
             await check_full_details_history(client, report)
             await check_attachment_upload(client, report, todo.id)
             verdict = await check_link_gate(client, report, deal_ids, task_ids)
