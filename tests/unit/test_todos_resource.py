@@ -7,12 +7,23 @@ GET todo/search, GET todo/busyDays, GET todo/{id}/comments.
 
 Write routes were confirmed by a second live-account probe (2026-08-21, Task
 7): POST todo (create), POST todo/{id} (update), DELETE todo/{id} — all 200.
-POST todo/{id}/finish, /renew, /take all 404 "No route found" — those are not
-real routes (a hypothesis from the RAML action-request types that Task 1's
-probe disproved), so no finish()/renew()/take() actions are implemented that
-way. A plain status update via POST todo/{id} was verified separately to
-persist (confirmed by polling GET after the write) — see finish() below,
-which is thin sugar over update().
+POST todo/{id}/finish, /renew, /take (as dedicated routes) all 404 "No route
+found" — those hypothesized routes do not exist.
+
+A third live-account probe (2026-08-21, Task 7b) found the real action route:
+the unified POST todo/{id}/doAction, documented in RAML and shared with Tasks
+and Projects. Confirmed 200 for TodoFinishActionRequest (status changes;
+resultText shows up as a Comment on the todo, not a Todo field) and
+TodoRenewActionRequest (reverts a finished todo back to "scheduled" — 403s
+"No act_renew rights" on a non-finished todo, which is server-side state
+gating, not a broken route) and TodoTakeActionRequest (sets `responsible` to
+the current user). TodoAcceptInvitationActionRequest/
+TodoRejectInvitationActionRequest both 403 "No act_accept_invite/
+act_reject_invite rights" from a single-account probe — the acting account is
+never an invited participant on its own todo, so success could not be
+confirmed, and TodoDeleteRepeatableActionRequest was not reachable either: no
+`when` shape accepted by POST todo produces a repeating todo to test it on
+(still 422, same as Task 1/7). None of those three actions are implemented.
 
 Writes on live Todo were observed to be eventually consistent: a POST
 returns 200 with the intended state immediately, but a GET issued right after
@@ -212,19 +223,61 @@ async def test_delete_sends_delete_to_todo_id(megaplan_api, todos):
     assert route.called
 
 
-async def test_finish_updates_status_via_plain_update(megaplan_api, todos):
-    """finish() has no dedicated action route (confirmed 404) — it is sugar
-    over update() that only changes `status`, confirmed on a live account to
-    actually persist.
-    """
+async def test_finish_sends_do_action_with_all_fields(megaplan_api, todos):
+    """finish() posts a TodoFinishActionRequest to the shared doAction route."""
     finished = {
         **TODO,
-        "status": {"contentType": "TodoStatus", "id": "2", "masterType": "finished"},
+        "status": {"contentType": "TodoStatus", "id": "3", "masterType": "success"},
     }
-    route = megaplan_api.post("todo/501", data=finished)
+    route = megaplan_api.post("todo/501/doAction", data=finished)
 
-    todo = await todos.finish(501, status_id=2)
+    todo = await todos.finish(
+        501,
+        status_id=3,
+        result_text="Готово",
+        result_attaches=[{"contentType": "File", "id": 42}],
+        notify_contractors=True,
+    )
 
     assert todo.is_finished() is True
     body = json.loads(route.calls[0].request.content)
-    assert body == {"status": {"contentType": "TodoStatus", "id": "2"}}
+    assert body == {
+        "contentType": "TodoFinishActionRequest",
+        "status": {"contentType": "TodoStatus", "id": "3"},
+        "resultText": "Готово",
+        "resultAttaches": [{"contentType": "File", "id": 42}],
+        "notifyContractors": True,
+    }
+
+
+async def test_finish_with_no_args_sends_only_content_type(megaplan_api, todos):
+    """Every finish() field is optional; omitting them all sends a bare request."""
+    route = megaplan_api.post("todo/501/doAction", data=TODO)
+
+    await todos.finish(501)
+
+    body = json.loads(route.calls[0].request.content)
+    assert body == {"contentType": "TodoFinishActionRequest"}
+
+
+async def test_renew_sends_do_action_renew(megaplan_api, todos):
+    """renew() posts a bare TodoRenewActionRequest — it has no other fields."""
+    route = megaplan_api.post("todo/501/doAction", data=TODO)
+
+    todo = await todos.renew(501)
+
+    assert todo.id == 501
+    body = json.loads(route.calls[0].request.content)
+    assert body == {"contentType": "TodoRenewActionRequest"}
+
+
+async def test_take_sends_do_action_take(megaplan_api, todos):
+    """take() posts a bare TodoTakeActionRequest — it has no other fields."""
+    taken = {**TODO, "responsible": {"contentType": "Employee", "id": "7"}}
+    route = megaplan_api.post("todo/501/doAction", data=taken)
+
+    todo = await todos.take(501)
+
+    assert todo.id == 501
+    body = json.loads(route.calls[0].request.content)
+    assert body == {"contentType": "TodoTakeActionRequest"}

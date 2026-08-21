@@ -72,34 +72,97 @@ class TodosResource(BaseResource):
         """
         await self._delete_entity("todo", todo_id)
 
-    async def finish(self, todo_id: int, status_id: int) -> Todo:
-        """Finish a todo by switching it to a closed status.
+    async def _do_action(self, todo_id: int, body: dict[str, Any]) -> Todo:
+        """Send ``POST /todo/{id}/doAction`` and parse the resulting todo.
+
+        The shared action route used by :meth:`finish`, :meth:`renew` and
+        :meth:`take` (and the same convention Tasks and Projects use). Each
+        caller builds its own discriminated ``Todo*ActionRequest`` body.
 
         Args:
             todo_id: Todo identifier.
-            status_id: Id of a ``TodoStatus`` whose ``masterType`` is one of
-                "finished", "success", "fail", "finish_without_result" — see
-                ``GET /api/v3/todoStatus`` for the account's actual status
-                list, since ids are not stable across accounts.
+            body: Action request body, including its ``contentType``.
 
         Returns:
-            The updated todo.
-
-        Note:
-            There is no dedicated finish action route: ``POST
-            /todo/{id}/finish`` 404s "No route found" on a live account
-            (RAML's ``TodoFinishActionRequest`` type is not reachable that
-            way). This method is plain sugar over :meth:`update` that only
-            changes ``status`` — confirmed on a live account to actually
-            persist. RAML separately documents a unified ``POST
-            /todo/{id}/doAction`` route accepting a discriminated
-            ``TodoFinishActionRequest`` (also carrying ``resultText``,
-            ``resultAttaches``, ``notifyContractors``); that route was not
-            probed for this release and is not used here.
+            The todo after the action was applied.
         """
-        return await self.update(
-            todo_id, {"status": {"contentType": "TodoStatus", "id": str(status_id)}}
-        )
+        path = self._build_path("api", "v3", "todo", str(todo_id), "doAction")
+        response = await self._http.post(path, json_data=body)
+        return Todo(**self._parse_single_response(response))
+
+    async def finish(
+        self,
+        todo_id: int,
+        status_id: int | None = None,
+        result_text: str | None = None,
+        result_attaches: list[dict[str, Any]] | None = None,
+        notify_contractors: bool | None = None,
+    ) -> Todo:
+        """Finish a todo via the shared ``doAction`` route.
+
+        Confirmed on a live account: the request returns 200 and switches
+        the todo's status. ``result_text`` does **not** end up in a
+        ``Todo.resultText`` field — there is none — the server instead posts
+        it as a regular ``Comment`` on the todo (``"<p>{result_text}</p>"``).
+
+        Args:
+            todo_id: Todo identifier.
+            status_id: Id of a ``TodoStatus`` to switch to. A ``masterType``
+                of "finished", "success", "fail" or "finish_without_result"
+                closes the todo — see ``GET /api/v3/todoStatus`` for the
+                account's actual status list, since ids are not stable
+                across accounts. Optional; omit to let the server pick the
+                default finished status.
+            result_text: Result note. Ends up as a ``Comment`` on the todo,
+                not a field on it (see above).
+            result_attaches: File references (``{contentType, id}``) to
+                attach to the result.
+            notify_contractors: Whether to notify contractors about the
+                result.
+
+        Returns:
+            The finished todo.
+        """
+        body: dict[str, Any] = {"contentType": "TodoFinishActionRequest"}
+        if status_id is not None:
+            body["status"] = {"contentType": "TodoStatus", "id": str(status_id)}
+        if result_text is not None:
+            body["resultText"] = result_text
+        if result_attaches is not None:
+            body["resultAttaches"] = result_attaches
+        if notify_contractors is not None:
+            body["notifyContractors"] = notify_contractors
+        return await self._do_action(todo_id, body)
+
+    async def renew(self, todo_id: int) -> Todo:
+        """Revert a finished todo back to "scheduled" via ``doAction``.
+
+        Confirmed on a live account: works when the todo is currently
+        finished (status returns to "scheduled"). Calling it on a todo that
+        is not finished 403s with "No act_renew rights for model {id}" —
+        that is server-side state gating, not an SDK error.
+
+        Args:
+            todo_id: Todo identifier.
+
+        Returns:
+            The renewed todo.
+        """
+        return await self._do_action(todo_id, {"contentType": "TodoRenewActionRequest"})
+
+    async def take(self, todo_id: int) -> Todo:
+        """Take a todo — assign the current user as ``responsible``.
+
+        Confirmed on a live account: the request returns 200 and sets
+        ``responsible`` to the current user.
+
+        Args:
+            todo_id: Todo identifier.
+
+        Returns:
+            The todo with ``responsible`` set to the current user.
+        """
+        return await self._do_action(todo_id, {"contentType": "TodoTakeActionRequest"})
 
     async def list(
         self,
