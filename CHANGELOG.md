@@ -16,9 +16,11 @@
   типизированные `get_history()`/`iterate_history()`/`get_link_events()` (см.
   ниже). `finish(result_text=...)` публикует текст результата как `Comment`
   на деле — поля `Todo.resultText` не существует.
-- `get_todos(entity_id, limit=)` — у `deals`, `tasks`, `projects` и
-  `employees`: дела, привязанные к сущности (у `contractors` такого метода
-  нет — см. «Исправлено» ниже).
+- `get_todos(entity_id, limit=)` — у `deals`, `tasks`, `projects`,
+  `employees` и `contractors`: дела, привязанные к сущности. У `contractors`
+  метод (как и `get_history()`/`iterate_history()`/`get_link_events()`, см.
+  ниже) ходит в маршрут конкретного подтипа (`contractorCompany`/
+  `contractorHuman`), а не в абстрактный `contractor` — см. «Исправлено».
 - `megaplan_sdk.sync.TodoSync` (+ `TodoSyncState`, `TodoChanges`) —
   инкрементальная синхронизация дел без серверного фильтра «изменено
   после», которого у `Todo` нет: диффит отпечаток значимых полей между
@@ -86,13 +88,24 @@
   без параметров подтверждён на стенде (446 записей). Рабочий формат
   диапазона дат через `filter` в рамках этой задачи не найден — см.
   докстринг метода.
-- **`contractors.get_todos()` убран.** Маршрут есть в RAML и принимается
-  сервером (не 404), но на живом аккаунте 500-ит: «There is no model class
-  for bums\\crm\\api\\v03\\Entity\\Contractor» — серверный баг полиморфизма
-  `Contractor` именно на этом эндпоинте. У `deals`/`tasks`/`projects`/
-  `employees` `get_todos()` остаётся, там маршрут подтверждён рабочим.
-  **Отсутствие метода — намеренное, не недосмотр**: не добавляйте его по
-  аналогии с другими ресурсами, пока сервер не починит этот эндпоинт.
+- **`contractors.get_todos()` (и заодно журнал контрагентов) — не удалены, а починены через маршрут подтипа.**
+  При финальном ревью 0.6.1 подтвердилось: `GET /contractor/{id}/todos` и
+  `GET /contractor/{id}/history` действительно 500-ят («There is no model
+  class for bums\\crm\\api\\v03\\Entity\\Contractor»), но это баг именно
+  абстрактного пути — сервер не может создать экземпляр полиморфного
+  `Contractor`. Конкретный подтип работает: подтверждено на стенде
+  2026-08-21 живьём, `GET /contractorCompany/{id}/todos|history` и
+  `GET /contractorHuman/{id}/todos|history` отвечают 200 с реальными
+  данными для тех же сущностей, что 500-ят через `/contractor/...`.
+  `get_todos()`, `get_history()`, `iterate_history()`, `get_link_events()`
+  теперь принимают опциональный `content_type` (`"ContractorCompany"` /
+  `"ContractorHuman"`) — если он уже известен вызывающему коду (например,
+  из предыдущего `list()`), лишнего запроса не будет; если не передан,
+  метод сам вызовет `get()`, чтобы узнать подтип, ценой одного лишнего
+  запроса. `get_link_events()` заодно чинит сравнение сторон связи:
+  журнал возвращает конкретный `contentType` (`ContractorCompany`/
+  `ContractorHuman`), а не абстрактный `Contractor`, и сопоставление
+  «наша ли это сторона связи» теперь сравнивается именно с ним.
 - **`todos.list(sort_by=...)` с ключом `field` вместо `fieldName` 422-ил**
   («'array' is not assignable to 'SortField[]'»); правильный формат
   (`fieldName`, как и у `tasks`/`deals`) на стенде работает без изменений
@@ -171,20 +184,15 @@
   комментарию через `attaches`) и предупреждением о синхронном чтении файла.
 
 ### Известные ограничения
-- **Журнал контрагентов 500-ит, как и `get_todos()`.** `contractors.get_history()`/
-  `iterate_history()`/`get_link_events()` — три метода, добавленных в этом
-  релизе, но ни разу не вызванных живьём до гейта 0.6.1 — упираются в тот
-  же серверный баг полиморфизма, что и уже известный `get_todos()`:
-  подтверждено на стенде 2026-08-21, `GET /contractor/{id}/history` отвечает
-  500 «There is no model class for bums\\crm\\api\\v03\\Entity\\Contractor».
-  В отличие от `get_todos()` эти три метода **не удалены** — решение
-  оставлено на будущее (удаление или официальный статус «не работает»);
-  сейчас код, вызывающий их для контрагентов, должен быть готов поймать
-  `ServerError`.
 - **Где мы стоим на RAML-only маршрутах, взятых на веру:** на 0.6.1 живьём
   подтверждены `GET /todo/{id}/deals`, `GET /todo/{id}/issues`
-  (`get_linked_deals()`/`get_linked_tasks()` у `todos`) и
-  `GET /{entity}/{id}/todos` у `deals`/`tasks`/`projects`/`employees`.
+  (`get_linked_deals()`/`get_linked_tasks()` у `todos`),
+  `GET /{entity}/{id}/todos` у `deals`/`tasks`/`projects`/`employees`, и
+  `GET /contractorCompany|contractorHuman/{id}/todos|history` (журнал и
+  дела контрагентов — через маршрут конкретного подтипа, см.
+  «Исправлено»; абстрактный `GET /contractor/{id}/todos|history`
+  подтверждённо 500-ит и останется так, пока сервер не почини́т
+  полиморфизм — SDK этот путь больше не использует).
   Не подтверждены живьём: `todos.busy_days(filter=...)` — только вызов без
   фильтра (446 записей), рабочий формат `filter` для диапазона дат не
   найден; часть аргументов `todos.finish()` — `result_text` подтверждён
@@ -193,17 +201,23 @@
   непроверенной гипотезой.
 
 ### Проверено
-- 520 unit-тестов, покрытие 90% (`pytest --cov`), `mypy --strict`, `ruff
+- 528 unit-тестов, покрытие 90% (`pytest --cov`), `mypy --strict`, `ruff
   check`/`ruff format --check` — без замечаний.
 - Отдельный прогон на Python 3.11 (временный venv) — локальный интерпретатор
   3.14 скрывает ошибки аннотаций (PEP 649), которые ловит CI на 3.11–3.13.
-- Стенд-гейт `scripts/verify_0_6_1_stand.py` на боевом аккаунте заказчика
-  (`ruvents.megaplan.ru`): 31 PASS, 3 FAIL (журнал контрагентов, см. выше),
-  2 SKIP (нет прав `act_take` на тестовом деле; отвязку API не вызвала —
-  открытый вопрос, не дефект SDK). Гейт «трогает ли связывание
-  `Deal.timeUpdated`» воспроизведён уже в четвёртый раз — стабильно
-  `changed=False`. По завершении прогона стенд проверен на отсутствие
-  забытых `[SDK-TEST]`-сущностей.
+- Стенд-гейт `scripts/verify_0_6_1_stand.py` прогнан на боевом аккаунте
+  заказчика (`ruvents.megaplan.ru`) дважды. Первый прогон (до фикса
+  подтипов контрагентов): 31 PASS, 3 FAIL, 2 SKIP. Второй прогон (после
+  фикса, с добавленными проверками на конкретный код и тело ответа для
+  обоих путей): **38 PASS, 0 FAIL, 2 SKIP** — оба ранее падавших блока
+  (`contractors.get_history()`/`iterate_history()`/`get_link_events()`,
+  `GET /contractorCompany|contractorHuman/{id}/todos`) теперь проходят.
+  2 SKIP — некритичные и стабильные между прогонами (нет прав `act_take`
+  на тестовом деле; отвязку API не вызвала — открытый вопрос, не дефект
+  SDK). Гейт «трогает ли связывание `Deal.timeUpdated`» воспроизведён уже
+  в четвёртый раз — стабильно `changed=False`. После каждого прогона стенд
+  проверен отдельным read-only обходом на отсутствие забытых
+  `[SDK-TEST]`-сущностей — оба раза чисто.
 
 ## [0.6.0] — 2026-08-07
 

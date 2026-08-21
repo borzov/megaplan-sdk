@@ -9,8 +9,23 @@ from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal
 from megaplan_sdk.models.history import LinkEvent, parse_history_entry
+from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.base import BaseResource
+
+# GET .../contractor/{id}/history and .../contractor/{id}/todos 500 server-side
+# ("There is no model class for bums\crm\api\v03\Entity\Contractor") — the
+# server cannot instantiate the abstract polymorphic Contractor type on these
+# two routes. Confirmed on the live stand 2026-08-21: the concrete subtype
+# route works (200, real data) for both subtypes:
+#   GET /contractorCompany/{id}/history | /todos  -> 200
+#   GET /contractorHuman/{id}/history   | /todos  -> 200
+#   GET /contractor/{id}/history        | /todos  -> 500 (same entity, both subtypes)
+# So the fix is picking the right path segment, not avoiding the routes.
+_SUBTYPE_SEGMENTS: dict[str, str] = {
+    "ContractorCompany": "contractorCompany",
+    "ContractorHuman": "contractorHuman",
+}
 
 
 class ContractorsResource(BaseResource):
@@ -21,25 +36,22 @@ class ContractorsResource(BaseResource):
         Use action history or other entities for tracking contractor-related notes.
 
     Note:
-        There is no ``get_todos()`` here, unlike deals/tasks/projects/employees.
-        The route exists in RAML and is accepted by the server (not a 404),
-        but confirmed on a live account (task 12b): ``GET
-        /contractor/{id}/todos`` answers 500 ``There is no model class for
-        bums\\crm\\api\\v03\\Entity\\Contractor`` — a server-side bug in
-        instantiating the polymorphic ``Contractor`` type for this endpoint,
-        not something the SDK can work around.
-
-    Note:
-        ``get_history()``/``iterate_history()``/``get_link_events()`` hit the
-        **same** server-side polymorphism bug as ``get_todos()`` above:
-        confirmed on the 0.6.1 stand gate (2026-08-21), ``GET
-        /contractor/{id}/history`` also 500s with the identical ``There is no
-        model class for bums\\crm\\api\\v03\\Entity\\Contractor`` error on
-        this account. Unlike ``get_todos()``, these three methods are kept
-        (not removed) pending a maintainer decision — do not assume they work
-        on any given account; a caller should be prepared to catch
-        ``ServerError`` here specifically, and this may need revisiting
-        (removal, or a documented "known-broken" status) in a future release.
+        ``get_todos()``, ``get_history()``, ``iterate_history()`` and
+        ``get_link_events()`` all read/write a concrete subtype route
+        (``contractorCompany``/``contractorHuman``), not the abstract
+        ``contractor`` path — ``GET /contractor/{id}/history`` and
+        ``/contractor/{id}/todos`` 500 server-side (``There is no model class
+        for bums\\crm\\api\\v03\\Entity\\Contractor``; confirmed on a live
+        account, tasks 12b and the 0.6.1 stand gate) because the server
+        cannot instantiate the abstract polymorphic ``Contractor`` type on
+        those two routes specifically. The concrete subtype route works
+        (confirmed live 2026-08-21, both ``ContractorCompany`` and
+        ``ContractorHuman``). Each of these four methods accepts an optional
+        ``content_type`` — pass ``"ContractorCompany"``/``"ContractorHuman"``
+        when you already know it (e.g. from a prior ``list()``/``get()``
+        call, since ``Contractor.content_type`` carries it) to skip an extra
+        lookup; otherwise the method calls ``get()`` once first to resolve it,
+        at the cost of one extra request.
     """
 
     _page_content_type = ContentType.CONTRACTOR
@@ -251,6 +263,57 @@ class ContractorsResource(BaseResource):
 
         return await self._get_list(path, Deal, params)
 
+    async def _resolve_subtype(
+        self, contractor_id: int, content_type: str | None
+    ) -> tuple[str, str]:
+        """Resolve the concrete path segment + contentType for one contractor.
+
+        See the module-level comment above `_SUBTYPE_SEGMENTS` for why this
+        exists: `GET /contractor/{id}/history|todos` 500s, the subtype route
+        doesn't. Pass `content_type` when already known to skip the extra
+        `get()` round trip this does otherwise.
+
+        Raises:
+            ValueError: `content_type` (given or resolved) is neither
+                "ContractorCompany" nor "ContractorHuman".
+        """
+        if content_type is None:
+            contractor = await self.get(contractor_id)
+            content_type = contractor.content_type
+        segment = _SUBTYPE_SEGMENTS.get(content_type)
+        if segment is None:
+            raise ValueError(
+                f"Unknown contractor contentType {content_type!r} for contractor "
+                f"#{contractor_id}; expected 'ContractorCompany' or 'ContractorHuman'"
+            )
+        return segment, content_type
+
+    async def get_todos(
+        self,
+        contractor_id: int,
+        limit: int | None = None,
+        content_type: str | None = None,
+    ) -> list[Todo]:
+        """Get todos attached to this contractor.
+
+        Unlike `deals`/`tasks`/`projects`/`employees`, this goes through the
+        concrete subtype route (`contractorCompany`/`contractorHuman`), not
+        `contractor` — see the class docstring. Confirmed live 2026-08-21 on
+        both subtypes.
+
+        Args:
+            contractor_id: Contractor identifier.
+            limit: Number of items per page.
+            content_type: "ContractorCompany" or "ContractorHuman" if already
+                known (e.g. from a prior `list()`/`get()`), to skip an extra
+                lookup. Resolved via `get()` otherwise.
+
+        Returns:
+            Todos of the contractor.
+        """
+        segment, _ = await self._resolve_subtype(contractor_id, content_type)
+        return await self._get_entity_todos(segment, contractor_id, limit)
+
     async def get_history(
         self,
         contractor_id: int,
@@ -259,13 +322,15 @@ class ContractorsResource(BaseResource):
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
         raw: bool = False,
+        content_type: str | None = None,
     ) -> list[Any]:
         """Get the journal of a contractor.
 
         The stream is mixed: ``Changeset`` (field changes), ``BasedOnHistory``
         (link/unlink), comments, trigger logs. Known types are parsed; unknown
         ones are returned as raw dicts, so a new server-side type never breaks
-        the call.
+        the call. Goes through the concrete subtype route — see the class
+        docstring.
 
         Args:
             contractor_id: Contractor identifier.
@@ -274,6 +339,8 @@ class ContractorsResource(BaseResource):
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
             raw: Return untouched payloads (pre-0.6.1 behaviour).
+            content_type: "ContractorCompany" or "ContractorHuman" if already
+                known, to skip an extra `get()` lookup.
 
         Returns:
             Journal entries, newest first.
@@ -281,8 +348,9 @@ class ContractorsResource(BaseResource):
         Examples:
             >>> history = await client.contractors.get_history(contractor_id=123, limit=10)
         """
+        segment, _ = await self._resolve_subtype(contractor_id, content_type)
         entries = await self._get_entity_history(
-            "contractor", contractor_id, limit, page_after, page_before, page_with
+            segment, contractor_id, limit, page_after, page_before, page_with
         )
         if raw:
             return list(entries)
@@ -293,18 +361,24 @@ class ContractorsResource(BaseResource):
         contractor_id: int,
         limit: int = 100,
         raw: bool = False,
+        content_type: str | None = None,
     ) -> AsyncIterator[Any]:
         """Iterate the contractor's journal with automatic pagination.
+
+        Goes through the concrete subtype route — see the class docstring.
 
         Args:
             contractor_id: Contractor identifier.
             limit: Number of entries per page.
             raw: Yield untouched payloads instead of parsed entries.
+            content_type: "ContractorCompany" or "ContractorHuman" if already
+                known, to skip an extra `get()` lookup.
 
         Yields:
             Journal entries, newest first.
         """
-        async for entry in self._iterate_entity_history("contractor", contractor_id, limit, raw):
+        segment, _ = await self._resolve_subtype(contractor_id, content_type)
+        async for entry in self._iterate_entity_history(segment, contractor_id, limit, raw):
             yield entry
 
     async def get_link_events(
@@ -313,6 +387,7 @@ class ContractorsResource(BaseResource):
         since_id: int | None = None,
         since_time: str | None = None,
         limit: int = 100,
+        content_type: str | None = None,
     ) -> list[LinkEvent]:
         """Get link/unlink events for a contractor.
 
@@ -320,7 +395,8 @@ class ContractorsResource(BaseResource):
         on_after_create/update/drop) and the contractor card exposes no list
         of related entities — only counters. The journal does record every
         link change, so this is the way to learn *which* link appeared or
-        disappeared without diffing two states of the contractor.
+        disappeared without diffing two states of the contractor. Goes
+        through the concrete subtype route — see the class docstring.
 
         Args:
             contractor_id: Contractor identifier.
@@ -329,6 +405,8 @@ class ContractorsResource(BaseResource):
             since_time: Return only events created strictly after this
                 ISO-8601 timestamp.
             limit: Number of journal entries fetched per page.
+            content_type: "ContractorCompany" or "ContractorHuman" if already
+                known, to skip an extra `get()` lookup.
 
         Returns:
             Link events, newest first.
@@ -339,4 +417,12 @@ class ContractorsResource(BaseResource):
             ...     verb = "отвязал" if event.unlink else "привязал"
             ...     print(verb, event.other.content_type, event.other.id)
         """
-        return await self._get_link_events("contractor", contractor_id, since_id, since_time, limit)
+        segment, resolved_content_type = await self._resolve_subtype(contractor_id, content_type)
+        return await self._get_link_events(
+            segment,
+            contractor_id,
+            since_id,
+            since_time,
+            limit,
+            entity_content_type=resolved_content_type,
+        )

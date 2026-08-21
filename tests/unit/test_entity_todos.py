@@ -1,9 +1,10 @@
-"""EntityTodosMixin — get_todos() facades on four resources (/{entity}/{id}/todos).
+"""EntityTodosMixin — get_todos() facades on five resources (/{entity}/{id}/todos).
 
 Routes come from the RAML spec and were confirmed working by a live-account
-probe for deal/task/project/employee (task 12). Contractor is deliberately
-absent: ``GET /contractor/{id}/todos`` 500s on the live server (task 12b,
-see ``ContractorsResource``'s docstring) — the SDK does not expose it.
+probe for deal/task/project/employee (task 12). Contractor is the odd one
+out: ``GET /contractor/{id}/todos`` 500s (task 12b) — but ``GET
+/contractorCompany|contractorHuman/{id}/todos`` (the concrete subtype)
+works, confirmed live 2026-08-21 — see ``ContractorsResource``'s docstring.
 """
 
 TODO = {
@@ -42,9 +43,25 @@ async def test_project_todos_hit_the_subresource(megaplan_api, projects):
     assert [t.id for t in items] == [501]
 
 
-def test_contractors_has_no_get_todos(contractors):
-    """Removed in 0.6.1 (task 12b, #2): GET /contractor/{id}/todos 500s on the live server."""
-    assert not hasattr(contractors, "get_todos")
+async def test_contractor_todos_hit_the_concrete_subtype_route(megaplan_api, contractors):
+    """GET /contractor/{id}/todos 500s; the concrete subtype route is what's actually called."""
+    route = megaplan_api.get("contractorCompany/1001786/todos", data=[TODO])
+
+    items = await contractors.get_todos(1001786, content_type="ContractorCompany")
+
+    assert route.called
+    assert [t.id for t in items] == [501]
+
+
+async def test_contractor_todos_resolve_content_type_when_omitted(megaplan_api, contractors):
+    """Without content_type, one extra get() resolves the subtype first."""
+    megaplan_api.get("contractor/1001581", data={"id": 1001581, "contentType": "ContractorHuman"})
+    route = megaplan_api.get("contractorHuman/1001581/todos", data=[TODO])
+
+    items = await contractors.get_todos(1001581)
+
+    assert route.called
+    assert [t.id for t in items] == [501]
 
 
 async def test_employee_todos_hit_the_subresource(megaplan_api, employees):

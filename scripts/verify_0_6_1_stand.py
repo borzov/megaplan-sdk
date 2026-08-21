@@ -385,14 +385,35 @@ async def check_todo_sync(client: MegaplanClient, report: Report, todo_id: int) 
 async def check_entity_todos_routes(client: MegaplanClient, report: Report) -> None:
     """Confirm the RAML-only ``/{entity}/{id}/todos`` routes with a read-only call each.
 
-    Note: contractor is deliberately absent — ``contractors.get_todos()`` was
-    removed in task 12b (the route 500s server-side, see CLAUDE.md #23). The
-    probe list resolves each resource's ``get_todos`` via ``getattr`` instead
-    of a direct attribute access, so a future removal of any of these methods
+    Note: ``contractors.get_todos()`` is back as of the "subtype hypothesis"
+    fix — ``GET /contractor/{id}/todos`` 500s, but ``GET
+    /contractorCompany|contractorHuman/{id}/todos`` (the concrete subtype)
+    works, confirmed live 2026-08-21 (see ``ContractorsResource``'s class
+    docstring). The probe below passes ``content_type`` explicitly (known
+    from the ``list()`` call already made) so it exercises the no-extra-lookup
+    fast path, not just the fallback that calls ``get()`` first. The probe
+    list resolves each resource's ``get_todos`` via ``getattr`` instead of a
+    direct attribute access, so a future removal of any of these methods
     turns into a single FAIL for that entity, not an ``AttributeError`` that
     aborts the whole script before the checks after this one (#9's
     ``Deal.timeUpdated`` gate included) ever run.
     """
+
+    async def _check_contractor() -> str:
+        contractors = await client.contractors.list(limit=5)
+        if not contractors:
+            raise Skip("no existing contractors to probe")
+        contractor = contractors[0]
+        todos = await client.contractors.get_todos(
+            contractor.id, content_type=contractor.content_type
+        )
+        return (
+            f"contractor#{contractor.id} ({contractor.content_type}): route confirmed "
+            f"via subtype segment, {len(todos)} todos"
+        )
+
+    await report.run("GET /contractorCompany|contractorHuman/{id}/todos", _check_contractor)
+
     resources: list[tuple[str, Any, Awaitable[list[Any]]]] = [
         ("deal", client.deals, client.deals.list(limit=5)),
         ("task", client.tasks, client.tasks.list(limit=5)),
@@ -545,47 +566,137 @@ async def check_contractor_journal(client: MegaplanClient, report: Report) -> No
     """Confirm ``get_history()``/``iterate_history()``/``get_link_events()`` on contractors.
 
     These three public methods were shipped in 0.6.0/0.6.1 but never exercised
-    against a live account — the same class of gap that let
-    ``/contractor/{id}/todos`` 500 unnoticed despite being straight out of
-    RAML (``contractors.get_todos()`` was removed for exactly that reason;
-    see the module docstring above). Read-only.
+    against a live account until the 0.6.1 gate — which found they 500 via
+    the abstract ``contractor`` path (same bug as the once-removed
+    ``get_todos()``). The "subtype hypothesis" fix makes them resolve the
+    concrete ``ContractorCompany``/``ContractorHuman`` route instead, which
+    does work (confirmed live 2026-08-21). These checks now expect success,
+    not just "doesn't crash" — a 500 here means the subtype fix regressed.
+    Both the explicit ``content_type=`` fast path and the auto-resolving
+    fallback (content_type omitted, one extra ``get()``) are exercised, on
+    a ``ContractorCompany`` and a ``ContractorHuman`` respectively when both
+    are available.
     """
 
-    async def _get_history() -> str:
-        contractors = await client.contractors.list(limit=5)
-        if not contractors:
-            raise Skip("no existing contractors to probe")
-        contractor_id = contractors[0].id
-        history = await client.contractors.get_history(contractor_id, limit=10)
-        return f"contractor#{contractor_id}: {len(history)} history entries"
+    async def _pick(target_type: str) -> Any | None:
+        contractors = await client.contractors.list(limit=25)
+        return next((c for c in contractors if c.content_type == target_type), None)
 
-    await report.run("contractors.get_history()", _get_history)
+    async def _get_history() -> str:
+        contractor = await _pick("ContractorCompany")
+        if contractor is None:
+            raise Skip("no existing ContractorCompany to probe")
+        history = await client.contractors.get_history(
+            contractor.id, limit=10, content_type=contractor.content_type
+        )
+        return f"{contractor.content_type}#{contractor.id}: {len(history)} history entries"
+
+    await report.run("contractors.get_history() — explicit content_type", _get_history)
+
+    async def _get_history_auto_resolve() -> str:
+        contractor = await _pick("ContractorHuman")
+        if contractor is None:
+            raise Skip("no existing ContractorHuman to probe")
+        # content_type omitted on purpose: exercise the get()-first fallback.
+        history = await client.contractors.get_history(contractor.id, limit=10)
+        return f"{contractor.content_type}#{contractor.id}: {len(history)} history entries (auto-resolved)"
+
+    await report.run(
+        "contractors.get_history() — auto-resolved content_type", _get_history_auto_resolve
+    )
 
     async def _iterate_history() -> str:
-        contractors = await client.contractors.list(limit=5)
-        if not contractors:
-            raise Skip("no existing contractors to probe")
-        contractor_id = contractors[0].id
+        contractor = await _pick("ContractorCompany")
+        if contractor is None:
+            raise Skip("no existing ContractorCompany to probe")
         count = 0
-        async for _entry in client.contractors.iterate_history(contractor_id, limit=5):
+        async for _entry in client.contractors.iterate_history(
+            contractor.id, limit=5, content_type=contractor.content_type
+        ):
             count += 1
             if count >= 10:
                 break
-        return f"contractor#{contractor_id}: iterated {count} entries across pages"
+        return f"{contractor.content_type}#{contractor.id}: iterated {count} entries across pages"
 
     await report.run("contractors.iterate_history()", _iterate_history)
 
     async def _link_events() -> str:
-        contractors = await client.contractors.list(limit=5)
-        if not contractors:
-            raise Skip("no existing contractors to probe")
-        contractor_id = contractors[0].id
-        events = await client.contractors.get_link_events(contractor_id, limit=20)
+        contractor = await _pick("ContractorHuman")
+        if contractor is None:
+            raise Skip("no existing ContractorHuman to probe")
+        events = await client.contractors.get_link_events(
+            contractor.id, limit=20, content_type=contractor.content_type
+        )
         if events and not all(isinstance(e, LinkEvent) for e in events):
             raise AssertionError("get_link_events returned non-LinkEvent items")
-        return f"contractor#{contractor_id}: {len(events)} link events parsed"
+        return f"{contractor.content_type}#{contractor.id}: {len(events)} link events parsed"
 
     await report.run("contractors.get_link_events()", _link_events)
+
+
+# --- 6b2: raw subtype-vs-abstract path proof (the actual hypothesis test) ------
+
+
+async def check_contractor_subtype_hypothesis(client: MegaplanClient, report: Report) -> None:
+    """Raw proof of the fix above: abstract ``contractor`` 500s, concrete subtype doesn't.
+
+    Bypasses `ContractorsResource` entirely (`client.raw()`) so this check
+    keeps meaning even if the resource-level fix above is ever refactored —
+    it is the ground truth the fix is built on, not a test of the fix's
+    plumbing. Same entity, same route shape, only the path segment differs.
+    """
+
+    async def _for_type(target_type: str, segment: str) -> str:
+        contractors = await client.contractors.list(limit=25)
+        contractor = next((c for c in contractors if c.content_type == target_type), None)
+        if contractor is None:
+            raise Skip(f"no existing {target_type} to probe")
+        cid = contractor.id
+
+        async def _get(path: str) -> str:
+            try:
+                response = await client.raw("GET", path)
+                data = response.get("data")
+                length = len(data) if isinstance(data, list) else "n/a"
+                return f"200 (data len={length})"
+            except Exception as exc:  # noqa: BLE001 — recording the actual failure mode
+                status = getattr(exc, "status_code", "?")
+                return f"{status} {type(exc).__name__}: {exc}"
+
+        abstract_history = await _get(f"/api/v3/contractor/{cid}/history")
+        concrete_history = await _get(f"/api/v3/{segment}/{cid}/history")
+        abstract_todos = await _get(f"/api/v3/contractor/{cid}/todos")
+        concrete_todos = await _get(f"/api/v3/{segment}/{cid}/todos")
+
+        if "500" not in abstract_history or "500" not in abstract_todos:
+            raise AssertionError(
+                f"{target_type}#{cid}: expected the abstract 'contractor' path to still "
+                f"500 (it's the documented server bug) — got history={abstract_history!r}, "
+                f"todos={abstract_todos!r}. Either the server bug was fixed (great — but the "
+                "SDK's subtype workaround should be revisited) or something else changed."
+            )
+        if concrete_history.startswith(("4", "5")) or concrete_todos.startswith(("4", "5")):
+            raise AssertionError(
+                f"{target_type}#{cid}: subtype route ({segment}) is now failing too — "
+                f"history={concrete_history!r}, todos={concrete_todos!r}. The hypothesis fix "
+                "no longer holds; the resource-level workaround needs re-evaluating."
+            )
+        return (
+            f"{target_type}#{cid}: /contractor/.../history -> {abstract_history}, "
+            f"/{segment}/.../history -> {concrete_history}, "
+            f"/contractor/.../todos -> {abstract_todos}, "
+            f"/{segment}/.../todos -> {concrete_todos}"
+        )
+
+    async def _company() -> str:
+        return await _for_type("ContractorCompany", "contractorCompany")
+
+    await report.run("hypothesis: contractorCompany subtype vs abstract path", _company)
+
+    async def _human() -> str:
+        return await _for_type("ContractorHuman", "contractorHuman")
+
+    await report.run("hypothesis: contractorHuman subtype vs abstract path", _human)
 
 
 # --- 6c: empirical journal order (docstrings disagree — settle it live) --------
@@ -879,6 +990,7 @@ async def main() -> None:
             await check_todo_q_filter(client, report)
             await check_link_events_readonly(client, report)
             await check_contractor_journal(client, report)
+            await check_contractor_subtype_hypothesis(client, report)
             await check_journal_order(client, report)
             await check_full_details_history(client, report)
             await check_attachment_upload(client, report, todo.id)

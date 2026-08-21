@@ -105,35 +105,57 @@ async def test_project_iterate_history_yields_typed_entries(megaplan_api, projec
 # --- contractors -------------------------------------------------------------
 
 
-async def test_contractor_history_is_typed(megaplan_api, contractors):
-    megaplan_api.get("contractor/66/history", data=[CHANGESET])
+# GET /contractor/{id}/history 500s server-side ("There is no model class for
+# ...Entity\Contractor") — the abstract polymorphic path is broken, not the
+# concept of a contractor journal. Confirmed live 2026-08-21: the concrete
+# subtype route (contractorCompany/contractorHuman) works fine, so that's
+# what ContractorsResource actually calls; content_type="ContractorCompany"
+# below skips the extra get() lookup that resolves it when omitted.
 
-    entries = await contractors.get_history(66)
+
+async def test_contractor_history_is_typed(megaplan_api, contractors):
+    megaplan_api.get("contractorCompany/66/history", data=[CHANGESET])
+
+    entries = await contractors.get_history(66, content_type="ContractorCompany")
 
     assert isinstance(entries[0], Changeset)
 
 
 async def test_contractor_history_raw_keeps_dicts(megaplan_api, contractors):
-    megaplan_api.get("contractor/66/history", data=[CHANGESET])
+    megaplan_api.get("contractorCompany/66/history", data=[CHANGESET])
 
-    entries = await contractors.get_history(66, raw=True)
+    entries = await contractors.get_history(66, raw=True, content_type="ContractorCompany")
 
     assert entries[0]["contentType"] == "Changeset"
 
 
 async def test_contractor_link_events_report_unlink(megaplan_api, contractors):
-    megaplan_api.get("contractor/66/history", data=[_based_on("Contractor", "66")])
+    # The journal echoes back the concrete contentType (ContractorCompany),
+    # not the abstract "Contractor" — is_source matching must use that.
+    megaplan_api.get("contractorCompany/66/history", data=[_based_on("ContractorCompany", "66")])
 
-    events = await contractors.get_link_events(66)
+    events = await contractors.get_link_events(66, content_type="ContractorCompany")
 
     assert events[0].unlink is True
     assert events[0].other.id == 219
 
 
 async def test_contractor_iterate_history_yields_typed_entries(megaplan_api, contractors):
-    megaplan_api.get("contractor/66/history", data=[CHANGESET])
+    megaplan_api.get("contractorCompany/66/history", data=[CHANGESET])
 
-    entries = [entry async for entry in contractors.iterate_history(66)]
+    entries = [
+        entry async for entry in contractors.iterate_history(66, content_type="ContractorCompany")
+    ]
+
+    assert isinstance(entries[0], Changeset)
+
+
+async def test_contractor_history_resolves_content_type_when_omitted(megaplan_api, contractors):
+    """Without content_type, get_history() looks the contractor up first."""
+    megaplan_api.get("contractor/66", data={"id": 66, "contentType": "ContractorHuman"})
+    megaplan_api.get("contractorHuman/66/history", data=[CHANGESET])
+
+    entries = await contractors.get_history(66)
 
     assert isinstance(entries[0], Changeset)
 

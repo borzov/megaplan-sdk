@@ -146,6 +146,7 @@ class HistoryMixin:
         since_id: int | None = None,
         since_time: str | None = None,
         limit: int = 100,
+        entity_content_type: str | None = None,
     ) -> list[LinkEvent]:
         """Extract link/unlink events for an entity from its journal.
 
@@ -156,12 +157,24 @@ class HistoryMixin:
         and carry ``unlink`` for removals.
 
         Args:
-            entity_type: API resource type (e.g. "deal").
+            entity_type: API resource type / path segment (e.g. "deal";
+                for contractors this is the concrete subtype segment,
+                "contractorCompany"/"contractorHuman" — see
+                `ContractorsResource`).
             entity_id: Entity identifier.
             since_id: Return only events with a larger BasedOnHistory id.
             since_time: Return only events created strictly after this
                 ISO-8601 timestamp.
             limit: Number of journal entries per page.
+            entity_content_type: contentType to match against
+                `BasedOnHistory.based_model.content_type` when deciding which
+                side of the link `entity_id` is on. Defaults to
+                `self._page_content_type`. Callers whose path segment and
+                contentType diverge (contractors: path segment is the
+                concrete subtype, but `self._page_content_type` is the
+                abstract "Contractor") must pass the concrete contentType
+                explicitly here — the journal echoes back the concrete type,
+                not the abstract one.
 
         Returns:
             Link events, newest first — this method just filters the stream
@@ -185,10 +198,13 @@ class HistoryMixin:
                 entry.time_created is None or entry.time_created.value <= since_time
             ):
                 continue
+            page_content_type = (
+                entity_content_type if entity_content_type is not None else self._page_content_type
+            )
             is_source = (
                 entry.based_model is not None
                 and entry.based_model.id == entity_id
-                and entry.based_model.content_type == (self._page_content_type or "")
+                and entry.based_model.content_type == (page_content_type or "")
             )
             other = entry.generated_model if is_source else entry.based_model
             if other is None:
