@@ -9,7 +9,6 @@ from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal
 from megaplan_sdk.models.history import LinkEvent, parse_history_entry
-from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.base import BaseResource
 
@@ -20,6 +19,15 @@ class ContractorsResource(BaseResource):
     Note:
         Contractor comments are not supported by Megaplan API (returns 500 error).
         Use action history or other entities for tracking contractor-related notes.
+
+    Note:
+        There is no ``get_todos()`` here, unlike deals/tasks/projects/employees.
+        The route exists in RAML and is accepted by the server (not a 404),
+        but confirmed on a live account (task 12b): ``GET
+        /contractor/{id}/todos`` answers 500 ``There is no model class for
+        bums\\crm\\api\\v03\\Entity\\Contractor`` — a server-side bug in
+        instantiating the polymorphic ``Contractor`` type for this endpoint,
+        not something the SDK can work around.
     """
 
     _page_content_type = ContentType.CONTRACTOR
@@ -230,18 +238,6 @@ class ContractorsResource(BaseResource):
         )
 
         return await self._get_list(path, Deal, params)
-
-    async def get_todos(self, contractor_id: int, limit: int | None = None) -> list[Todo]:
-        """Get todos attached to this contractor.
-
-        Args:
-            contractor_id: Contractor identifier.
-            limit: Number of items per page.
-
-        Returns:
-            Todos of the contractor.
-        """
-        return await self._get_entity_todos("contractor", contractor_id, limit)
 
     async def get_history(
         self,

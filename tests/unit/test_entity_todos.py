@@ -1,7 +1,9 @@
-"""EntityTodosMixin — get_todos() facades on five resources (/{entity}/{id}/todos).
+"""EntityTodosMixin — get_todos() facades on four resources (/{entity}/{id}/todos).
 
-Routes come from the RAML spec and were not confirmed by a live-account
-probe — see Task 12 for that verification.
+Routes come from the RAML spec and were confirmed working by a live-account
+probe for deal/task/project/employee (task 12). Contractor is deliberately
+absent: ``GET /contractor/{id}/todos`` 500s on the live server (task 12b,
+see ``ContractorsResource``'s docstring) — the SDK does not expose it.
 """
 
 TODO = {
@@ -40,13 +42,9 @@ async def test_project_todos_hit_the_subresource(megaplan_api, projects):
     assert [t.id for t in items] == [501]
 
 
-async def test_contractor_todos_hit_the_subresource(megaplan_api, contractors):
-    route = megaplan_api.get("contractor/7/todos", data=[TODO])
-
-    items = await contractors.get_todos(7)
-
-    assert route.called
-    assert [t.id for t in items] == [501]
+def test_contractors_has_no_get_todos(contractors):
+    """Removed in 0.6.1 (task 12b, #2): GET /contractor/{id}/todos 500s on the live server."""
+    assert not hasattr(contractors, "get_todos")
 
 
 async def test_employee_todos_hit_the_subresource(megaplan_api, employees):

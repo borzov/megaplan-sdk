@@ -12,6 +12,7 @@ from megaplan_sdk.models.deal import Deal
 from megaplan_sdk.models.history import LinkEvent, parse_history_entry
 from megaplan_sdk.models.task import Task
 from megaplan_sdk.models.todo import Todo
+from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources.base import BaseResource
 
 
@@ -43,6 +44,7 @@ class TodosResource(BaseResource):
     """
 
     _page_content_type = ContentType.TODO
+    _filter_content_type = filter_content_type_for("todo")
 
     async def create(self, name: str, **fields: Any) -> Todo:
         """Create a todo.
@@ -74,8 +76,19 @@ class TodosResource(BaseResource):
 
         Returns:
             Updated todo.
+
+        Note:
+            Confirmed on a live account: ``POST /todo/{id}`` *without* ``id``
+            in the JSON body ignores the path id and silently creates a
+            brand-new todo instead of updating this one — a 200 response
+            with a different ``data.id``, easy to miss and a leak on every
+            call (#1, task 12b). This method always sends the path id in the
+            body — any ``id`` the caller passed in ``todo_data`` is
+            overridden with the correct one, and ``todo_data`` itself is
+            never mutated.
         """
-        return await self._update_entity("todo", todo_id, todo_data, Todo)
+        body = {**todo_data, "id": str(todo_id)}
+        return await self._update_entity("todo", todo_id, body, Todo)
 
     async def delete(self, todo_id: int) -> None:
         """Delete a todo.
@@ -181,6 +194,7 @@ class TodosResource(BaseResource):
         self,
         limit: int | None = None,
         q: str | None = None,
+        q_in: list[str] | None = None,
         filter: dict[str, Any] | None = None,
         page_after: dict[str, Any] | None = None,
         fields: Any | None = None,
@@ -190,20 +204,58 @@ class TodosResource(BaseResource):
 
         Args:
             limit: Number of items per page.
-            q: Free-text query, passed through untouched as ``q``.
+            q: Free-text query. Converted to a ``TodoFilter`` name filter
+                (see Note) — never sent to the server as a raw ``q``.
+            q_in: Fields to search within when ``q`` is provided (default:
+                ``["name"]``).
             filter: Ad-hoc filter, passed through untouched.
             page_after: Load page starting from this entity.
             fields: Additional fields to request from the API.
-            sort_by: Sort fields.
+            sort_by: Sort fields, e.g.
+                ``[{"contentType": "SortField", "fieldName": "timeCreated", "desc": True}]``.
+                The key is ``fieldName``, not ``field`` — the server 422s
+                with ``'array' is not assignable to 'SortField[]'`` for the
+                latter (#4, confirmed on a live account); this method raises
+                ``ValueError`` for that mistake instead.
 
         Returns:
             List of todos.
 
+        Raises:
+            ValueError: If both ``q`` and ``filter`` are given, or a
+                ``sort_by`` item uses ``field`` instead of ``fieldName``.
+            NotImplementedError: If ``q_in`` names a field Megaplan cannot
+                filter on server-side.
+
         Note:
+            A raw ``q`` is silently ignored by the server: confirmed on a
+            live account (#5, same #11-class trap as tasks/deals) — a
+            filtered and an unfiltered call returned identical rows. This
+            method converts ``q`` into a real ``TodoFilter`` name filter
+            instead, the same way ``TasksResource.list()``/
+            ``DealsResource.list()`` do.
+
             An ad-hoc ``filter`` is passed through untouched. The server
             silently ignores unknown filter fields (200 + unfiltered result),
             so always verify a new filter by the number of rows it returns.
         """
+        if q is not None:
+            if filter is not None:
+                raise ValueError("Pass either `q` or `filter`, not both.")
+            filter = self._q_to_filter(self._filter_content_type, q, q_in or ["name"])
+            q = None
+
+        if sort_by:
+            for rule in sort_by:
+                if isinstance(rule, dict) and "fieldName" not in rule:
+                    raise ValueError(
+                        "todos.list(sort_by=...) items need a 'fieldName' key, not "
+                        f"{sorted(rule.keys())!r} (confirmed on a live account: the server "
+                        "422s with \"'array' is not assignable to 'SortField[]'\" otherwise). "
+                        'Example: sort_by=[{"contentType": "SortField", "fieldName": '
+                        '"timeCreated", "desc": True}]'
+                    )
+
         path = self._build_path("api", "v3", "todo")
         params = self._build_list_params(
             filter=filter,
@@ -211,7 +263,6 @@ class TodosResource(BaseResource):
             page_after=page_after,
             fields=fields,
             sort_by=sort_by,
-            q=q,
         )
         return await self._get_list(path, Todo, params)
 
@@ -262,20 +313,33 @@ class TodosResource(BaseResource):
         path = self._build_path("api", "v3", "todo", "search")
         return await self._get_list(path, BaseEntity, {"q": q})
 
-    async def busy_days(self, from_date: str, to_date: str) -> list[dict[str, Any]]:
-        """Get an aggregate of busy days in a date range.
+    async def busy_days(self, filter: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """Get an aggregate of busy days.
 
         Args:
-            from_date: Range start, ``YYYY-MM-DD``.
-            to_date: Range end, ``YYYY-MM-DD``.
+            filter: Ad-hoc ``TodoFilter``, passed through untouched.
 
         Returns:
             Raw payloads as returned by the server. ``GET /todo/busyDays``
             answers with ``TodosBusyDay[]``, a shape the SDK has no typed
             model for yet — parse the dicts yourself until one is added.
+
+        Note:
+            There is no date-range parameter — confirmed against RAML
+            (``docs/megaplan.raml``, ``/todo/busyDays``) and on a live
+            account (task 12b, #3): the endpoint's queryParameters are only
+            ``filter``/``ignoreRights``/``q``/pagination/``fields``/
+            ``sortBy``/``onlyRequestedFields``, no ``from``/``to``. A prior
+            version of this method sent ``{"from": ..., "to": ...}`` and got
+            a 422 (``There is extra field "from", which is not defined for
+            content type "TodoFilterListRequest"``) on every call. A plain
+            call with no ``filter`` was confirmed to return real data on the
+            live stand; a working date-range ``TodoFilter`` shape was not
+            found in that investigation — pass one yourself if you find it.
         """
         path = self._build_path("api", "v3", "todo", "busyDays")
-        response = await self._http.get(path, params={"from": from_date, "to": to_date})
+        params = {"filter": filter} if filter is not None else None
+        response = await self._http.get(path, params=params)
         return self._parse_list_response(response)
 
     async def get_comments(self, todo_id: int) -> list[Comment]:

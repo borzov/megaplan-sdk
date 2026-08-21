@@ -35,6 +35,8 @@ server-side characteristic, not something the SDK compensates for.
 import json
 from urllib.parse import unquote
 
+import pytest
+
 TODO = {
     "contentType": "Todo",
     "id": "501",
@@ -76,14 +78,64 @@ async def test_list_passes_ad_hoc_filter_through_untouched(megaplan_api, todos):
     assert sent_query(route) == {"filter": {"contentType": "TodoFilter", "id": 7}}
 
 
-async def test_list_passes_q_and_sort_by(megaplan_api, todos):
+async def test_list_passes_sort_by(megaplan_api, todos):
     route = megaplan_api.get("todo", data=[])
 
-    await todos.list(q="звонок", sort_by=[{"field": "timeCreated", "order": "desc"}])
+    await todos.list(
+        sort_by=[{"contentType": "SortField", "fieldName": "timeCreated", "desc": True}],
+    )
 
     query = sent_query(route)
-    assert query["q"] == "звонок"
-    assert query["sortBy"] == [{"field": "timeCreated", "order": "desc"}]
+    assert query["sortBy"] == [
+        {"contentType": "SortField", "fieldName": "timeCreated", "desc": True}
+    ]
+
+
+async def test_list_q_is_converted_to_name_filter(megaplan_api, todos):
+    """Regression guard for #5 (task 12b).
+
+    Confirmed on the live stand: a raw ``q=`` is silently ignored by
+    ``GET /todo`` — a filtered and an unfiltered call returned the same 50
+    rows, none matching the needle. Same #11-class trap already fixed for
+    tasks/deals: ``q`` must be converted to a real ``TodoFilter`` name
+    filter, never sent raw.
+    """
+    route = megaplan_api.get("todo", data=[])
+
+    await todos.list(q="звонок")
+
+    query = sent_query(route)
+    assert "q" not in query
+    term = query["filter"]["config"]["termGroup"]["terms"][0]
+    assert term["field"] == "name"
+    assert term["comparison"] == "contains"
+    assert term["value"] == "звонок"
+
+
+async def test_list_q_with_filter_raises(todos):
+    """Passing both q and filter is ambiguous — reject it, like tasks/deals do."""
+    with pytest.raises(ValueError):
+        await todos.list(q="x", filter={"contentType": "TodoFilter", "id": 1})
+
+
+async def test_list_q_in_unsupported_field_raises(todos):
+    """q_in with a field the server can't filter on raises NotImplementedError."""
+    with pytest.raises(NotImplementedError):
+        await todos.list(q="x", q_in=["description"])
+
+
+async def test_list_rejects_sort_by_with_wrong_key_name(megaplan_api, todos):
+    """Regression guard for #4 (task 12b).
+
+    Confirmed on the live stand: ``sort_by=[{"field": "timeCreated", ...}]``
+    (the plausible-looking but wrong key) 422s with ``'array' is not
+    assignable to 'SortField[]'`` — the API expects ``fieldName``, not
+    ``field``. The correct key (``fieldName``) works fine and needed no
+    other change; this only catches the common mistake early with a clear
+    message instead of the cryptic server 422.
+    """
+    with pytest.raises(ValueError, match="fieldName"):
+        await todos.list(sort_by=[{"contentType": "SortField", "field": "timeCreated"}])
 
 
 async def test_get_returns_single_todo(megaplan_api, todos):
@@ -141,11 +193,27 @@ async def test_busy_days_returns_raw_dicts(megaplan_api, todos):
         data=[{"date": "2026-08-20", "count": 3}],
     )
 
-    days = await todos.busy_days(from_date="2026-08-01", to_date="2026-08-31")
+    days = await todos.busy_days()
 
     assert route.called
     assert days == [{"date": "2026-08-20", "count": 3}]
-    assert sent_query(route) == {"from": "2026-08-01", "to": "2026-08-31"}
+    assert route.calls[0].request.url.query == b""
+
+
+async def test_busy_days_passes_filter_through_untouched(megaplan_api, todos):
+    """Regression guard for #3 (task 12b).
+
+    RAML has no from/to date params on ``/todo/busyDays`` — only
+    ``filter``/``q``/pagination/``sortBy``. The old ``from_date``/``to_date``
+    signature 422'd on every call (``There is extra field "from"...``);
+    confirmed on the live stand that a plain call with no params (or an
+    ad-hoc ``TodoFilter``) is what the endpoint actually accepts.
+    """
+    route = megaplan_api.get("todo/busyDays", data=[])
+
+    await todos.busy_days(filter={"contentType": "TodoFilter", "id": 7})
+
+    assert sent_query(route) == {"filter": {"contentType": "TodoFilter", "id": 7}}
 
 
 async def test_get_comments_uses_comments_subresource(megaplan_api, todos):
@@ -212,7 +280,45 @@ async def test_update_sends_post_to_todo_id(megaplan_api, todos):
 
     assert todo.name == "Перенесённый созвон"
     body = json.loads(route.calls[0].request.content)
-    assert body == {"name": "Перенесённый созвон"}
+    assert body == {"name": "Перенесённый созвон", "id": "501"}
+
+
+async def test_update_body_carries_id_to_avoid_orphan_creation_bug(megaplan_api, todos):
+    """Regression test for the orphan-creation bug (task 12b, #1).
+
+    Confirmed on the live stand: ``POST /todo/{id}`` *without* ``"id"`` in the
+    JSON body ignores the path id entirely and creates a brand-new Todo
+    instead of updating the existing one (server returns 200 with a
+    different ``data.id``). With ``"id"`` in the body, the same POST updates
+    in place. ``TodosResource.update()`` must always inject it, so callers
+    never have to remember the workaround themselves.
+    """
+    route = megaplan_api.post("todo/501", data={**TODO, "name": "Обновлено"})
+
+    await todos.update(501, {"name": "Обновлено"})
+
+    body = json.loads(route.calls[0].request.content)
+    assert body["id"] == "501"
+
+
+async def test_update_does_not_mutate_callers_dict(megaplan_api, todos):
+    """update() must not mutate the caller's todo_data in place (immutability)."""
+    megaplan_api.post("todo/501", data={**TODO, "name": "Обновлено"})
+    todo_data = {"name": "Обновлено"}
+
+    await todos.update(501, todo_data)
+
+    assert todo_data == {"name": "Обновлено"}
+
+
+async def test_update_overrides_caller_supplied_id_with_the_path_id(megaplan_api, todos):
+    """A caller-supplied 'id' must not win over the id in the path (#1 fix guard)."""
+    route = megaplan_api.post("todo/501", data={**TODO, "name": "Обновлено"})
+
+    await todos.update(501, {"name": "Обновлено", "id": "999"})
+
+    body = json.loads(route.calls[0].request.content)
+    assert body["id"] == "501"
 
 
 async def test_delete_sends_delete_to_todo_id(megaplan_api, todos):
