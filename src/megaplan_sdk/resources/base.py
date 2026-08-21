@@ -12,6 +12,7 @@ from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources._history import HistoryMixin
+from megaplan_sdk.resources._todos import EntityTodosMixin
 
 if TYPE_CHECKING:
     from megaplan_sdk.cache import EntityCache
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-class BaseResource(HistoryMixin):
+class BaseResource(HistoryMixin, EntityTodosMixin):
     """Base class for all API resources.
 
     Provides common functionality for making API requests.

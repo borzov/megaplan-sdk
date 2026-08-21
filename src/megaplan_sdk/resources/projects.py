@@ -11,6 +11,7 @@ from megaplan_sdk.models.deal import Deal
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task
+from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
@@ -741,6 +742,18 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         return await self._search_entity_history(
             "project", project_id, query, limit, page_after, page_before, page_with
         )
+
+    async def get_todos(self, project_id: int, limit: int | None = None) -> list[Todo]:
+        """Get todos attached to this project.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of items per page.
+
+        Returns:
+            Todos of the project.
+        """
+        return await self._get_entity_todos("project", project_id, limit)
 
     async def get_full_details(
         self,

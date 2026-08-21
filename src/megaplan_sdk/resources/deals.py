@@ -17,6 +17,7 @@ from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.history import LinkEvent, parse_history_entry
 from megaplan_sdk.models.task import Task
+from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
@@ -639,6 +640,18 @@ class DealsResource(BaseResource, FullDetailsMixin):
             ...     print(verb, event.other.content_type, event.other.id)
         """
         return await self._get_link_events("deal", deal_id, since_id, since_time, limit)
+
+    async def get_todos(self, deal_id: int, limit: int | None = None) -> list[Todo]:
+        """Get todos attached to this deal.
+
+        Args:
+            deal_id: Deal identifier.
+            limit: Number of items per page.
+
+        Returns:
+            Todos of the deal.
+        """
+        return await self._get_entity_todos("deal", deal_id, limit)
 
     async def get_linked_deals(
         self,

@@ -9,6 +9,7 @@ from megaplan_sdk.constants import ContentType
 from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.department import Department
 from megaplan_sdk.models.employee import Employee
+from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
@@ -238,3 +239,15 @@ class EmployeesResource(BaseResource):
             **kwargs,
         ):
             yield employee
+
+    async def get_todos(self, employee_id: int, limit: int | None = None) -> list[Todo]:
+        """Get todos attached to this employee.
+
+        Args:
+            employee_id: Employee identifier.
+            limit: Number of items per page.
+
+        Returns:
+            Todos of the employee.
+        """
+        return await self._get_entity_todos("employee", employee_id, limit)

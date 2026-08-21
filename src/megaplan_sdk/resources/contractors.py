@@ -8,6 +8,7 @@ from typing import Any
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal
+from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.base import BaseResource
 
@@ -228,3 +229,15 @@ class ContractorsResource(BaseResource):
         )
 
         return await self._get_list(path, Deal, params)
+
+    async def get_todos(self, contractor_id: int, limit: int | None = None) -> list[Todo]:
+        """Get todos attached to this contractor.
+
+        Args:
+            contractor_id: Contractor identifier.
+            limit: Number of items per page.
+
+        Returns:
+            Todos of the contractor.
+        """
+        return await self._get_entity_todos("contractor", contractor_id, limit)

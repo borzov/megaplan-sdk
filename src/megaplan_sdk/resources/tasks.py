@@ -12,6 +12,7 @@ from megaplan_sdk.constants import (
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.task import Task, TaskFullDetails
+from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
@@ -985,6 +986,18 @@ class TasksResource(BaseResource, FullDetailsMixin):
         return await self._search_entity_history(
             "task", task_id, query, limit, page_after, page_before, page_with
         )
+
+    async def get_todos(self, task_id: int, limit: int | None = None) -> list[Todo]:
+        """Get todos attached to this task.
+
+        Args:
+            task_id: Task identifier.
+            limit: Number of items per page.
+
+        Returns:
+            Todos of the task.
+        """
+        return await self._get_entity_todos("task", task_id, limit)
 
     async def get_full_details(
         self,
