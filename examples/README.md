@@ -42,6 +42,20 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
+## Кукбук (`cookbook/`)
+
+Рецепты для конкретных сценариев, каждый — рабочий код плюс разбор
+ограничений API:
+
+- [`cookbook/todo-sync.md`](cookbook/todo-sync.md) — инкрементальная
+  синхронизация дел (`Todo`): вебхуки потока "события" как основной канал,
+  `TodoSync` как страховка и первичная загрузка, семантика `deleted`/
+  `looks_truncated`.
+- [`cookbook/link-tracking.md`](cookbook/link-tracking.md) — отслеживание
+  связей сущностей (сделки, задачи, проекты, контрагенты, дела) через
+  журнал (`BasedOnHistory`, `get_link_events()`), раз вебхука на
+  привязку/отвязку в API нет.
+
 ## Требования
 
 - Python 3.11+

@@ -7,7 +7,45 @@
 
 ## [Не выпущено]
 
+### Добавлено
+- `client.todos` — ресурс дел (`Todo`, `/api/v3/todo`): `list()`/`iterate()`/
+  `get()`/`search()`/`create()`/`update()`/`delete()`, действия `finish()`/
+  `renew()`/`take()` через общий `POST /todo/{id}/doAction` (отдельных
+  маршрутов `/finish`, `/renew`, `/take` в API нет — они 404), `get_comments()`,
+  `get_linked_deals()`/`get_linked_tasks()`, `busy_days()`, а также
+  типизированные `get_history()`/`iterate_history()`/`get_link_events()` (см.
+  ниже). `finish(result_text=...)` публикует текст результата как `Comment`
+  на деле — поля `Todo.resultText` не существует.
+- `get_todos(entity_id, limit=)` — у `deals`, `tasks`, `projects`,
+  `contractors` и `employees`: дела, привязанные к сущности.
+- `megaplan_sdk.sync.TodoSync` (+ `TodoSyncState`, `TodoChanges`) —
+  инкрементальная синхронизация дел без серверного фильтра «изменено
+  после», которого у `Todo` нет: диффит отпечаток значимых полей между
+  опросами. `TodoChanges.deleted` означает «сервер перестал отдавать этот
+  id», а не «дело вне окна синхронизации»; `TodoChanges.looks_truncated`
+  сигнализирует подозрительно пустой ответ сервера и запрещает удалять
+  локальные данные на его основании. Рецепт с приёмником вебхука и разбором
+  этой семантики — `examples/cookbook/todo-sync.md`.
+- `client.attachments.upload(path)` — загрузка локального файла
+  (`POST /api/file`, `multipart/form-data`), возвращает ссылку
+  `{"contentType": "File", "id": ...}` для `attaches` (#FR-D).
+- `contractors.get_history()`/`iterate_history()`/`get_link_events()` и
+  `todos.get_history()`/`iterate_history()`/`get_link_events()` — журнала у
+  этих двух ресурсов раньше не было вообще.
+- Рецепты `examples/cookbook/todo-sync.md` и `examples/cookbook/link-tracking.md`
+  — разбор синхронизации дел и отслеживания связей сущностей на реальных
+  ограничениях API, со ссылками из README.
+
 ### 🐛 Исправлено
+- **Реестр сущностей: `todo` больше не алиас задач.** `content_type_for("todo")`
+  раньше возвращал `"Task"` — ошибочно: `Task` и `Todo` независимые сущности
+  со своими диапазонами id, сервер не резолвит id задачи в пространстве
+  `Todo` (404, а не подмена типа). Затрагивает только внутренний реестр —
+  публичный API `client.todos`/`client.tasks` не менялся.
+- **`HTTPClient` слал `Content-Type: application/json` даже на multipart-запросы**
+  — клиентский дефолт заголовка перекрывал то, что должен был вычислить
+  `httpx` для `files=` (границу multipart). Проявлялось только у
+  `attachments.upload()` — первого метода SDK, передающего `files=`.
 - **`deals.get_full_details(include_history=True)` падал с `ValidationError`
   на реальном журнальном ответе — баг, попавший в релиз 0.6.0 вместе с
   типизацией `deals.get_history()`.** `DealFullDetails.history` был типизирован

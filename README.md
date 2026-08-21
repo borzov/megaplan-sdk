@@ -35,6 +35,7 @@
 - [Задачи](#работа-с-задачами)
 - [Проекты](#работа-с-проектами)
 - [Сделки](#работа-со-сделками)
+- [Дела (Todos)](#работа-с-делами-todos)
 - [Связи сущностей и их отслеживание](#связи-сущностей-и-их-отслеживание)
 - [Уведомления и упоминания](#уведомления-и-упоминания)
 - [База знаний](#работа-с-базой-знаний)
@@ -1142,6 +1143,67 @@ details = await client.deals.get_full_details(
 
 > **Примечание:** Общее описание метода `get_full_details()` и примеры использования см. в разделе [Общие паттерны работы с сущностями](#общие-паттерны-работы-с-сущностями).
 
+## Работа с делами (Todos)
+
+"Дела" (`Todo`, эндпоинт `/api/v3/todo`) — самостоятельная сущность, не
+алиас задач: у неё свой диапазон id, свой набор полей и свои ограничения.
+Чтение и запись — через `client.todos`, как и у остальных ресурсов:
+
+```python
+todos = await client.todos.list(limit=20)
+todo = await client.todos.get(todo_id=88)
+found = await client.todos.search(q="созвон")   # list[BaseEntity], не list[Todo]
+
+async for todo in client.todos.iterate(limit=100):
+    ...
+
+created = await client.todos.create(name="Позвонить клиенту")
+await client.todos.update(todo_id=created.id, todo_data={"name": "Новое название"})
+await client.todos.delete(todo_id=created.id)
+```
+
+### Действия: `finish` / `renew` / `take`
+
+Отдельных маршрутов `/finish`, `/renew`, `/take` в API **нет** — они 404. Все
+три действия идут через один общий `POST /todo/{id}/doAction` с телом
+`Todo*ActionRequest`; SDK прячет это за тремя методами:
+
+```python
+finished = await client.todos.finish(todo_id=88, result_text="Готово, клиент подтвердил")
+renewed = await client.todos.renew(todo_id=88)      # вернуть завершённое дело обратно
+taken = await client.todos.take(todo_id=88)         # назначить себя ответственным
+```
+
+`result_text` не становится полем дела — сервер публикует его как обычный
+`Comment` на деле (`client.todos.get_comments(todo_id)`), поле `Todo.resultText`
+не существует.
+
+### Журнал и связи
+
+Как и у сделок/задач/проектов/контрагентов, у дел есть типизированный журнал
+и события связей:
+
+```python
+history = await client.todos.get_history(todo_id=88, limit=50)     # Changeset | BasedOnHistory
+events = await client.todos.get_link_events(todo_id=88, since_id=1096)
+linked_deals = await client.todos.get_linked_deals(todo_id=88)
+linked_tasks = await client.todos.get_linked_tasks(todo_id=88)
+```
+
+### Инкрементальная синхронизация
+
+У `Todo` нет `timeUpdated` и нет фильтра "изменено после" — узнать через API
+"что изменилось" напрямую нельзя. Основной канал — вебхуки потока "события"
+приложения (`on_after_create`/`on_after_update`/`on_after_drop`), а
+`megaplan_sdk.sync.TodoSync` — страховка и первичная загрузка поверх них.
+Подробный рецепт с приёмником вебхука, сохранением состояния и разбором
+семантики `deleted`/`looks_truncated`:
+[`examples/cookbook/todo-sync.md`](examples/cookbook/todo-sync.md).
+
+Смежная тема — как узнавать о привязке/отвязке сделок, задач и других
+сущностей друг к другу через журнал (`get_link_events`), когда вебхука на
+это тоже нет: [`examples/cookbook/link-tracking.md`](examples/cookbook/link-tracking.md).
+
 ## Связи сущностей и их отслеживание
 
 ### Текущие связи
@@ -1183,6 +1245,11 @@ new_events = await client.deals.get_link_events(deal_id=219, since_id=last_seen)
 
 Рабочая схема интеграции: вебхук `deals.on_after_update` — только триггер
 «в сделке что-то изменилось», а факт связи берётся из журнала по `since_id`.
+
+`get_link_events()` есть не только у сделок — тот же метод есть у задач,
+проектов, контрагентов и дел. Подробный рецепт с обоснованием, почему API v1
+(`saveRelation`/`removeRelation`) не подходит, и с примером опроса нескольких
+типов сущностей: [`examples/cookbook/link-tracking.md`](examples/cookbook/link-tracking.md).
 
 ### Журнал сущности
 
