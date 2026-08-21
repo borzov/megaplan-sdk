@@ -38,6 +38,49 @@ async def test_post_request():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_json_request_sends_json_content_type():
+    """A JSON POST still carries Content-Type: application/json.
+
+    Regression guard for the client-level default header removal (#FR-D):
+    _build_headers() must keep setting this per-request now that the
+    httpx.AsyncClient itself no longer sets a sticky default.
+    """
+    respx.post("https://example.com/api/v3/task").mock(
+        return_value=Response(200, json={"meta": {"status": 200}, "data": {"id": 1}})
+    )
+
+    async with HTTPClient("https://example.com") as client:
+        await client.post("/api/v3/task", json_data={"name": "Test"})
+        request = respx.calls.last.request
+        assert request.headers["Content-Type"] == "application/json"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_multipart_request_lets_httpx_compute_content_type():
+    """A files= POST is sent as real multipart, not application/json.
+
+    Regression guard for #FR-D: previously the httpx.AsyncClient's own
+    default header ("Content-Type: application/json", set at construction)
+    survived the per-request pop in _request() and overrode httpx's
+    auto-computed multipart boundary, so the server received a JSON
+    Content-Type on a multipart body (500 on the live stand).
+    """
+    route = respx.post("https://example.com/api/file").mock(
+        return_value=Response(
+            200, json={"meta": {"status": 200}, "data": [{"contentType": "File", "id": "1"}]}
+        )
+    )
+
+    async with HTTPClient("https://example.com") as client:
+        await client.post("/api/file", files={"files[]": ("report.pdf", b"%PDF-1.4")})
+        request = route.calls.last.request
+        content_type = request.headers["Content-Type"]
+        assert content_type.startswith("multipart/form-data; boundary=")
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_auth_header():
     """Test Authorization header injection."""
     respx.get("https://example.com/api/v3/task").mock(

@@ -65,3 +65,17 @@ async def test_download_maps_http_errors(megaplan_api, attachments, base_url):
 
     with pytest.raises(NotFoundError):
         await attachments.download("/attach/gone.png")
+
+
+async def test_upload_sends_multipart(megaplan_api, attachments, base_url, tmp_path):
+    """#FR-D: upload goes to /api/file (no /v3) as multipart files[]."""
+    report = tmp_path / "report.pdf"
+    report.write_bytes(b"%PDF-1.4 test")
+    # MegaplanAPIMock prefixes /api/v3 for relative paths; this route is outside it,
+    # so the absolute URL form is used (conftest.py:79-83).
+    route = megaplan_api.post(f"{base_url}/api/file", data=[{"contentType": "File", "id": "9100"}])
+
+    ref = await attachments.upload(report)
+
+    assert ref == {"contentType": "File", "id": 9100}
+    assert b"report.pdf" in route.calls[0].request.content
