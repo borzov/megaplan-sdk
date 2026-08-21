@@ -22,6 +22,7 @@ from megaplan_sdk.resources.knowledge_base import KnowledgeBaseResource
 from megaplan_sdk.resources.notifications import NotificationsResource
 from megaplan_sdk.resources.projects import ProjectsResource
 from megaplan_sdk.resources.tasks import TasksResource
+from megaplan_sdk.resources.todos import TodosResource
 
 
 class MegaplanClient:
@@ -127,6 +128,7 @@ class MegaplanClient:
         self.filters = FiltersResource(self._http, cache=self._cache)
         self.attachments = AttachmentsResource(self._http, cache=self._cache)
         self.notifications = NotificationsResource(self._http, cache=self._cache)
+        self.todos = TodosResource(self._http, cache=self._cache)
         self.knowledge_article = KnowledgeArticleResource(self._http, cache=self._cache)
         self.knowledge_base = KnowledgeBaseResource(
             self._http, cache=self._cache, article_resource=self.knowledge_article

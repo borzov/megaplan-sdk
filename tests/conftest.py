@@ -19,6 +19,7 @@ from megaplan_sdk.resources.knowledge_base import KnowledgeBaseResource
 from megaplan_sdk.resources.notifications import NotificationsResource
 from megaplan_sdk.resources.projects import ProjectsResource
 from megaplan_sdk.resources.tasks import TasksResource
+from megaplan_sdk.resources.todos import TodosResource
 
 
 @pytest.fixture
@@ -209,6 +210,12 @@ def filters(http_client: HTTPClient) -> FiltersResource:
 def notifications(http_client: HTTPClient) -> NotificationsResource:
     """Notifications resource over the mocked API."""
     return NotificationsResource(http_client)
+
+
+@pytest.fixture
+def todos(http_client: HTTPClient) -> TodosResource:
+    """TodosResource bound to the mocked HTTP client."""
+    return TodosResource(http_client)
 
 
 @pytest.fixture

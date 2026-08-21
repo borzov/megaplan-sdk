@@ -69,6 +69,7 @@ from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.models.todo import Todo, TodoCategory, TodoStatus, TodoWhen
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.filters import FiltersResource
+from megaplan_sdk.resources.todos import TodosResource
 from megaplan_sdk.task_query import TaskQuery
 
 __all__ = [
@@ -116,6 +117,7 @@ __all__ = [
     "TodoStatus",
     "TodoCategory",
     "TodoWhen",
+    "TodosResource",
     "Participant",
     "parse_participant",
     "parse_participants",
