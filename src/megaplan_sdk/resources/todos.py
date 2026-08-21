@@ -27,6 +27,18 @@ class TodosResource(BaseResource):
         issued immediately after can still show the previous value for a few
         seconds — worse under several rapid writes to the same todo. This is
         a server-side characteristic; the SDK does not poll to mask it.
+
+    Note:
+        Three ``doAction`` requests are investigated, not forgotten:
+        ``accept_invitation``/``reject_invitation`` — route accepts the body
+        but a live probe got 403 "No act_accept_invite/act_reject_invite
+        rights" (the probing account can't be an invited participant on its
+        own todo); needs a probe from an account that actually holds a
+        pending invitation. ``delete_repeatable`` — needs a repeating todo,
+        but every ``when`` shape tried on create 422s; needs the accepted
+        wire format for ``when``. ``give`` — no request type exists for it in
+        the API (``possibleActions`` lists ``act_give``, but there is no
+        ``TodoGiveActionRequest`` in the schema).
     """
 
     _page_content_type = ContentType.TODO
