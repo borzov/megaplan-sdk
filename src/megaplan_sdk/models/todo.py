@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.base import BaseEntity
 from megaplan_sdk.models.common import DateOnly, DateTime
 
@@ -19,6 +20,7 @@ FINISHED_MASTER_TYPES = frozenset({"finished", "success", "fail", "finish_withou
 class TodoStatus(BaseEntity):
     """Status of a todo."""
 
+    content_type: str = Field(alias="contentType", default="TodoStatus")
     name: str | None = None
     master_type: str | None = Field(alias="masterType", default=None)
 
@@ -26,14 +28,24 @@ class TodoStatus(BaseEntity):
 class TodoCategory(BaseEntity):
     """Category of a todo (event, meeting, call, todo, private)."""
 
+    content_type: str = Field(alias="contentType", default="TodoCategory")
     name: str | None = None
     master_type: str | None = Field(alias="masterType", default=None)
 
 
 class TodoWhen(BaseModel):
-    """When a todo happens — an all-day date range or a timed interval."""
+    """When a todo happens — an all-day date range or a timed interval.
 
-    content_type: str = Field(alias="contentType", default="IntervalTime")
+    ``content_type`` has no default: unlike ``DateTime``/``DateOnly``, where a
+    single wire shape exists, ``TodoWhen`` covers two mutually exclusive
+    shapes and there is no safe default to pick between them. Real API
+    responses always carry ``contentType``, so this only affects manual
+    construction (e.g. in tests) — requiring it explicitly avoids a
+    ``TodoWhen`` silently being treated as one shape when it was meant as the
+    other.
+    """
+
+    content_type: str = Field(alias="contentType")
     from_: dict[str, Any] | None = Field(alias="from", default=None)
     to: dict[str, Any] | None = None
 
@@ -68,6 +80,7 @@ class TodoWhen(BaseModel):
 class Todo(BaseEntity):
     """A todo ("Дело")."""
 
+    content_type: str = Field(alias="contentType", default=ContentType.TODO)
     name: str | None = None
     status: TodoStatus | None = None
     category: TodoCategory | None = None
@@ -96,4 +109,5 @@ class Todo(BaseEntity):
         return self.name or f"Todo#{self.id}"
 
     def __str__(self) -> str:
+        """Return display name for string representation."""
         return self.display_name()

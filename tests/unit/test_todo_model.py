@@ -1,6 +1,9 @@
 """Tests for the Todo ("Дела") model (task 4 of the 0.6.1 release)."""
 
-from megaplan_sdk.models.todo import Todo
+import pytest
+from pydantic import ValidationError
+
+from megaplan_sdk.models.todo import Todo, TodoCategory, TodoStatus, TodoWhen
 
 ALL_DAY = {
     "contentType": "Todo",
@@ -236,3 +239,27 @@ def test_parses_full_stand_response_without_crashing():
     assert todo.is_finished() is False
     assert "rights" in todo.model_extra
     assert "coincidentTodos" in todo.model_extra
+
+
+def test_todo_constructs_without_explicit_content_type():
+    """`content_type` must default like every other top-level model (Task,
+    Deal, Notification, File, DateOnly, DateTime) — a bare `Todo(id=1)` must
+    not raise ValidationError."""
+    todo = Todo(id=1, name="x")
+    assert todo.content_type == "Todo"
+
+
+def test_todo_status_and_category_construct_without_explicit_content_type():
+    status = TodoStatus(id=1)
+    assert status.content_type == "TodoStatus"
+
+    category = TodoCategory(id=1)
+    assert category.content_type == "TodoCategory"
+
+
+def test_todo_when_requires_explicit_content_type():
+    """No safe default exists between IntervalDates and IntervalTime, so
+    content_type is required — omitting it must fail loudly rather than
+    silently picking a shape."""
+    with pytest.raises(ValidationError):
+        TodoWhen(from_={"contentType": "DateTime", "value": "2026-08-21T10:00:00+00:00"})
