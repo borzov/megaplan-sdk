@@ -55,14 +55,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         RelatedDataConfig(
             "comments", "include_comments", "get_comments", limit_param="comments_limit"
         ),
-        RelatedDataConfig(
-            "history",
-            "include_history",
-            "get_history",
-            limit_param="history_limit",
-            # TaskFullDetails.history keeps its pre-0.6.1 list[dict] contract.
-            fetch_args={"raw": True},
-        ),
+        RelatedDataConfig("history", "include_history", "get_history", limit_param="history_limit"),
         RelatedDataConfig("auditors", "include_auditors", "get_auditors"),
         RelatedDataConfig("executors", "include_executors", "get_executors"),
         RelatedDataConfig("milestones", "include_milestones", "get_milestones"),
@@ -1004,6 +997,12 @@ class TasksResource(BaseResource, FullDetailsMixin):
     ) -> list[LinkEvent]:
         """Get link/unlink events for a task.
 
+        Megaplan has no webhook for linking (the app event streams only carry
+        on_after_create/update/drop) and the task card exposes no list of
+        related entities — only counters. The journal does record every link
+        change, so this is the way to learn *which* link appeared or
+        disappeared without diffing two states of the task.
+
         Args:
             task_id: Task identifier.
             since_id: Return only events newer than this event id — store the
@@ -1016,7 +1015,10 @@ class TasksResource(BaseResource, FullDetailsMixin):
             Link events, newest first.
 
         Examples:
-            >>> events = await client.tasks.get_link_events(task_id=77)
+            >>> events = await client.tasks.get_link_events(task_id=77, since_id=1096)
+            >>> for event in events:
+            ...     verb = "отвязал" if event.unlink else "привязал"
+            ...     print(verb, event.other.content_type, event.other.id)
         """
         return await self._get_link_events("task", task_id, since_id, since_time, limit)
 

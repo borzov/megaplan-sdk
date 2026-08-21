@@ -380,6 +380,12 @@ class TodosResource(BaseResource):
     ) -> list[LinkEvent]:
         """Get link/unlink events for a todo.
 
+        Megaplan has no webhook for linking (the app event streams only carry
+        on_after_create/update/drop) and the todo card exposes no list of
+        related entities — only counters. The journal does record every link
+        change, so this is the way to learn *which* link appeared or
+        disappeared without diffing two states of the todo.
+
         Args:
             todo_id: Todo identifier.
             since_id: Return only events newer than this event id — store the
@@ -392,6 +398,9 @@ class TodosResource(BaseResource):
             Link events, newest first.
 
         Examples:
-            >>> events = await client.todos.get_link_events(todo_id=88)
+            >>> events = await client.todos.get_link_events(todo_id=88, since_id=1096)
+            >>> for event in events:
+            ...     verb = "отвязал" if event.unlink else "привязал"
+            ...     print(verb, event.other.content_type, event.other.id)
         """
         return await self._get_link_events("todo", todo_id, since_id, since_time, limit)

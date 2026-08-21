@@ -183,3 +183,46 @@ async def test_based_on_history_model_parses_unlink_flag():
     assert entry.unlink is True
     assert entry.generated_model is not None
     assert entry.generated_model.id == 77
+
+
+# --- get_full_details(include_history=True) must not choke on typed entries -
+
+# Regression for a live bug shipped with 0.6.0: DealFullDetails.history (and,
+# before this fix, TaskFullDetails.history / ProjectFullDetails.history) was
+# typed as list[dict[str, Any]], but get_full_details() feeds it straight from
+# get_history(), which returns typed Changeset/BasedOnHistory entries for any
+# journal record with a known contentType. Pydantic validation raised on a
+# real journal payload. The earlier version of this test suite only ever fed
+# get_full_details() a history entry without "contentType" (e.g.
+# {"id": 1, "action": "created"}), which parse_history_entry passes through
+# unchanged as a dict — that shape hid the bug entirely.
+
+
+async def test_deal_full_details_history_is_typed(megaplan_api, deals):
+    megaplan_api.get("deal/1", data={"id": 1, "contentType": "Deal", "name": "Test Deal"})
+    megaplan_api.get("deal/1/history", data=[CHANGESET])
+
+    details = await deals.get_full_details(deal_id=1, include_history=True)
+
+    assert details.history is not None
+    assert isinstance(details.history[0], Changeset)
+
+
+async def test_task_full_details_history_is_typed(megaplan_api, tasks):
+    megaplan_api.get("task/1", data={"id": 1, "contentType": "Task", "name": "Test Task"})
+    megaplan_api.get("task/1/history", data=[CHANGESET])
+
+    details = await tasks.get_full_details(task_id=1, include_history=True)
+
+    assert details.history is not None
+    assert isinstance(details.history[0], Changeset)
+
+
+async def test_project_full_details_history_is_typed(megaplan_api, projects):
+    megaplan_api.get("project/1", data={"id": 1, "contentType": "Project", "name": "Test Project"})
+    megaplan_api.get("project/1/history", data=[CHANGESET])
+
+    details = await projects.get_full_details(project_id=1, include_history=True)
+
+    assert details.history is not None
+    assert isinstance(details.history[0], Changeset)

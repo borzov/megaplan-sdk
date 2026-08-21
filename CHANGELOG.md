@@ -7,6 +7,18 @@
 
 ## [Не выпущено]
 
+### 🐛 Исправлено
+- **`deals.get_full_details(include_history=True)` падал с `ValidationError`
+  на реальном журнальном ответе — баг, попавший в релиз 0.6.0 вместе с
+  типизацией `deals.get_history()`.** `DealFullDetails.history` был типизирован
+  как `list[dict[str, Any]]`, а `get_full_details()` передаёт туда результат
+  `get_history()`, которая с 0.6.0 отдаёт типизированные `Changeset`/
+  `BasedOnHistory` для любой записи с известным `contentType` — Pydantic
+  отклонял такую запись при валидации поля. Тесты этого не ловили, потому что
+  фикстуры истории в тестовой базе не содержали `contentType`. **Если вы
+  используете `deals.get_full_details(include_history=True)` начиная с
+  0.6.0** — этот релиз чинит падение без изменений на вашей стороне.
+
 ### ⚠️ Изменения поведения (breaking)
 - `tasks.get_history()`, `projects.get_history()` и новые `contractors.get_history()`,
   `todos.get_history()` возвращают типизированные записи журнала (`Changeset`,
@@ -14,13 +26,19 @@
   `deals.get_history()` в 0.6.0; неизвестные типы записей по-прежнему
   остаются `dict`. Прежнее поведение — `get_history(..., raw=True)`. У всех
   четырёх ресурсов также появились `iterate_history()` и `get_link_events()`,
-  зеркальные методам `deals`. `get_full_details(include_history=True)` у
-  `tasks`/`projects` не затронут: он по-прежнему собирает `history` как
-  `list[dict]`.
-  Это финальный шаг раскатки типизированного журнала: контракт
-  `get_history()` теперь единообразен для всех сущностей, у которых API
-  отдаёт `/history` (deals, tasks, projects, contractors, todos); дальнейшие
-  изменения в этой части будут только аддитивными.
+  зеркальные методам `deals`.
+- Поле `history` у `DealFullDetails`, `TaskFullDetails` и `ProjectFullDetails`
+  типизировано как `list[Any] | None` вместо `list[dict[str, Any]] | None` —
+  `get_full_details(include_history=True)` теперь отдаёт те же типизированные
+  записи, что и `get_history()` (см. «Исправлено» выше), а не сырые `dict`.
+  Миграция та же: код, ожидавший `dict`, читает через `entry["field"]` —
+  замените на атрибуты (`entry.field`) или проверяйте тип (`isinstance(entry,
+  Changeset)`).
+  Это финальный шаг раскатки типизированного журнала: контракт журнала
+  (`get_history()` и `*FullDetails.history`) теперь единообразен для всех
+  сущностей, у которых API отдаёт `/history` (deals, tasks, projects,
+  contractors, todos); дальнейшие изменения в этой части будут только
+  аддитивными.
 
 ## [0.6.0] — 2026-08-07
 
