@@ -36,6 +36,7 @@
 - [Проекты](#работа-с-проектами)
 - [Сделки](#работа-со-сделками)
 - [Дела (Todos)](#работа-с-делами-todos)
+- [Дела, привязанные к сущности](#дела-привязанные-к-сущности)
 - [Связи сущностей и их отслеживание](#связи-сущностей-и-их-отслеживание)
 - [Уведомления и упоминания](#уведомления-и-упоминания)
 - [База знаний](#работа-с-базой-знаний)
@@ -70,12 +71,16 @@
 - Параметр `expand` для автоматической подгрузки связанных сущностей (подставляются на место ссылок)
 - Уведомления с флагом `isMention` — надёжное отслеживание упоминаний
 - Связи сущностей: текущие (`linkedDeals`/`linkedTasks`) и события привязки/отвязки из журнала
+- Дела (`client.todos`) — чтение, запись и действия, плюс `get_todos()` у сделок, задач, проектов, сотрудников и контрагентов
+- `TodoSync` — инкрементальная синхронизация дел там, где у сущности нет `timeUpdated` и фильтра «изменено после»
+- Типизированный журнал (`Changeset`, `BasedOnHistory`) у сделок, задач, проектов, контрагентов и дел
+- Загрузка вложений `client.attachments.upload()` и авторизованное скачивание
 - Батч-вызовы `client.bulk()` и escape hatch `client.raw()` для непокрытых эндпоинтов
 - Метод `iterate()` для автоматической пагинации больших списков
 - Helper-функции для создания BaseEntity объектов
 - Глобальные дефолтные лимиты для комментариев и истории
 - Модульная архитектура для легкого расширения
-- Комплексные тесты с покрытием 80%+
+- Комплексные тесты с покрытием 90%
 
 ## Установка
 
@@ -435,6 +440,11 @@ if details.comments:
 if details.history:
     print(f"Записей в истории: {len(details.history)}")
 ```
+
+Записи в `details.history` — типизированные (`Changeset`, `BasedOnHistory`;
+неизвестные серверу типы остаются `dict`), как и у `get_history()`. Параметра
+`raw=` у `get_full_details()` нет: если нужен сырой журнал, читайте его
+отдельным вызовом `get_history(entity_id, raw=True)`.
 
 Подробнее о специфичных параметрах для каждого типа сущностей см. в соответствующих разделах:
 - [Задачи](#работа-с-задачами)
@@ -1190,12 +1200,59 @@ linked_deals = await client.todos.get_linked_deals(todo_id=88)
 linked_tasks = await client.todos.get_linked_tasks(todo_id=88)
 ```
 
+### Дела, привязанные к сущности
+
+У сделок, задач, проектов, сотрудников и контрагентов есть `get_todos()` — дела,
+привязанные к конкретной карточке:
+
+```python
+deal_todos = await client.deals.get_todos(deal_id=219)
+task_todos = await client.tasks.get_todos(task_id=1006256, limit=50)
+project_todos = await client.projects.get_todos(project_id=47)
+employee_todos = await client.employees.get_todos(employee_id=1000003)
+
+# У контрагентов — тот же нюанс с подтипом, что и у журнала
+contractor_todos = await client.contractors.get_todos(
+    contractor_id=1001786,
+    content_type="ContractorCompany",
+)
+```
+
 ### Инкрементальная синхронизация
 
 У `Todo` нет `timeUpdated` и нет фильтра "изменено после" — узнать через API
 "что изменилось" напрямую нельзя. Основной канал — вебхуки потока "события"
 приложения (`on_after_create`/`on_after_update`/`on_after_drop`), а
 `megaplan_sdk.sync.TodoSync` — страховка и первичная загрузка поверх них.
+```python
+from megaplan_sdk.sync import TodoSync, TodoSyncState
+
+sync = TodoSync(client.todos, window_days=30)
+
+# Первый прогон: состояния нет, все дела приедут как created
+changes = await sync.poll()
+save_state(changes.state.to_dict())          # хранение состояния — на вашей стороне
+
+# Следующий прогон: передаём сохранённое состояние
+changes = await sync.poll(TodoSyncState.from_dict(load_state()))
+
+if changes.looks_truncated:
+    # ответ сервера подозрительно пуст — ничего не удаляем, ждём следующего опроса
+    return
+
+for todo in changes.created + changes.updated:
+    upsert(todo)                             # именно upsert, а не insert
+for todo_id in changes.deleted:
+    drop(todo_id)
+```
+
+Две вещи, о которые проще всего споткнуться: `created` означает «нет в вашем
+предыдущем состоянии», а не «создано на сервере» (после потери состояния дело
+приедет повторно), а `deleted` — «сервер перестал отдавать этот id», и при
+`looks_truncated=True` удалять нельзя вообще. Каждый `poll()` читает весь список
+дел аккаунта постранично по 100: `window_days` ограничивает объём сохраняемого
+состояния, а не число запросов.
+
 Подробный рецепт с приёмником вебхука, сохранением состояния и разбором
 семантики `deleted`/`looks_truncated`:
 [`examples/cookbook/todo-sync.md`](examples/cookbook/todo-sync.md).
@@ -1269,6 +1326,27 @@ async for entry in client.deals.iterate_history(deal_id=219, limit=100):
 
 # Прежнее поведение (list[dict]) — если разбор не нужен
 raw = await client.deals.get_history(deal_id=219, raw=True)
+```
+
+`get_history()`, `iterate_history()` и `get_link_events()` доступны у сделок,
+задач, проектов, контрагентов и дел — сигнатуры одинаковые, меняется только имя
+параметра с идентификатором.
+
+У контрагентов есть нюанс: сервер не умеет разрешать абстрактный тип
+`Contractor` и отвечает 500 на `/contractor/{id}/history`. SDK ходит по маршруту
+конкретного подтипа, поэтому методы принимают необязательный `content_type` —
+если подтип уже известен (например, из `list()`), лишнего запроса не будет,
+иначе SDK сам прочитает карточку:
+
+```python
+# Подтип известен — один запрос
+history = await client.contractors.get_history(
+    contractor_id=1001786,
+    content_type="ContractorCompany",   # или "ContractorHuman"
+)
+
+# Подтип неизвестен — SDK определит его сам, ценой одного лишнего запроса
+events = await client.contractors.get_link_events(contractor_id=1001786)
 ```
 
 Для массивов сервер пишет **две** записи `FieldChange` — добавленные элементы
@@ -2016,6 +2094,31 @@ response = await client._http.get("/api/v3/some/endpoint", params={"limit": 5})
 ### Известные ограничения API
 
 Некоторые эндпоинты Megaplan API имеют ограничения или известные проблемы:
+
+### Абстрактный маршрут контрагента
+
+`GET /contractor/{id}/history` и `GET /contractor/{id}/todos` отвечают 500
+(«There is no model class for ...Entity\Contractor»): сервер не создаёт
+экземпляр полиморфного `Contractor`. Маршруты конкретных подтипов
+(`/contractorCompany/...`, `/contractorHuman/...`) работают, и SDK ходит именно
+по ним — см. `content_type` у `get_history()`/`iterate_history()`/
+`get_link_events()`/`get_todos()`.
+
+### Отвязка сущностей не попадает в журнал
+
+Привязка пишет в журнал запись `BasedOnHistory` — её видно с обеих сторон связи
+и это подтверждено на живом аккаунте. А вот отвязка события не порождает:
+способ, при котором в журнале появляется запись с `unlink=true`, найти не
+удалось. Если вам нужен факт отвязки, сравнивайте текущий список связей
+(`get_linked_deals()`/`get_linked_tasks()`) со своим предыдущим снимком.
+
+### Дела: непроверенные параметры
+
+Подтверждены живьём: `todos.busy_days()` без фильтра, `finish(result_text=...)`
+и `finish(status_id=...)`. Не проверялись: рабочий формат `filter` у
+`busy_days()` (диапазон дат подобрать не удалось), а также `result_attaches` и
+`notify_contractors` у `finish()`. Поле `when` при создании дела сервер
+отклоняет с 422 в любой известной форме, поэтому `create()` его не принимает.
 
 ### Комментарии контрагентов
 
