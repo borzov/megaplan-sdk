@@ -68,6 +68,7 @@ AGENTS.md
 .env.local
 .venv/
 .pypirc
+megaplan-sdk-issues.md
 
 # Real tests and API responses
 examples/real_tests/collect_api_responses.py

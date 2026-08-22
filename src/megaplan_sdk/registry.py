@@ -3,8 +3,12 @@
 One entry per entity type answers every naming question the SDK has:
 the polymorphic ``contentType`` string, the filter ``contentType`` and the
 filter endpoint path segment, plus legacy aliases the API uses in paths
-("todo" for tasks, "trade" for deals). Resources must consult this module
-instead of keeping their own string tables.
+("trade" for deals). Resources must consult this module instead of keeping
+their own string tables.
+
+Note: "todo" is NOT an alias for "task". ``/api/v3/todo`` is a separate
+entity (Дела) with its own ID space and contentType ``"Todo"`` — see the
+``todo`` entry below.
 """
 
 from dataclasses import dataclass
@@ -31,7 +35,10 @@ class EntityInfo:
 
 
 _ENTITIES: tuple[EntityInfo, ...] = (
-    EntityInfo("task", ContentType.TASK, aliases=("todo",)),
+    EntityInfo("task", ContentType.TASK),
+    # "todo" is a separate entity (Дела), not a task alias: it has its own
+    # ID space (GET /api/v3/todo/{id} 404s for a task id and vice versa).
+    EntityInfo("todo", ContentType.TODO),
     # The single irregular filter name: deals use TradeFilter, not DealFilter.
     EntityInfo("deal", ContentType.DEAL, filter_content_type="TradeFilter", aliases=("trade",)),
     EntityInfo("project", ContentType.PROJECT),

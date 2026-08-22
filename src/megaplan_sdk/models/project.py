@@ -63,7 +63,8 @@ class ProjectFullDetails(MainEntityProxyMixin, BaseModel):
         issues: List of tasks/issues (if requested).
         actual_issues: List of actual tasks/issues (if requested).
         comments: List of comments (if requested).
-        history: Change history entries (if requested).
+        history: Journal entries (if requested), parsed the same way as
+            get_history(): typed Changeset/BasedOnHistory, unknown types as dict.
         auditors: List of auditors (if requested).
         executors: List of executors/co-performers (if requested).
         milestones: List of milestones (if requested).
@@ -78,7 +79,7 @@ class ProjectFullDetails(MainEntityProxyMixin, BaseModel):
     issues: list[Any] | None = None
     actual_issues: list[Any] | None = None
     comments: list[Any] | None = None
-    history: list[dict[str, Any]] | None = None
+    history: list[Any] | None = None
     auditors: list[Any] | None = None
     executors: list[Any] | None = None
     milestones: list[Milestone] | None = None

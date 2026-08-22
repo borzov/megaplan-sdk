@@ -86,10 +86,13 @@ class HTTPClient:
                 keepalive_expiry=30.0,  # Keep connections alive for 30 seconds
             )
 
+            # No client-level default Content-Type: _build_headers() already sets
+            # it per-request, and a sticky default here would survive the
+            # multipart pop in _request() below, forcing "application/json" onto
+            # files= uploads instead of httpx's auto-computed multipart boundary.
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=self.timeout,
-                headers={"Content-Type": "application/json"},
                 limits=limits,
                 follow_redirects=True,
                 proxy=self._proxy,

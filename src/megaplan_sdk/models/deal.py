@@ -109,7 +109,8 @@ class DealFullDetails(MainEntityProxyMixin, BaseModel):
     Attributes:
         deal: Main deal entity.
         comments: List of comments (if requested).
-        history: Change history entries (if requested).
+        history: Journal entries (if requested), parsed the same way as
+            get_history(): typed Changeset/BasedOnHistory, unknown types as dict.
         status_history: Status change history (if requested).
         auditors: List of auditors (if requested); Employee instances once
             resolved (default), or raw references with resolve_participants=False.
@@ -122,7 +123,7 @@ class DealFullDetails(MainEntityProxyMixin, BaseModel):
 
     deal: Deal
     comments: list[Any] | None = None
-    history: list[dict[str, Any]] | None = None
+    history: list[Any] | None = None
     status_history: list[dict[str, Any]] | None = None
     auditors: list[Any] | None = None
     manager_details: Any | None = None

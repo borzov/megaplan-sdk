@@ -12,6 +12,7 @@ from megaplan_sdk.models.knowledge import (
 from megaplan_sdk.models.participant import Participant, parse_participant, parse_participants
 from megaplan_sdk.models.project import Project, ProjectFilter
 from megaplan_sdk.models.task import Task, TaskFilter
+from megaplan_sdk.models.todo import Todo, TodoCategory, TodoStatus, TodoWhen
 
 __all__ = [
     "BaseEntity",
@@ -33,4 +34,8 @@ __all__ = [
     "KnowledgeBase",
     "KnowledgeArticle",
     "KnowledgeSectionWithArticles",
+    "Todo",
+    "TodoStatus",
+    "TodoCategory",
+    "TodoWhen",
 ]

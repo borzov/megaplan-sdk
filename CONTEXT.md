@@ -35,9 +35,10 @@ _Avoid_: in-place mode, mutation (implementation must stay immutable)
 
 **EntityRegistry**:
 The single authority for API naming (`registry.py`): one entry per entity type
-holds its contentType, filter contentType, and legacy aliases ("todo" for
-tasks, "trade" for deals). Resources consult it instead of keeping string
-tables.
+holds its contentType, filter contentType, and legacy aliases ("trade" for
+deals). "todo" is its own entity (Дела, contentType "Todo"), not a task
+alias — it has a separate ID space. Resources consult the registry instead of
+keeping string tables.
 _Avoid_: mapping table, normalize function
 
 **FullDetails container**:

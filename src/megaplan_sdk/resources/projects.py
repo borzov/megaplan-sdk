@@ -9,8 +9,10 @@ from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.deal import Deal
 from megaplan_sdk.models.employee import Employee
+from megaplan_sdk.models.history import LinkEvent, parse_history_entry
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task
+from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
@@ -693,8 +695,14 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Get history log for a project.
+        raw: bool = False,
+    ) -> list[Any]:
+        """Get the journal of a project.
+
+        The stream is mixed: ``Changeset`` (field changes), ``BasedOnHistory``
+        (link/unlink), comments, trigger logs. Known types are parsed; unknown
+        ones are returned as raw dicts, so a new server-side type never breaks
+        the call.
 
         Args:
             project_id: Project identifier.
@@ -702,16 +710,73 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
+            raw: Return untouched payloads (pre-0.6.1 behaviour).
 
         Returns:
-            List of history entries.
+            Journal entries, newest first.
 
         Examples:
             >>> history = await client.projects.get_history(project_id=123, limit=10)
         """
-        return await self._get_entity_history(
+        entries = await self._get_entity_history(
             "project", project_id, limit, page_after, page_before, page_with
         )
+        if raw:
+            return list(entries)
+        return [parse_history_entry(entry) for entry in entries]
+
+    async def iterate_history(
+        self,
+        project_id: int,
+        limit: int = 100,
+        raw: bool = False,
+    ) -> AsyncIterator[Any]:
+        """Iterate the project's journal with automatic pagination.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of entries per page.
+            raw: Yield untouched payloads instead of parsed entries.
+
+        Yields:
+            Journal entries, newest first.
+        """
+        async for entry in self._iterate_entity_history("project", project_id, limit, raw):
+            yield entry
+
+    async def get_link_events(
+        self,
+        project_id: int,
+        since_id: int | None = None,
+        since_time: str | None = None,
+        limit: int = 100,
+    ) -> list[LinkEvent]:
+        """Get link/unlink events for a project.
+
+        Megaplan has no webhook for linking (the app event streams only carry
+        on_after_create/update/drop) and the project card exposes no list of
+        related entities — only counters. The journal does record every link
+        change, so this is the way to learn *which* link appeared or
+        disappeared without diffing two states of the project.
+
+        Args:
+            project_id: Project identifier.
+            since_id: Return only events newer than this event id — store the
+                largest id seen to poll incrementally.
+            since_time: Return only events created strictly after this
+                ISO-8601 timestamp.
+            limit: Number of journal entries fetched per page.
+
+        Returns:
+            Link events, newest first.
+
+        Examples:
+            >>> events = await client.projects.get_link_events(project_id=55, since_id=1096)
+            >>> for event in events:
+            ...     verb = "отвязал" if event.unlink else "привязал"
+            ...     print(verb, event.other.content_type, event.other.id)
+        """
+        return await self._get_link_events("project", project_id, since_id, since_time, limit)
 
     async def search_history(
         self,
@@ -741,6 +806,18 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         return await self._search_entity_history(
             "project", project_id, query, limit, page_after, page_before, page_with
         )
+
+    async def get_todos(self, project_id: int, limit: int | None = None) -> list[Todo]:
+        """Get todos attached to this project.
+
+        Args:
+            project_id: Project identifier.
+            limit: Number of items per page.
+
+        Returns:
+            Todos of the project.
+        """
+        return await self._get_entity_todos("project", project_id, limit)
 
     async def get_full_details(
         self,

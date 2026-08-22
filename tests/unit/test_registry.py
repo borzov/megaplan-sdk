@@ -17,9 +17,12 @@ class TestContentTypeFor:
         assert content_type_for("employee") == "Employee"
         assert content_type_for("department") == "Department"
 
-    def test_todo_alias_maps_to_task(self):
-        """API uses "todo" in paths but the contentType is "Task"."""
-        assert content_type_for("todo") == "Task"
+    def test_todo_entity_resolves_to_todo_content_type(self):
+        """/api/v3/todo is the Todo (Дела) resource, not tasks."""
+        assert content_type_for("todo") == "Todo"
+
+    def test_task_still_resolves_to_task(self):
+        assert content_type_for("task") == "Task"
 
     def test_trade_alias_maps_to_deal(self):
         """API's legacy "trade" naming refers to deals."""
@@ -50,8 +53,9 @@ class TestFilterContentTypeFor:
         assert filter_content_type_for("deal") == "TradeFilter"
         assert filter_content_type_for("trade") == "TradeFilter"
 
-    def test_todo_alias(self):
-        assert filter_content_type_for("todo") == "TaskFilter"
+    def test_todo_is_its_own_filter_type(self):
+        """Todo (Дела) is a separate entity, not a Task alias — regular pattern applies."""
+        assert filter_content_type_for("todo") == "TodoFilter"
 
 
 class TestFilterPathFor:

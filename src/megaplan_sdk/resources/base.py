@@ -8,10 +8,11 @@ from megaplan_sdk.constants import ContentType
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.bulk import ApiCall, BulkCallResult
-from megaplan_sdk.models.history import BasedOnHistory, LinkEvent, parse_history_entry
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
+from megaplan_sdk.resources._history import HistoryMixin
+from megaplan_sdk.resources._todos import EntityTodosMixin
 
 if TYPE_CHECKING:
     from megaplan_sdk.cache import EntityCache
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-class BaseResource:
+class BaseResource(HistoryMixin, EntityTodosMixin):
     """Base class for all API resources.
 
     Provides common functionality for making API requests.
@@ -406,7 +407,7 @@ class BaseResource:
         """Generic method to get comments for any entity.
 
         Args:
-            entity_type: API path segment (e.g. "todo" for tasks, "project", "deal", "contractor").
+            entity_type: API path segment (e.g. "task", "todo", "project", "deal", "contractor").
             entity_id: Entity identifier.
             limit: Number of items per page.
             page_after: Load page starting from this entity.
@@ -806,7 +807,7 @@ class BaseResource:
             >>> BaseResource._entity_type_to_content_type("task")
             'Task'
             >>> BaseResource._entity_type_to_content_type("todo")
-            'Task'
+            'Todo'
             >>> BaseResource._entity_type_to_content_type("contractorCompany")
             'ContractorCompany'
         """
@@ -945,40 +946,6 @@ class BaseResource:
         path = self._build_path(*path_parts)
         await self._http.delete(path)
 
-    async def _get_entity_history(
-        self,
-        entity_type: str,
-        entity_id: int,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Generic method to get history log for any entity.
-
-        Args:
-            entity_type: API resource type (e.g., "task", "project", "deal").
-            entity_id: Entity identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-            page_before: Load page strictly before this entity.
-            page_with: Load page containing this entity.
-
-        Returns:
-            List of history entries.
-        """
-        path = self._build_path("api", "v3", entity_type, str(entity_id), "history")
-
-        params = self._build_list_params(
-            limit=limit,
-            page_after=page_after,
-            page_before=page_before,
-            page_with=page_with,
-        )
-
-        response = await self._http.get(path, params=params if params else None)
-        return self._parse_list_response(response)
-
     async def _bulk_calls(self, calls: list[Any]) -> list[BulkCallResult]:
         """Send several API calls in one request to ``POST /api/v3/bulk``.
 
@@ -1043,136 +1010,6 @@ class BaseResource:
             only_requested_fields=only_requested_fields,
         )
         return await self._get_list(path, model_class, params)
-
-    async def _iterate_entity_history(
-        self,
-        entity_type: str,
-        entity_id: int,
-        limit: int = 100,
-        raw: bool = False,
-    ) -> AsyncIterator[Any]:
-        """Iterate the whole journal of an entity, page by page.
-
-        Args:
-            entity_type: API resource type (e.g. "task", "deal").
-            entity_id: Entity identifier.
-            limit: Number of entries per page.
-            raw: Yield untouched payloads instead of parsed entries.
-
-        Yields:
-            Journal entries, newest first.
-        """
-        page_after: dict[str, Any] | None = None
-        while True:
-            page = await self._get_entity_history(entity_type, entity_id, limit, page_after)
-            if not page:
-                return
-            for payload in page:
-                yield payload if raw else parse_history_entry(payload)
-            if len(page) < limit:
-                return
-            last = page[-1]
-            last_id = last.get("id")
-            if last_id is None:
-                logger.warning("History entry without id during pagination; stopping")
-                return
-            page_after = {"contentType": last.get("contentType"), "id": last_id}
-
-    async def _get_link_events(
-        self,
-        entity_type: str,
-        entity_id: int,
-        since_id: int | None = None,
-        since_time: str | None = None,
-        limit: int = 100,
-    ) -> list[LinkEvent]:
-        """Extract link/unlink events for an entity from its journal.
-
-        The journal is the only place where a *single* link change is visible:
-        the entity card exposes no list of related entities, so without this
-        two states would have to be diffed (#link-tracking). Verified on the
-        stand 2026-08-05: BasedOnHistory records appear on both sides of a link
-        and carry ``unlink`` for removals.
-
-        Args:
-            entity_type: API resource type (e.g. "deal").
-            entity_id: Entity identifier.
-            since_id: Return only events with a larger BasedOnHistory id.
-            since_time: Return only events created strictly after this
-                ISO-8601 timestamp.
-            limit: Number of journal entries per page.
-
-        Returns:
-            Link events, oldest page first, in journal order.
-        """
-        events: list[LinkEvent] = []
-        async for entry in self._iterate_entity_history(entity_type, entity_id, limit):
-            if not isinstance(entry, BasedOnHistory):
-                continue
-            if since_id is not None and (entry.id is None or entry.id <= since_id):
-                continue
-            if since_time is not None and (
-                entry.time_created is None or entry.time_created.value <= since_time
-            ):
-                continue
-            is_source = (
-                entry.based_model is not None
-                and entry.based_model.id == entity_id
-                and entry.based_model.content_type == (self._page_content_type or "")
-            )
-            other = entry.generated_model if is_source else entry.based_model
-            if other is None:
-                continue
-            events.append(
-                LinkEvent(
-                    id=entry.id,
-                    time=entry.time_created,
-                    user=entry.user,
-                    unlink=entry.unlink,
-                    other=other,
-                    is_source=is_source,
-                    description=entry.description,
-                )
-            )
-        return events
-
-    async def _search_entity_history(
-        self,
-        entity_type: str,
-        entity_id: int,
-        query: str,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Generic method to search in entity history log.
-
-        Args:
-            entity_type: API resource type (e.g., "task", "project", "deal").
-            entity_id: Entity identifier.
-            query: Search query.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-            page_before: Load page strictly before this entity.
-            page_with: Load page containing this entity.
-
-        Returns:
-            List of matching history entries.
-        """
-        path = self._build_path("api", "v3", entity_type, str(entity_id), "history", "search")
-
-        params = self._build_list_params(
-            limit=limit,
-            page_after=page_after,
-            page_before=page_before,
-            page_with=page_with,
-        )
-        params_dict: dict[str, Any] = params if params is not None else {}
-        params_dict["q"] = query
-
-        response = await self._http.get(path, params=params_dict)
-        return self._parse_list_response(response)
 
     async def _fetch_details_parallel(
         self,
