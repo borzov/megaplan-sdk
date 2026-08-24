@@ -330,6 +330,8 @@ class BaseResource(HistoryMixin, EntityTodosMixin):
         ``q=`` that the user expects to search silently returns 0 (#11).
         Only ``name`` and ``statement`` are filterable server-side; other
         text fields (``description``/``subject``/...) are silently ignored.
+        Subclasses may narrow ``_Q_ALLOWED_FIELDS`` further for entities that
+        don't have all of these fields (e.g. ``Todo`` has no ``statement``).
 
         Args:
             filter_content_type: e.g. ``"TaskFilter"`` / ``"TradeFilter"``.

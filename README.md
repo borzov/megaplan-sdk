@@ -1704,6 +1704,23 @@ for employee in employees:
 - `department` - отдел сотрудника
 - `manager` - непосредственный руководитель
 
+### Использование expand в делах
+
+```python
+todos = await client.todos.list(limit=10, expand=["responsible", "user_created"])
+
+for todo in todos:
+    if todo.responsible:
+        print(f"Ответственный: {todo.responsible.display_name()}")
+
+    if todo.user_created:
+        print(f"Постановщик: {todo.user_created.display_name()}")
+```
+
+**Поддерживаемые поля для expand в делах:**
+- `responsible` - ответственный за дело
+- `user_created` - постановщик дела
+
 ### Helper методы для читаемого вывода
 
 Модели содержат удобные методы для форматированного вывода:
@@ -1982,8 +1999,9 @@ comment = await client.comments.create(
 )
 ```
 
-Файл читается синхронно (без стриминга) — для очень больших файлов это
-блокирует event loop на время чтения.
+Файл читается целиком в память, но в отдельном потоке (`asyncio.to_thread`),
+поэтому event loop не блокируется. Стриминга и ограничения на размер нет —
+очень большой файл целиком окажется в памяти процесса.
 
 ### Настройка HTTP-клиента
 
@@ -2166,7 +2184,7 @@ response = await client._http.get("/api/v3/some/endpoint", params={"limit": 5})
 экземпляр полиморфного `Contractor`. Маршруты конкретных подтипов
 (`/contractorCompany/...`, `/contractorHuman/...`) работают, и SDK ходит именно
 по ним — см. `content_type` у `get_history()`/`iterate_history()`/
-`get_link_events()`/`get_todos()`.
+`get_link_events()`/`get_todos()`/`search_history()`.
 
 ### Отвязка сущностей не попадает в журнал
 
