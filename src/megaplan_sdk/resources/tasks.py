@@ -1051,17 +1051,23 @@ class TasksResource(BaseResource, FullDetailsMixin):
             "task", task_id, query, limit, page_after, page_before, page_with
         )
 
-    async def get_todos(self, task_id: int, limit: int | None = None) -> list[Todo]:
+    async def get_todos(
+        self,
+        task_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+    ) -> list[Todo]:
         """Get todos attached to this task.
 
         Args:
             task_id: Task identifier.
             limit: Number of items per page.
+            page_after: Load page starting from this entity.
 
         Returns:
             Todos of the task.
         """
-        return await self._get_entity_todos("task", task_id, limit)
+        return await self._get_entity_todos("task", task_id, limit, page_after)
 
     async def get_full_details(
         self,

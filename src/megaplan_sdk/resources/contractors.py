@@ -36,8 +36,9 @@ class ContractorsResource(BaseResource):
         Use action history or other entities for tracking contractor-related notes.
 
     Note:
-        ``get_todos()``, ``get_history()``, ``iterate_history()`` and
-        ``get_link_events()`` all read/write a concrete subtype route
+        ``get_todos()``, ``get_history()``, ``iterate_history()``,
+        ``search_history()`` and ``get_link_events()`` all read/write a
+        concrete subtype route
         (``contractorCompany``/``contractorHuman``), not the abstract
         ``contractor`` path — ``GET /contractor/{id}/history`` and
         ``/contractor/{id}/todos`` 500 server-side (``There is no model class
@@ -46,7 +47,7 @@ class ContractorsResource(BaseResource):
         cannot instantiate the abstract polymorphic ``Contractor`` type on
         those two routes specifically. The concrete subtype route works
         (confirmed live 2026-08-21, both ``ContractorCompany`` and
-        ``ContractorHuman``). Each of these four methods accepts an optional
+        ``ContractorHuman``). Each of these five methods accepts an optional
         ``content_type`` — pass ``"ContractorCompany"``/``"ContractorHuman"``
         when you already know it (e.g. from a prior ``list()``/``get()``
         call, since ``Contractor.content_type`` carries it) to skip an extra
@@ -293,6 +294,7 @@ class ContractorsResource(BaseResource):
         contractor_id: int,
         limit: int | None = None,
         content_type: str | None = None,
+        page_after: dict[str, Any] | None = None,
     ) -> list[Todo]:
         """Get todos attached to this contractor.
 
@@ -307,12 +309,13 @@ class ContractorsResource(BaseResource):
             content_type: "ContractorCompany" or "ContractorHuman" if already
                 known (e.g. from a prior `list()`/`get()`), to skip an extra
                 lookup. Resolved via `get()` otherwise.
+            page_after: Load page starting from this entity.
 
         Returns:
             Todos of the contractor.
         """
         segment, _ = await self._resolve_subtype(contractor_id, content_type)
-        return await self._get_entity_todos(segment, contractor_id, limit)
+        return await self._get_entity_todos(segment, contractor_id, limit, page_after)
 
     async def get_history(
         self,

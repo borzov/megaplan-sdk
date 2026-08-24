@@ -807,17 +807,23 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             "project", project_id, query, limit, page_after, page_before, page_with
         )
 
-    async def get_todos(self, project_id: int, limit: int | None = None) -> list[Todo]:
+    async def get_todos(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+    ) -> list[Todo]:
         """Get todos attached to this project.
 
         Args:
             project_id: Project identifier.
             limit: Number of items per page.
+            page_after: Load page starting from this entity.
 
         Returns:
             Todos of the project.
         """
-        return await self._get_entity_todos("project", project_id, limit)
+        return await self._get_entity_todos("project", project_id, limit, page_after)
 
     async def get_full_details(
         self,

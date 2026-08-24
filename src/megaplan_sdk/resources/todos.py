@@ -9,10 +9,12 @@ from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.base import BaseEntity
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.deal import Deal
+from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.history import LinkEvent, parse_history_entry
 from megaplan_sdk.models.task import Task
 from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.registry import filter_content_type_for
+from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
 
 
@@ -45,6 +47,11 @@ class TodosResource(BaseResource):
 
     _page_content_type = ContentType.TODO
     _filter_content_type = filter_content_type_for("todo")
+
+    _expand_rules = {
+        "responsible": ExpandRule("employee", Employee),
+        "user_created": ExpandRule("employee", Employee),
+    }
 
     # Todo has no `statement` field: the base allowlist would let
     # q_in=["statement"] through and the server would answer 200 with an
@@ -204,6 +211,10 @@ class TodosResource(BaseResource):
         q_in: list[str] | None = None,
         filter: dict[str, Any] | None = None,
         page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        only_requested_fields: bool | None = None,
+        expand: list[str] | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
     ) -> list[Todo]:
@@ -217,6 +228,12 @@ class TodosResource(BaseResource):
                 ``["name"]``).
             filter: Ad-hoc filter, passed through untouched.
             page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            only_requested_fields: Return only requested fields.
+            expand: Reference fields to load fully (e.g. ["responsible"]).
+                The loaded entities replace the bare references; the type is
+                unchanged.
             fields: Additional fields to request from the API.
             sort_by: Sort fields, e.g.
                 ``[{"contentType": "SortField", "fieldName": "timeCreated", "desc": True}]``.
@@ -226,7 +243,7 @@ class TodosResource(BaseResource):
                 ``ValueError`` for that mistake instead.
 
         Returns:
-            List of todos.
+            List of todos, with expanded references loaded in place.
 
         Raises:
             ValueError: If both ``q`` and ``filter`` are given, or a
@@ -268,10 +285,14 @@ class TodosResource(BaseResource):
             filter=filter,
             limit=limit,
             page_after=page_after,
+            page_before=page_before,
+            page_with=page_with,
             fields=fields,
             sort_by=sort_by,
+            only_requested_fields=only_requested_fields,
         )
-        return await self._get_list(path, Todo, params)
+        todos = await self._get_list(path, Todo, params)
+        return await self._expand_references(todos, expand)
 
     async def iterate(
         self,
@@ -296,16 +317,17 @@ class TodosResource(BaseResource):
         ):
             yield todo
 
-    async def get(self, todo_id: int) -> Todo:
+    async def get(self, todo_id: int, fields: list[str] | None = None) -> Todo:
         """Get a single todo by id.
 
         Args:
             todo_id: Todo identifier.
+            fields: Extra fields to request (e.g. ``["commentsCount"]``).
 
         Returns:
             The todo.
         """
-        return await self._get_entity("todo", todo_id, Todo)
+        return await self._get_entity("todo", todo_id, Todo, fields=fields)
 
     async def search(self, q: str) -> list[BaseEntity]:
         """Search todos by free text.

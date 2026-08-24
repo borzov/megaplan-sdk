@@ -641,17 +641,23 @@ class DealsResource(BaseResource, FullDetailsMixin):
         """
         return await self._get_link_events("deal", deal_id, since_id, since_time, limit)
 
-    async def get_todos(self, deal_id: int, limit: int | None = None) -> list[Todo]:
+    async def get_todos(
+        self,
+        deal_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+    ) -> list[Todo]:
         """Get todos attached to this deal.
 
         Args:
             deal_id: Deal identifier.
             limit: Number of items per page.
+            page_after: Load page starting from this entity.
 
         Returns:
             Todos of the deal.
         """
-        return await self._get_entity_todos("deal", deal_id, limit)
+        return await self._get_entity_todos("deal", deal_id, limit, page_after)
 
     async def get_linked_deals(
         self,

@@ -123,6 +123,35 @@ async def test_expand_caching(megaplan_api, http_client):
     assert employee_route.call_count == 1
 
 
+async def test_todos_list_expands_responsible(megaplan_api, todos):
+    """todos.list(expand=["responsible"]) replaces the bare reference with an Employee.
+
+    The mocked response must be a bare reference, not a full profile: the
+    live server often returns Todo.responsible already fully populated
+    (including presence fields), which would make this assertion pass
+    without expansion actually happening.
+    """
+    megaplan_api.get(
+        "todo",
+        data=[
+            {
+                "id": 42,
+                "contentType": "Todo",
+                "name": "Todo 1",
+                "responsible": {"id": 7, "contentType": "Employee"},
+            },
+        ],
+    )
+    megaplan_api.get("employee/7", data=JOHN)
+
+    result = await todos.list(expand=["responsible"])
+
+    assert len(result) == 1
+    assert result[0].responsible is not None
+    assert isinstance(result[0].responsible, Employee)
+    assert result[0].responsible.first_name == "John"
+
+
 async def test_expand_empty_list(megaplan_api, tasks):
     """Test expand with empty list of entities."""
     megaplan_api.get("task", data=[])

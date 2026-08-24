@@ -240,14 +240,20 @@ class EmployeesResource(BaseResource):
         ):
             yield employee
 
-    async def get_todos(self, employee_id: int, limit: int | None = None) -> list[Todo]:
+    async def get_todos(
+        self,
+        employee_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+    ) -> list[Todo]:
         """Get todos attached to this employee.
 
         Args:
             employee_id: Employee identifier.
             limit: Number of items per page.
+            page_after: Load page starting from this entity.
 
         Returns:
             Todos of the employee.
         """
-        return await self._get_entity_todos("employee", employee_id, limit)
+        return await self._get_entity_todos("employee", employee_id, limit, page_after)

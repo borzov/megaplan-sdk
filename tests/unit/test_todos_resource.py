@@ -93,6 +93,22 @@ async def test_list_passes_sort_by(megaplan_api, todos):
     ]
 
 
+async def test_list_forwards_pagination_and_field_flags(megaplan_api, todos):
+    """page_before, page_with and only_requested_fields reach the request."""
+    route = megaplan_api.get("todo", data=[])
+
+    await todos.list(
+        page_before={"contentType": "Todo", "id": 5},
+        page_with={"contentType": "Todo", "id": 7},
+        only_requested_fields=True,
+    )
+
+    query = sent_query(route)
+    assert "pageBefore" in query
+    assert "pageWith" in query
+    assert query["onlyRequestedFields"] is True
+
+
 async def test_list_q_is_converted_to_name_filter(megaplan_api, todos):
     """Regression guard for #5 (task 12b).
 
@@ -146,6 +162,16 @@ async def test_get_returns_single_todo(megaplan_api, todos):
     todo = await todos.get(501)
 
     assert todo.display_name() == "Созвон"
+
+
+async def test_get_requests_extra_fields(megaplan_api, todos):
+    """todos.get(fields=[...]) reaches the server as a fields param."""
+    route = megaplan_api.get("todo/501", data=TODO)
+
+    await todos.get(501, fields=["commentsCount"])
+
+    query = sent_query(route)
+    assert query["fields"] == ["commentsCount"]
 
 
 async def test_iterate_paginates_with_page_after(megaplan_api, todos):

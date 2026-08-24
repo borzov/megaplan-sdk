@@ -34,6 +34,15 @@ async def test_task_todos_hit_the_subresource(megaplan_api, tasks):
     assert items[0].name == "Созвон"
 
 
+async def test_task_todos_forwards_page_after(megaplan_api, tasks):
+    """get_todos(page_after=...) is not silently dropped, unlike before this fix."""
+    route = megaplan_api.get("task/1/todos", data=[])
+
+    await tasks.get_todos(1, page_after={"contentType": "Todo", "id": 9})
+
+    assert "pageAfter" in str(route.calls[0].request.url)
+
+
 async def test_project_todos_hit_the_subresource(megaplan_api, projects):
     route = megaplan_api.get("project/42/todos", data=[TODO])
 
