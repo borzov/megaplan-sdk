@@ -99,3 +99,65 @@ async def test_failing_callback_does_not_break_the_request(caplog: pytest.LogCap
 
     assert result["data"]["id"] == 1
     assert "on_token_refresh" in caplog.text
+
+
+@respx.mock
+async def test_manual_refresh_via_client_auth_updates_the_shared_provider():
+    """client.auth.refresh_token() updates the same manager the transport uses.
+
+    Regression guard for Task 8b: AuthResource used to build its own AuthManager,
+    so a manual refresh through client.auth left the transport's provider on
+    stale _expires_at/_refresh_token. With a single shared manager, the
+    provider's get_access_token() must reflect the manual refresh immediately,
+    and the next request must carry the new token.
+    """
+    respx.post(TOKEN_URL).mock(return_value=Response(200, json=_token_payload("manual-fresh")))
+    task_route = respx.get(TASK_URL).mock(return_value=Response(200, json={"data": {"id": 1}}))
+
+    async with MegaplanClient(BASE, refresh_token="saved") as client:
+        await client.auth.refresh_token("saved")
+
+        assert client._auth_manager.get_access_token() == "manual-fresh"
+
+        await client._http.get("/api/v3/task/1")
+
+    assert task_route.calls[0].request.headers["Authorization"] == "Bearer manual-fresh"
+
+
+@respx.mock
+async def test_manual_refresh_via_client_auth_fires_on_token_refresh():
+    """client.auth.refresh_token() also fires the client's on_token_refresh callback.
+
+    Before Task 8b, the resource's private AuthManager had no callback wired in
+    at all, so a manual refresh silently skipped it and the app never learned
+    about the rotated pair.
+    """
+    respx.post(TOKEN_URL).mock(
+        return_value=Response(200, json=_token_payload("manual-fresh", "manual-rot"))
+    )
+
+    seen: list[AuthTokenResponse] = []
+
+    async with MegaplanClient(BASE, refresh_token="saved", on_token_refresh=seen.append) as client:
+        await client.auth.refresh_token("saved")
+
+    assert len(seen) == 1
+    assert seen[0].access_token == "manual-fresh"
+    assert seen[0].refresh_token == "manual-rot"
+
+
+@respx.mock
+async def test_client_auth_authenticate_shares_state_with_the_provider():
+    """client.auth.authenticate() and the transport's provider agree on the token.
+
+    Regression guard for Task 8b: with two independent AuthManager instances,
+    client.auth.get_access_token() and client._auth_manager.get_access_token()
+    could diverge after authenticating through the resource.
+    """
+    respx.post(TOKEN_URL).mock(return_value=Response(200, json=_token_payload("logged-in")))
+
+    async with MegaplanClient(BASE) as client:
+        await client.auth.authenticate("user@example.com", "secret")
+
+        assert client.auth.get_access_token() == client._auth_manager.get_access_token()
+        assert client.auth.get_access_token() == "logged-in"

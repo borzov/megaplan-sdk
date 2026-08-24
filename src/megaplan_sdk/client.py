@@ -115,7 +115,7 @@ class MegaplanClient:
             self._auth_manager.restore_token(access_token, refresh_token=refresh_token)
             logger.debug("MegaplanClient initialized with stored tokens")
 
-        self.auth = AuthResource(self._http, cache=self._cache)
+        self.auth = AuthResource(self._http, cache=self._cache, auth_manager=self._auth_manager)
         self.tasks = TasksResource(
             self._http,
             cache=self._cache,

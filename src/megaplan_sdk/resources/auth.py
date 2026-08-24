@@ -16,15 +16,25 @@ if TYPE_CHECKING:
 class AuthResource(BaseResource):
     """Resource for OAuth2 authentication."""
 
-    def __init__(self, http_client: HTTPClient, cache: EntityCache | None = None) -> None:
+    def __init__(
+        self,
+        http_client: HTTPClient,
+        cache: EntityCache | None = None,
+        auth_manager: AuthManager | None = None,
+    ) -> None:
         """Initialize auth resource.
 
         Args:
             http_client: HTTP client for making requests.
             cache: Optional entity cache.
+            auth_manager: Token manager to operate on. MegaplanClient passes
+                the same manager it wired into the transport as its
+                TokenProvider, so manual token operations and automatic
+                refresh share one state. When omitted (standalone use), the
+                resource owns a private manager.
         """
         super().__init__(http_client, cache=cache)
-        self._auth_manager = AuthManager(http_client)
+        self._auth_manager = auth_manager or AuthManager(http_client)
 
     async def authenticate(self, username: str, password: str) -> AuthTokenResponse:
         """Authenticate with username and password.
