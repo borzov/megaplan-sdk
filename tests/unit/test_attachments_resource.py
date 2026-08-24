@@ -1,10 +1,17 @@
 """Tests for AttachmentsResource (#FR-C)."""
 
+import threading
+from pathlib import Path
+from unittest.mock import patch
+
 import pytest
+import respx
 from httpx import Response
 
 from megaplan_sdk.exceptions import MegaplanError, NotFoundError
+from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.models.base import BaseEntity
+from megaplan_sdk.resources.attachments import AttachmentsResource
 
 
 async def test_download_accepts_model_with_extra_path(megaplan_api, attachments, base_url):
@@ -89,3 +96,31 @@ async def test_upload_raises_on_empty_data(megaplan_api, attachments, base_url, 
 
     with pytest.raises(MegaplanError, match="no file data"):
         await attachments.upload(report)
+
+
+@respx.mock
+async def test_upload_reads_file_off_the_event_loop(tmp_path):
+    """The file is read in a worker thread, not on the running loop."""
+    payload = b"x" * 1024
+    target = tmp_path / "report.pdf"
+    target.write_bytes(payload)
+
+    loop_thread = threading.get_ident()
+    read_threads: list[int] = []
+    real_read_bytes = Path.read_bytes
+
+    def _tracking_read(self: Path) -> bytes:
+        read_threads.append(threading.get_ident())
+        return real_read_bytes(self)
+
+    respx.post("https://example.megaplan.ru/api/file").mock(
+        return_value=Response(200, json={"data": [{"contentType": "File", "id": "9100"}]})
+    )
+
+    with patch.object(Path, "read_bytes", _tracking_read):
+        async with HTTPClient("https://example.megaplan.ru") as http:
+            resource = AttachmentsResource(http)
+            result = await resource.upload(target)
+
+    assert result == {"contentType": "File", "id": 9100}
+    assert read_threads and all(t != loop_thread for t in read_threads)

@@ -10,6 +10,7 @@ that can be passed straight into an entity's ``attaches``.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
@@ -62,11 +63,10 @@ class AttachmentsResource(BaseResource):
         """Upload a file and get a reference to attach to an entity.
 
         Note:
-            The file is read synchronously (``Path.open()``/``handle.read()``
-            under the hood of the multipart encoder) — it is not streamed
-            off the event loop. For large files this blocks the loop for the
-            duration of the read; see ``asyncio.to_thread`` if that matters
-            for your workload (not done here — planned for 0.6.2).
+            The file is read into memory in a worker thread
+            (``asyncio.to_thread``), so a large upload does not block the
+            event loop. Bytes rather than an open handle are handed to the
+            transport, which also keeps an automatic retry replay-safe.
 
         Args:
             path: Local file to upload.
@@ -79,10 +79,10 @@ class AttachmentsResource(BaseResource):
                 so there is no reference to hand back.
         """
         file_path = Path(path)
-        with file_path.open("rb") as handle:
-            response = await self._http.post(
-                "/api/file", files={"files[]": (file_path.name, handle)}
-            )
+        # Read in a worker thread: the multipart encoder would otherwise read
+        # the handle on the running loop and stall it for the whole file.
+        content = await asyncio.to_thread(file_path.read_bytes)
+        response = await self._http.post("/api/file", files={"files[]": (file_path.name, content)})
         data = self._parse_list_response(response)
         if not data:
             raise MegaplanError(
