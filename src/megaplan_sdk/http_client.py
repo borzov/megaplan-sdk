@@ -126,8 +126,14 @@ class HTTPClient:
         """
         self._token_provider = provider
 
-    async def _refresh_after_401(self) -> str | None:
+    async def _refresh_after_401(self, rejected_token: str | None) -> str | None:
         """Ask the token provider for a replacement after a rejected request.
+
+        Args:
+            rejected_token: The token that was actually sent with the
+                rejected request (captured by the caller at send time, not
+                re-read from ``self._access_token`` — a concurrent refresh
+                may have already replaced it by the time this runs).
 
         Returns:
             The new token, or None when there is no provider or refreshing
@@ -141,7 +147,7 @@ class HTTPClient:
             return None
 
         logger.info("Request rejected with 401; attempting token refresh")
-        return await self._token_provider.refresh_expired_token(self._access_token)
+        return await self._token_provider.refresh_expired_token(rejected_token)
 
     def _build_url(self, path: str, params: dict[str, Any] | None = None) -> str:
         """Build URL with JSON parameters in query string.
@@ -229,6 +235,7 @@ class HTTPClient:
             request_headers = self._build_headers(headers)
             if files:
                 request_headers.pop("Content-Type", None)
+            sent_token = self._access_token
 
             try:
                 logger.debug(
@@ -274,7 +281,7 @@ class HTTPClient:
                 )
 
                 if status_code == 401 and not auth_retried:
-                    new_token = await self._refresh_after_401()
+                    new_token = await self._refresh_after_401(sent_token)
                     if new_token is not None:
                         auth_retried = True
                         max_attempt += 1
@@ -313,7 +320,7 @@ class HTTPClient:
                         wait_time = 2**attempt
 
                     logger.info(
-                        f"Retrying after {wait_time}s (attempt {attempt + 1}/{self.max_retries})",
+                        f"Retrying after {wait_time}s (attempt {attempt + 1}/{max_attempt})",
                         extra={"wait_time": wait_time, "attempt": attempt + 1},
                     )
                     await asyncio.sleep(wait_time)
@@ -340,7 +347,7 @@ class HTTPClient:
                 if attempt < max_attempt:
                     wait_time = 2**attempt
                     logger.info(
-                        f"Retrying after {wait_time}s (attempt {attempt + 1}/{self.max_retries})",
+                        f"Retrying after {wait_time}s (attempt {attempt + 1}/{max_attempt})",
                         extra={"wait_time": wait_time, "attempt": attempt + 1},
                     )
                     await asyncio.sleep(wait_time)

@@ -3,6 +3,7 @@
 import asyncio
 import time
 
+import httpx
 import pytest
 import respx
 from httpx import Response
@@ -138,6 +139,67 @@ async def test_parallel_requests_refresh_once():
 
         await asyncio.gather(*(http.get("/api/v3/task/1") for _ in range(10)))
 
+    assert token_route.call_count == 1
+
+
+@respx.mock
+async def test_concurrent_401s_on_same_token_refresh_once():
+    """Two requests rejected on the same token refresh exactly once.
+
+    Regression test for a bug where the 401 handler re-read
+    ``self._access_token`` at handling time instead of remembering the token
+    it actually sent. Under that bug, whichever request's 401 handler ran
+    after the other had already refreshed would pass the *new* token as
+    "rejected", defeating AuthManager's already-refreshed check and causing
+    a spurious second refresh that burns the (single-use) rotated refresh
+    token.
+
+    Both requests are held until they are both in flight (via an event),
+    so both genuinely reach the 401 handler with the same original token
+    rather than depending on undocumented event-loop scheduling order.
+    """
+    token_route = respx.post(TOKEN_URL).mock(
+        return_value=Response(200, json=_token_payload("fresh"))
+    )
+
+    both_in_flight = asyncio.Event()
+    arrivals = 0
+
+    async def _task_response(request: httpx.Request) -> Response:
+        nonlocal arrivals
+        is_first_arrival = arrivals == 0
+        arrivals += 1
+
+        response = (
+            Response(401, json={"meta": {"status": 401}})
+            if request.headers["Authorization"] == "Bearer rejected"
+            else Response(200, json={"data": {"id": 1}})
+        )
+
+        if is_first_arrival:
+            # Hold the first request's response until the second request
+            # has also landed, so both are answered based on the same
+            # original (not-yet-refreshed) token.
+            await both_in_flight.wait()
+        else:
+            both_in_flight.set()
+
+        return response
+
+    route = respx.get(TASK_URL).mock(side_effect=_task_response)
+
+    async with HTTPClient(BASE) as http:
+        auth = await _wired(http)
+        auth.restore_token("rejected")
+        auth._refresh_token = "refresh-1"
+
+        results = await asyncio.gather(
+            http.get("/api/v3/task/1"),
+            http.get("/api/v3/task/1"),
+        )
+
+    assert all(result["data"]["id"] == 1 for result in results)
+    assert route.call_count >= 3
     assert token_route.call_count == 1
 
 
