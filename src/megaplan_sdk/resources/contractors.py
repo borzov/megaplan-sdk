@@ -356,6 +356,44 @@ class ContractorsResource(BaseResource):
             return list(entries)
         return [parse_history_entry(entry) for entry in entries]
 
+    async def search_history(
+        self,
+        contractor_id: int,
+        query: str,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        content_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search in contractor history log.
+
+        Routed through the concrete subtype: the abstract ``/contractor/{id}``
+        path returns 500 for history and todos, while
+        ``/contractorCompany``/``/contractorHuman`` work (see the class
+        docstring).
+
+        Args:
+            contractor_id: Contractor identifier.
+            query: Search query.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            content_type: "ContractorCompany" or "ContractorHuman" if already
+                known; saves one lookup request.
+
+        Returns:
+            List of matching history entries.
+
+        Raises:
+            ValueError: The resolved contentType is neither known subtype.
+        """
+        segment, _ = await self._resolve_subtype(contractor_id, content_type)
+        return await self._search_entity_history(
+            segment, contractor_id, query, limit, page_after, page_before, page_with
+        )
+
     async def iterate_history(
         self,
         contractor_id: int,

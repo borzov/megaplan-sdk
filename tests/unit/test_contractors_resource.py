@@ -167,3 +167,28 @@ async def test_resolve_subtype_rejects_unknown_content_type(contractors):
 
     with pytest.raises(ValueError, match="ContractorCompany"):
         await contractors._resolve_subtype(1, "SomethingElse")
+
+
+async def test_search_history_uses_the_concrete_subtype_route(megaplan_api, contractors):
+    """The abstract /contractor/{id} route 500s; the subtype route works."""
+    lookup = megaplan_api.get("contractor/7", data={"contentType": "ContractorCompany", "id": "7"})
+    route = megaplan_api.get("contractorCompany/7/history/search", data=[{"id": "1"}])
+
+    result = await contractors.search_history(7, "договор")
+
+    assert route.called
+    assert lookup.called
+    assert result == [{"id": "1"}]
+
+
+async def test_search_history_skips_the_lookup_when_content_type_is_known(
+    megaplan_api, contractors
+):
+    """Passing content_type avoids the extra GET."""
+    lookup = megaplan_api.get("contractor/7", data={"contentType": "ContractorCompany", "id": "7"})
+    route = megaplan_api.get("contractorHuman/7/history/search", data=[])
+
+    await contractors.search_history(7, "договор", content_type="ContractorHuman")
+
+    assert route.called
+    assert not lookup.called

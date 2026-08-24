@@ -412,3 +412,13 @@ async def test_q_in_name_still_works(megaplan_api, todos):
     await todos.list(q="звонок", q_in=["name"])
 
     assert route.called
+
+
+async def test_search_history_hits_the_todo_route(megaplan_api, todos):
+    """Todo history search goes to /todo/{id}/history/search."""
+    route = megaplan_api.get("todo/42/history/search", data=[{"id": "1"}])
+
+    result = await todos.search_history(42, "звонок")
+
+    assert route.called
+    assert result == [{"id": "1"}]

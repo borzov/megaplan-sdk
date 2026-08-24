@@ -442,6 +442,35 @@ class TodosResource(BaseResource):
         async for entry in self._iterate_entity_history("todo", todo_id, limit, raw):
             yield entry
 
+    async def search_history(
+        self,
+        todo_id: int,
+        query: str,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search in todo history log.
+
+        Args:
+            todo_id: Todo identifier.
+            query: Search query.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of matching history entries.
+
+        Examples:
+            >>> results = await client.todos.search_history(todo_id=42, query="звонок")
+        """
+        return await self._search_entity_history(
+            "todo", todo_id, query, limit, page_after, page_before, page_with
+        )
+
     async def get_link_events(
         self,
         todo_id: int,
