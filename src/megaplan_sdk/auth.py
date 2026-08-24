@@ -129,19 +129,39 @@ class AuthManager:
         logger.info("Token refresh successful")
         return token_response
 
-    def restore_token(self, access_token: str, expires_at: float | None = None) -> None:
-        """Restore a previously issued access token.
+    def restore_token(
+        self,
+        access_token: str | None = None,
+        expires_at: float | None = None,
+        refresh_token: str | None = None,
+    ) -> None:
+        """Restore previously issued tokens.
 
-        The public way to seed the manager with an externally stored token
-        (e.g. MegaplanClient(access_token=...)) — callers must not write
-        private attributes.
+        The public way to seed the manager with externally stored tokens
+        (e.g. MegaplanClient(access_token=..., refresh_token=...)) — callers
+        must not write private attributes.
 
         Args:
-            access_token: OAuth2 access token.
-            expires_at: Unix timestamp of expiry; None if unknown.
+            access_token: OAuth2 access token, if one was persisted.
+            expires_at: Unix timestamp of expiry; None if unknown. An unknown
+                expiry disables proactive refresh for this token (a 401 is
+                then the only reliable signal).
+            refresh_token: OAuth2 refresh token, if one was persisted.
         """
         self._access_token = access_token
-        self._expires_at = expires_at
+        if refresh_token:
+            self._refresh_token = refresh_token
+
+        if expires_at is not None:
+            self._expires_at = expires_at
+        elif access_token is None and refresh_token:
+            # Refresh-token-only restart: treat the absent access token as
+            # expired so the first request refreshes proactively instead of
+            # spending a 401 to discover what we already know.
+            self._expires_at = 0.0
+        else:
+            self._expires_at = None
+
         self._http.set_access_token(access_token)
 
     def get_access_token(self) -> str | None:

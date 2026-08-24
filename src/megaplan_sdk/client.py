@@ -37,6 +37,7 @@ class MegaplanClient:
         username: str | None = None,
         password: str | None = None,
         access_token: str | None = None,
+        refresh_token: str | None = None,
         timeout: float = 30.0,
         max_retries: int = 3,
         allow_http: bool = False,
@@ -56,6 +57,10 @@ class MegaplanClient:
             password: Password for authentication (optional if access_token provided).
                 Note: Password is NOT stored in memory for security reasons.
             access_token: Pre-obtained access token (optional).
+            refresh_token: Pre-obtained refresh token (optional). Lets the SDK
+                renew the access token on its own after a process restart.
+                Note that the server rotates the refresh token on every
+                refresh — persist the new one via on_token_refresh.
             timeout: Request timeout in seconds.
             max_retries: Maximum number of retry attempts for 5xx errors.
             allow_http: Allow HTTP connections (insecure, only for dev/test).
@@ -92,15 +97,16 @@ class MegaplanClient:
             proxy=proxy,
         )
         self._auth_manager = AuthManager(self._http)
+        self._http.set_token_provider(self._auth_manager)
 
         # Initialize entity cache
         self._cache = EntityCache(max_size=cache_max_size, ttl=cache_ttl) if enable_cache else None
         if self._cache:
             logger.debug(f"Entity cache enabled (max_size={cache_max_size}, ttl={cache_ttl}s)")
 
-        if access_token:
-            self._auth_manager.restore_token(access_token)
-            logger.debug("MegaplanClient initialized with access_token")
+        if access_token or refresh_token:
+            self._auth_manager.restore_token(access_token, refresh_token=refresh_token)
+            logger.debug("MegaplanClient initialized with stored tokens")
 
         self.auth = AuthResource(self._http, cache=self._cache)
         self.tasks = TasksResource(
