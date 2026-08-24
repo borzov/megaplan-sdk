@@ -2073,6 +2073,53 @@ client.set_access_token("your_token")
 client.auth.clear_tokens()
 ```
 
+#### Автообновление токена
+
+С 0.6.2 SDK обновляет access-токен сам: проверяет срок перед запросом и
+повторяет запрос один раз после обновления, если сервер ответил 401.
+Отдельно ничего вызывать не нужно.
+
+Сервер ротирует `refresh_token` при каждом обновлении — старый после этого
+отдаёт `400 invalid_grant`. Чтобы пережить перезапуск процесса, сохраняйте
+пару из колбэка:
+
+```python
+import json
+from pathlib import Path
+
+from megaplan_sdk import MegaplanClient
+from megaplan_sdk.models.auth import AuthTokenResponse
+
+TOKENS = Path("tokens.json")
+
+
+def save_tokens(token: AuthTokenResponse) -> None:
+    """Persist the rotated pair; the old refresh token is dead after this."""
+    TOKENS.write_text(json.dumps({
+        "access_token": token.access_token,
+        "refresh_token": token.refresh_token,
+    }))
+
+
+saved = json.loads(TOKENS.read_text()) if TOKENS.exists() else {}
+
+async with MegaplanClient(
+    "https://example.megaplan.ru",
+    access_token=saved.get("access_token"),
+    refresh_token=saved.get("refresh_token"),
+    on_token_refresh=save_tokens,
+) as client:
+    tasks = await client.tasks.list(limit=10)
+```
+
+Колбэк может быть и асинхронным. Исключение внутри него логируется и не
+прерывает запрос — токен-пара при этом всё равно доступна как возвращаемое
+значение `authenticate()`/`refresh_token()`.
+
+Если `refresh_token` отклонён сервером, SDK бросает `AuthenticationError` с
+указанием переавторизоваться: пароль в памяти не хранится, поэтому сделать
+это автоматически SDK не может.
+
 ### Прямые запросы через `_http`
 
 Для эндпоинтов, не покрытых ресурсами SDK, можно использовать
