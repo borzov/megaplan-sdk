@@ -105,7 +105,10 @@ TokenRefreshCallback = Callable[[AuthTokenResponse], None | Awaitable[None]]
 """Application hook invoked with every freshly issued token pair.
 
 May be a plain function or a coroutine function; an awaitable return value
-is awaited. See ``MegaplanClient(on_token_refresh=...)``.
+is awaited. It runs while the internal refresh lock is held, so it must not
+call back into the client (a refresh-reachable call would deadlock) and
+should return quickly, since it serializes behind every other request. See
+``MegaplanClient(on_token_refresh=...)``.
 """
 
 

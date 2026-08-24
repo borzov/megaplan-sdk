@@ -152,18 +152,11 @@ async def check_new_token_works(url: str, refresh_token: str) -> None:
 async def check_proactive(url: str, user: str, password: str) -> None:
     """4. A locally expired token is refreshed before the request goes out.
 
-    Reads the token off ``client._auth_manager`` (private, on purpose — see
-    below), not ``client.auth.get_access_token()``: ``client.auth`` wraps its
-    *own*, independent ``AuthManager`` instance (``AuthResource.__init__``
-    constructs a fresh one rather than reusing the client's), which is never
-    the object ``HTTPClient`` consults for proactive/reactive refresh
-    (``client._auth_manager``, wired via ``set_token_provider``). Since this
-    script never calls ``client.auth.authenticate()``/``refresh_token()``,
-    ``client.auth.get_access_token()`` stays ``None`` throughout and would
-    make this check fail regardless of whether the SDK actually refreshed —
-    a script bug caught while implementing this check, not an SDK finding
-    about the server. See the report's "contradicts an assumption" section
-    for why this split is still worth flagging as an SDK-side loose end.
+    Reads the token off ``client._auth_manager`` (private, on purpose):
+    forcing expiry requires setting ``_expires_at`` directly, which is
+    itself only reachable through the private attribute — so the check
+    reads the token back the same way for consistency, rather than through
+    ``client.auth.get_access_token()``.
     """
     async with MegaplanClient(url) as client:
         await client.authenticate(user, password)

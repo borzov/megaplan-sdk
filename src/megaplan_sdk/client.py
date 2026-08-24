@@ -67,7 +67,16 @@ class MegaplanClient:
                 (AuthTokenResponse). The server rotates the refresh token on
                 every refresh, so persisting the pair from here is the only
                 way to survive a restart. May be sync or async; exceptions
-                raised inside it are logged and swallowed.
+                raised inside it are logged and swallowed. During an
+                automatic refresh (proactive or reactive, inside
+                ``_request()``) a failing callback loses the rotated pair
+                permanently: nothing else returns it to the caller, and the
+                previous refresh token is already dead server-side — so make
+                the callback's persistence durable, not silently fallible.
+                It is awaited while the internal refresh lock is held, so it
+                must not call back into this client (a refresh-reachable call
+                would deadlock) and should return quickly, since it
+                serializes behind every other request.
             timeout: Request timeout in seconds.
             max_retries: Maximum number of retry attempts for 5xx errors.
             allow_http: Allow HTTP connections (insecure, only for dev/test).
@@ -253,6 +262,11 @@ class MegaplanClient:
 
     def set_access_token(self, access_token: str) -> None:
         """Set access token manually.
+
+        Also clears any known expiry (delegates to ``restore_token()``
+        without ``expires_at``), which disables proactive refresh for the
+        rest of the session: the SDK no longer knows when this token
+        expires, so it is only replaced reactively, after a 401.
 
         Args:
             access_token: OAuth2 access token.
