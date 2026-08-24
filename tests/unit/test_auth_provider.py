@@ -114,3 +114,65 @@ async def test_dead_refresh_token_explains_rotation():
 
         with pytest.raises(AuthenticationError, match="single-use"):
             await auth.refresh_expired_token("rejected")
+
+
+@respx.mock
+async def test_ensure_authenticated_prefers_refresh_over_password():
+    """An expired token with a live refresh token must not re-send the password."""
+    captured: list[dict] = []
+
+    def _capture(request):
+        captured.append(dict(x.split("=", 1) for x in request.content.decode().split("&")))
+        return Response(200, json=_token_payload("fresh"))
+
+    respx.post(TOKEN_URL).mock(side_effect=_capture)
+
+    async with HTTPClient("https://example.com") as http:
+        auth = AuthManager(http)
+        auth._access_token = "stale"
+        auth._refresh_token = "refresh-1"
+        auth._expires_at = time.time() - 10
+
+        assert await auth.ensure_authenticated("user@example.com", "secret") == "fresh"
+
+    assert len(captured) == 1
+    assert captured[0]["grant_type"] == "refresh_token"
+
+
+@respx.mock
+async def test_ensure_authenticated_falls_back_to_password():
+    """A dead refresh token falls back to username/password authentication."""
+    grant_types: list[str] = []
+
+    def _capture(request):
+        body = dict(x.split("=", 1) for x in request.content.decode().split("&"))
+        grant_types.append(body["grant_type"])
+        if body["grant_type"] == "refresh_token":
+            return Response(400, json={"error": "invalid_grant"})
+        return Response(200, json=_token_payload("fresh"))
+
+    respx.post(TOKEN_URL).mock(side_effect=_capture)
+
+    async with HTTPClient("https://example.com") as http:
+        auth = AuthManager(http)
+        auth._access_token = "stale"
+        auth._refresh_token = "stale-refresh"
+        auth._expires_at = time.time() - 10
+
+        assert await auth.ensure_authenticated("user@example.com", "secret") == "fresh"
+
+    assert grant_types == ["refresh_token", "password"]
+
+
+@respx.mock
+async def test_ensure_authenticated_returns_live_token_untouched():
+    """A token that is still valid is returned without any network call."""
+    route = respx.post(TOKEN_URL).mock(return_value=Response(200, json=_token_payload("fresh")))
+
+    async with HTTPClient("https://example.com") as http:
+        auth = AuthManager(http)
+        auth._access_token = "live"
+        auth._expires_at = time.time() + 3600
+
+        assert await auth.ensure_authenticated("user@example.com", "secret") == "live"
+        assert not route.called

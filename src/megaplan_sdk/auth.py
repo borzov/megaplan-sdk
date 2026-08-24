@@ -238,9 +238,10 @@ class AuthManager:
     async def ensure_authenticated(self, username: str, password: str) -> str:
         """Ensure we have a valid access token.
 
-        Authenticates if needed or refreshes token if expired.
-        Uses lock to prevent race conditions when multiple requests
-        try to refresh token simultaneously.
+        Prefers refreshing over re-sending the password: the refresh token
+        is the cheaper and less sensitive credential. Falls back to
+        username/password only when there is no refresh token or the server
+        rejected it.
 
         Args:
             username: Username for authentication.
@@ -248,21 +249,27 @@ class AuthManager:
 
         Returns:
             Valid access token.
+
+        Raises:
+            AuthenticationError: If neither refresh nor password succeeds.
         """
-        if not self._access_token or self.is_token_expired():
-            async with self._refresh_lock:
-                # Double-check after acquiring lock
-                # Another coroutine might have already refreshed the token
-                if not self._access_token or self.is_token_expired():
-                    if self._refresh_token and not self.is_token_expired(buffer_seconds=3600):
-                        try:
-                            return (await self.refresh()).access_token
-                        except AuthenticationError:
-                            pass
+        if self._access_token and not self.is_token_expired():
+            return self._access_token
 
-                    return (await self.authenticate(username, password)).access_token
+        async with self._refresh_lock:
+            # Double-check: another coroutine may have refreshed already.
+            if self._access_token and not self.is_token_expired():
+                return self._access_token
 
-        return self._access_token
+            if self._refresh_token:
+                try:
+                    return (await self.refresh()).access_token
+                except AuthenticationError:
+                    logger.warning(
+                        "Refresh token rejected; falling back to password authentication"
+                    )
+
+            return (await self.authenticate(username, password)).access_token
 
     def clear_tokens(self) -> None:
         """Clear stored tokens."""
