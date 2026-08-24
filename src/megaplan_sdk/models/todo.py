@@ -36,7 +36,7 @@ def _bound_shape(bound: dict[str, Any] | None) -> str | None:
 class TodoStatus(BaseEntity):
     """Status of a todo."""
 
-    content_type: str = Field(alias="contentType", default="TodoStatus")
+    content_type: str = Field(alias="contentType", default=ContentType.TODO_STATUS)
     name: str | None = None
     master_type: str | None = Field(alias="masterType", default=None)
 

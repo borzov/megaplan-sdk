@@ -149,9 +149,9 @@ class TodosResource(BaseResource):
         Returns:
             The finished todo.
         """
-        body: dict[str, Any] = {"contentType": "TodoFinishActionRequest"}
+        body: dict[str, Any] = {"contentType": ContentType.TODO_FINISH_ACTION_REQUEST}
         if status_id is not None:
-            body["status"] = {"contentType": "TodoStatus", "id": str(status_id)}
+            body["status"] = {"contentType": ContentType.TODO_STATUS, "id": str(status_id)}
         if result_text is not None:
             body["resultText"] = result_text
         if result_attaches is not None:
@@ -174,7 +174,8 @@ class TodosResource(BaseResource):
         Returns:
             The renewed todo.
         """
-        return await self._do_action(todo_id, {"contentType": "TodoRenewActionRequest"})
+        body = {"contentType": ContentType.TODO_RENEW_ACTION_REQUEST}
+        return await self._do_action(todo_id, body)
 
     async def take(self, todo_id: int) -> Todo:
         """Take a todo — assign the current user as ``responsible``.
@@ -188,7 +189,8 @@ class TodosResource(BaseResource):
         Returns:
             The todo with ``responsible`` set to the current user.
         """
-        return await self._do_action(todo_id, {"contentType": "TodoTakeActionRequest"})
+        body = {"contentType": ContentType.TODO_TAKE_ACTION_REQUEST}
+        return await self._do_action(todo_id, body)
 
     async def list(
         self,

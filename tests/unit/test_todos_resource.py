@@ -37,6 +37,8 @@ from urllib.parse import unquote
 
 import pytest
 
+from megaplan_sdk.constants import ContentType
+
 TODO = {
     "contentType": "Todo",
     "id": "501",
@@ -387,3 +389,11 @@ async def test_take_sends_do_action_take(megaplan_api, todos):
     assert todo.id == 501
     body = json.loads(route.calls[0].request.content)
     assert body == {"contentType": "TodoTakeActionRequest"}
+
+
+def test_todo_content_type_constants_match_the_wire_values():
+    """The action bodies are built from constants, not scattered literals."""
+    assert ContentType.TODO_STATUS == "TodoStatus"
+    assert ContentType.TODO_FINISH_ACTION_REQUEST == "TodoFinishActionRequest"
+    assert ContentType.TODO_RENEW_ACTION_REQUEST == "TodoRenewActionRequest"
+    assert ContentType.TODO_TAKE_ACTION_REQUEST == "TodoTakeActionRequest"

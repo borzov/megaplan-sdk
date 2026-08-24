@@ -8,6 +8,10 @@ class ContentType:
 
     TASK = "Task"
     TODO = "Todo"
+    TODO_STATUS = "TodoStatus"
+    TODO_FINISH_ACTION_REQUEST = "TodoFinishActionRequest"
+    TODO_RENEW_ACTION_REQUEST = "TodoRenewActionRequest"
+    TODO_TAKE_ACTION_REQUEST = "TodoTakeActionRequest"
     PROJECT = "Project"
     DEAL = "Deal"
     EMPLOYEE = "Employee"
