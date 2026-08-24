@@ -397,3 +397,18 @@ def test_todo_content_type_constants_match_the_wire_values():
     assert ContentType.TODO_FINISH_ACTION_REQUEST == "TodoFinishActionRequest"
     assert ContentType.TODO_RENEW_ACTION_REQUEST == "TodoRenewActionRequest"
     assert ContentType.TODO_TAKE_ACTION_REQUEST == "TodoTakeActionRequest"
+
+
+async def test_q_in_statement_is_rejected_for_todos(todos):
+    """Todo has no `statement`; the server would silently ignore the filter."""
+    with pytest.raises(NotImplementedError, match="name"):
+        await todos.list(q="звонок", q_in=["statement"])
+
+
+async def test_q_in_name_still_works(megaplan_api, todos):
+    """The supported field is unaffected."""
+    route = megaplan_api.get("todo", data=[])
+
+    await todos.list(q="звонок", q_in=["name"])
+
+    assert route.called

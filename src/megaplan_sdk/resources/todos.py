@@ -46,6 +46,11 @@ class TodosResource(BaseResource):
     _page_content_type = ContentType.TODO
     _filter_content_type = filter_content_type_for("todo")
 
+    # Todo has no `statement` field: the base allowlist would let
+    # q_in=["statement"] through and the server would answer 200 with an
+    # unfiltered list (#11-class trap).
+    _Q_ALLOWED_FIELDS = ("name",)
+
     async def create(self, name: str, **fields: Any) -> Todo:
         """Create a todo.
 
