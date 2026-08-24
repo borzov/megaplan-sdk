@@ -11,6 +11,7 @@ import httpx
 
 from megaplan_sdk.exceptions import AuthenticationError, raise_for_status
 from megaplan_sdk.logging_config import logger, sanitize_dict
+from megaplan_sdk.types import TokenProvider
 
 
 class HTTPClient:
@@ -61,6 +62,7 @@ class HTTPClient:
         self._allow_http = allow_http
         self._proxy = proxy
         self._client: httpx.AsyncClient | None = None
+        self._token_provider: TokenProvider | None = None
 
     @property
     def access_token(self) -> str | None:
@@ -111,6 +113,35 @@ class HTTPClient:
             access_token: OAuth2 access token (or None to clear).
         """
         self._access_token = access_token
+
+    def set_token_provider(self, provider: TokenProvider | None) -> None:
+        """Wire the transport to a token source for automatic refresh.
+
+        Without a provider the transport keeps its pre-0.6.2 behaviour: the
+        token is whatever was last set, and a 401 surfaces to the caller.
+
+        Args:
+            provider: Token provider (normally the AuthManager), or None to
+                detach.
+        """
+        self._token_provider = provider
+
+    async def _refresh_after_401(self) -> str | None:
+        """Ask the token provider for a replacement after a rejected request.
+
+        Returns:
+            The new token, or None when there is no provider or refreshing
+            is impossible — the caller then surfaces the original 401.
+
+        Raises:
+            AuthenticationError: If the provider's refresh token was itself
+                rejected; the message explains how to recover.
+        """
+        if self._token_provider is None:
+            return None
+
+        logger.info("Request rejected with 401; attempting token refresh")
+        return await self._token_provider.refresh_expired_token(self._access_token)
 
     def _build_url(self, path: str, params: dict[str, Any] | None = None) -> str:
         """Build URL with JSON parameters in query string.
@@ -180,13 +211,25 @@ class HTTPClient:
         await self._ensure_client()
         assert self._client is not None  # For mypy: ensured by _ensure_client()
 
+        if self._token_provider is not None:
+            await self._token_provider.ensure_valid_token()
+
         url = self._build_url(path, params)
-        request_headers = self._build_headers(headers)
 
-        if files:
-            request_headers.pop("Content-Type", None)
+        attempt = 0
+        # The auth retry gets its own budget: max_retries is documented as the
+        # 5xx/network budget, and max_retries=0 must not disable auto-refresh.
+        max_attempt = self.max_retries
+        auth_retried = False
 
-        for attempt in range(self.max_retries + 1):
+        while attempt <= max_attempt:
+            # Headers are rebuilt every attempt: a refresh between attempts
+            # changes the token, and a stale Authorization header would make
+            # the replay fail exactly like the original request did.
+            request_headers = self._build_headers(headers)
+            if files:
+                request_headers.pop("Content-Type", None)
+
             try:
                 logger.debug(
                     f"Making {method} request to {path}",
@@ -230,6 +273,14 @@ class HTTPClient:
                     extra={"status_code": status_code, "attempt": attempt + 1},
                 )
 
+                if status_code == 401 and not auth_retried:
+                    new_token = await self._refresh_after_401()
+                    if new_token is not None:
+                        auth_retried = True
+                        max_attempt += 1
+                        attempt += 1
+                        continue
+
                 # Handle 429 Rate Limit
                 if status_code == 429:
                     retry_after = e.response.headers.get("Retry-After", "60")
@@ -244,12 +295,13 @@ class HTTPClient:
                         extra={"wait_time": wait_time, "attempt": attempt + 1},
                     )
 
-                    if attempt < self.max_retries:
+                    if attempt < max_attempt:
                         await asyncio.sleep(wait_time)
+                        attempt += 1
                         continue
 
                 # Handle 5xx Server Errors
-                if 500 <= status_code < 600 and attempt < self.max_retries:
+                if 500 <= status_code < 600 and attempt < max_attempt:
                     # Check Retry-After header
                     retry_after_header = e.response.headers.get("Retry-After")
                     if retry_after_header:
@@ -265,6 +317,7 @@ class HTTPClient:
                         extra={"wait_time": wait_time, "attempt": attempt + 1},
                     )
                     await asyncio.sleep(wait_time)
+                    attempt += 1
                     continue
 
                 # Parse error response
@@ -284,13 +337,14 @@ class HTTPClient:
                     extra={"error_type": type(e).__name__, "attempt": attempt + 1},
                 )
 
-                if attempt < self.max_retries:
+                if attempt < max_attempt:
                     wait_time = 2**attempt
                     logger.info(
                         f"Retrying after {wait_time}s (attempt {attempt + 1}/{self.max_retries})",
                         extra={"wait_time": wait_time, "attempt": attempt + 1},
                     )
                     await asyncio.sleep(wait_time)
+                    attempt += 1
                     continue
                 raise
 
