@@ -1255,11 +1255,11 @@ for todo_id in changes.deleted:
 
 Подробный рецепт с приёмником вебхука, сохранением состояния и разбором
 семантики `deleted`/`looks_truncated`:
-[`examples/cookbook/todo-sync.md`](examples/cookbook/todo-sync.md).
+[`examples/cookbook/todo-sync.md`](https://github.com/borzov/megaplan-sdk/blob/main/examples/cookbook/todo-sync.md).
 
 Смежная тема — как узнавать о привязке/отвязке сделок, задач и других
 сущностей друг к другу через журнал (`get_link_events`), когда вебхука на
-это тоже нет: [`examples/cookbook/link-tracking.md`](examples/cookbook/link-tracking.md).
+это тоже нет: [`examples/cookbook/link-tracking.md`](https://github.com/borzov/megaplan-sdk/blob/main/examples/cookbook/link-tracking.md).
 
 ## Связи сущностей и их отслеживание
 
@@ -1306,7 +1306,7 @@ new_events = await client.deals.get_link_events(deal_id=219, since_id=last_seen)
 `get_link_events()` есть не только у сделок — тот же метод есть у задач,
 проектов, контрагентов и дел. Подробный рецепт с обоснованием, почему API v1
 (`saveRelation`/`removeRelation`) не подходит, и с примером опроса нескольких
-типов сущностей: [`examples/cookbook/link-tracking.md`](examples/cookbook/link-tracking.md).
+типов сущностей: [`examples/cookbook/link-tracking.md`](https://github.com/borzov/megaplan-sdk/blob/main/examples/cookbook/link-tracking.md).
 
 ### Журнал сущности
 
@@ -2269,11 +2269,6 @@ SDK автоматически нормализует BaseEntity объекты 
 - Применяется к параметрам: `page_after`, `page_before`, `page_with`, `baseOn`, вложенным объектам в `deal` для `check_exists()`
 
 Это помогает избежать некоторых ошибок валидации, но не решает все проблемы API.
-all_employees = []
-async for emp in client.employees.iterate():
-    if "Иван" in emp.first_name:
-        all_employees.append(emp)
-```
 
 ### Архитектура
 
