@@ -1,6 +1,7 @@
 """OAuth2 authentication for Megaplan API."""
 
 import asyncio
+import inspect
 import time
 from typing import cast
 
@@ -10,7 +11,7 @@ from megaplan_sdk.exceptions import AuthenticationError
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.auth import AuthTokenResponse
-from megaplan_sdk.types import AuthTokenPayload
+from megaplan_sdk.types import AuthTokenPayload, TokenRefreshCallback
 
 
 class AuthManager:
@@ -27,13 +28,21 @@ class AuthManager:
         "Re-authenticate with client.authenticate(username, password)."
     )
 
-    def __init__(self, http_client: HTTPClient) -> None:
+    def __init__(
+        self,
+        http_client: HTTPClient,
+        on_token_refresh: TokenRefreshCallback | None = None,
+    ) -> None:
         """Initialize auth manager.
 
         Args:
             http_client: HTTP client for making requests.
+            on_token_refresh: Optional hook called with every freshly issued
+                token pair, so the application can persist the rotated
+                refresh token. May be sync or async.
         """
         self._http = http_client
+        self._on_token_refresh = on_token_refresh
         self._access_token: str | None = None
         self._refresh_token: str | None = None
         self._expires_at: float | None = None
@@ -57,6 +66,26 @@ class AuthManager:
         self._expires_at = time.time() + token_response.expires_in
         self._http.set_access_token(self._access_token)
         return token_response
+
+    async def _emit_token_refresh(self, token_response: AuthTokenResponse) -> None:
+        """Hand a freshly issued token pair to the application hook.
+
+        Failures are logged and swallowed: the refresh itself succeeded, and
+        the caller still receives the token response as a return value, so
+        killing an otherwise-successful request would be the worse outcome.
+
+        Args:
+            token_response: The token pair just issued by the server.
+        """
+        if self._on_token_refresh is None:
+            return
+
+        try:
+            result = self._on_token_refresh(token_response)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            logger.exception("on_token_refresh callback failed; token pair was not persisted")
 
     async def authenticate(self, username: str, password: str) -> AuthTokenResponse:
         """Authenticate with username and password.
@@ -89,6 +118,7 @@ class AuthManager:
             logger.error(f"Authentication response parsing error for {username}: {str(e)}")
             raise AuthenticationError(f"Invalid authentication response: {str(e)}") from e
 
+        await self._emit_token_refresh(token_response)
         logger.info("Authentication successful")
         return token_response
 
@@ -126,6 +156,7 @@ class AuthManager:
             logger.error(f"Token refresh response parsing error: {str(e)}")
             raise AuthenticationError(f"Invalid token refresh response: {str(e)}") from e
 
+        await self._emit_token_refresh(token_response)
         logger.info("Token refresh successful")
         return token_response
 

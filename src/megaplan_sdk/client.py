@@ -23,6 +23,7 @@ from megaplan_sdk.resources.notifications import NotificationsResource
 from megaplan_sdk.resources.projects import ProjectsResource
 from megaplan_sdk.resources.tasks import TasksResource
 from megaplan_sdk.resources.todos import TodosResource
+from megaplan_sdk.types import TokenRefreshCallback
 
 
 class MegaplanClient:
@@ -38,6 +39,7 @@ class MegaplanClient:
         password: str | None = None,
         access_token: str | None = None,
         refresh_token: str | None = None,
+        on_token_refresh: TokenRefreshCallback | None = None,
         timeout: float = 30.0,
         max_retries: int = 3,
         allow_http: bool = False,
@@ -61,6 +63,11 @@ class MegaplanClient:
                 renew the access token on its own after a process restart.
                 Note that the server rotates the refresh token on every
                 refresh — persist the new one via on_token_refresh.
+            on_token_refresh: Called with every freshly issued token pair
+                (AuthTokenResponse). The server rotates the refresh token on
+                every refresh, so persisting the pair from here is the only
+                way to survive a restart. May be sync or async; exceptions
+                raised inside it are logged and swallowed.
             timeout: Request timeout in seconds.
             max_retries: Maximum number of retry attempts for 5xx errors.
             allow_http: Allow HTTP connections (insecure, only for dev/test).
@@ -96,7 +103,7 @@ class MegaplanClient:
             allow_http=allow_http,
             proxy=proxy,
         )
-        self._auth_manager = AuthManager(self._http)
+        self._auth_manager = AuthManager(self._http, on_token_refresh=on_token_refresh)
         self._http.set_token_provider(self._auth_manager)
 
         # Initialize entity cache
