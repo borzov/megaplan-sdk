@@ -35,6 +35,16 @@ from megaplan_sdk.models.auth import AuthTokenResponse
 
 RESULTS: list[tuple[str, bool, str]] = []
 
+# The server accepts a superseded refresh token for a short reuse leeway
+# after rotation (observed live: an immediate reuse and a reuse after 3s
+# both silently return the already-issued successor token instead of
+# rotating again or failing; a reuse after 90s raises AuthenticationError).
+# That is standard OAuth2 refresh-token-reuse leeway, not evidence that old
+# tokens stay valid — but it means check 2 must wait past the window to
+# observe the real single-use contract; testing immediately after rotation
+# tests the leeway, not rejection. See CLAUDE.md's API quirks entry.
+_REUSE_LEEWAY_S = 90
+
 
 def record(name: str, passed: bool, detail: str = "") -> None:
     """Record and print one check result."""
@@ -81,7 +91,14 @@ class _LogCapture(logging.Handler):
 
 
 async def check_rotation(url: str, user: str, password: str) -> str:
-    """1-2. The server rotates refresh tokens and kills the previous one.
+    """1-2. The server rotates refresh tokens and kills the previous one past the reuse leeway.
+
+    Check 2 waits ``_REUSE_LEEWAY_S`` after rotation before reusing the
+    superseded token. An immediate reuse is not a valid test of rejection:
+    the server has a short grace window in which a superseded token still
+    returns its already-issued successor instead of failing (see
+    ``_REUSE_LEEWAY_S``'s comment and CLAUDE.md) — waiting past it is the
+    only way to observe the real single-use contract.
 
     Returns:
         A live refresh token for the checks that follow.
@@ -93,12 +110,25 @@ async def check_rotation(url: str, user: str, password: str) -> str:
         rotated = bool(second.refresh_token) and second.refresh_token != first.refresh_token
         record("1. refresh_token rotates on every refresh", rotated)
 
+        print(
+            f"     waiting {_REUSE_LEEWAY_S}s past rotation before testing reuse "
+            "rejection (an immediate retry would only observe the server's reuse leeway)"
+        )
+        await asyncio.sleep(_REUSE_LEEWAY_S)
         try:
             await client.auth.refresh_token(first.refresh_token)
         except AuthenticationError as e:
-            record("2. the superseded refresh_token is rejected", True, str(e)[:80])
+            record(
+                "2. the superseded refresh_token is rejected past the reuse leeway",
+                True,
+                str(e)[:80],
+            )
         else:
-            record("2. the superseded refresh_token is rejected", False, "old token still works")
+            record(
+                "2. the superseded refresh_token is rejected past the reuse leeway",
+                False,
+                "old token still works",
+            )
 
         return second.refresh_token or ""
 
@@ -164,17 +194,27 @@ async def check_reactive(url: str, user: str, password: str) -> str:
 
     Returns:
         A short human-readable description of which form the server used.
+
+    Note:
+        ``log_level="DEBUG"`` is passed to the ``MegaplanClient`` constructor
+        itself, not set on the logger beforehand: ``MegaplanClient.__init__``
+        calls ``setup_logging(log_level)``, which calls
+        ``logger.setLevel(...)`` unconditionally on this same
+        ``"megaplan_sdk"`` logger — a level set before construction is
+        silently overwritten back to the ``"WARNING"`` default the moment
+        the client is built, which would leave ``saw_retry_signal`` always
+        ``False`` and made the envelope branch unobservable regardless of
+        what the server actually did.
     """
     sdk_logger = logging.getLogger("megaplan_sdk")
     capture = _LogCapture()
     previous_level = sdk_logger.level
     sdk_logger.addHandler(capture)
-    sdk_logger.setLevel(logging.DEBUG)
 
     tasks_read: int | None = None
     error: MegaplanError | None = None
     try:
-        async with MegaplanClient(url) as client:
+        async with MegaplanClient(url, log_level="DEBUG") as client:
             await client.authenticate(user, password)
             client.set_access_token("invalid-token-0000")
             try:
