@@ -216,3 +216,59 @@ async def test_dead_refresh_token_surfaces_actionable_error():
 
         with pytest.raises(AuthenticationError, match="single-use"):
             await http.get("/api/v3/task/1")
+
+
+@respx.mock
+async def test_envelope_401_triggers_refresh():
+    """Megaplan may report 401 inside the envelope with HTTP 200."""
+    respx.post(TOKEN_URL).mock(return_value=Response(200, json=_token_payload("fresh")))
+    route = respx.get(TASK_URL).mock(
+        side_effect=[
+            Response(200, json={"meta": {"status": 401, "errors": [{"message": "expired"}]}}),
+            Response(200, json={"meta": {"status": 200}, "data": {"id": 1}}),
+        ]
+    )
+
+    async with HTTPClient(BASE) as http:
+        auth = await _wired(http)
+        auth.restore_token("rejected")
+        auth._refresh_token = "refresh-1"
+
+        result = await http.get("/api/v3/task/1")
+
+    assert result["data"]["id"] == 1
+    assert route.call_count == 2
+    assert route.calls[1].request.headers["Authorization"] == "Bearer fresh"
+
+
+@respx.mock
+async def test_envelope_401_without_refresh_still_raises():
+    """With nothing to refresh, the envelope 401 surfaces as before."""
+    route = respx.get(TASK_URL).mock(
+        return_value=Response(200, json={"meta": {"status": 401, "errors": []}})
+    )
+
+    async with HTTPClient(BASE) as http:
+        auth = await _wired(http)
+        auth.restore_token("rejected")
+
+        with pytest.raises(AuthenticationError):
+            await http.get("/api/v3/task/1")
+
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_stream_binary_refreshes_expired_token():
+    """Binary downloads bypass _request() but still refresh proactively."""
+    respx.post(TOKEN_URL).mock(return_value=Response(200, json=_token_payload("fresh")))
+    route = respx.get(f"{BASE}/attach/x.png").mock(return_value=Response(200, content=b"png"))
+
+    async with HTTPClient(BASE) as http:
+        auth = await _wired(http)
+        auth.restore_token("stale", expires_at=time.time() - 10)
+        auth._refresh_token = "refresh-1"
+
+        assert await http.get_binary("/attach/x.png") == b"png"
+
+    assert route.calls[0].request.headers["Authorization"] == "Bearer fresh"

@@ -262,6 +262,16 @@ class HTTPClient:
                 meta = response_data.get("meta", {})
                 status = meta.get("status", response.status_code)
 
+                # Megaplan reports some failures with HTTP 200 and a status
+                # inside the envelope, so the 401 branch must cover both.
+                if status == 401 and not auth_retried:
+                    new_token = await self._refresh_after_401(sent_token)
+                    if new_token is not None:
+                        auth_retried = True
+                        max_attempt += 1
+                        attempt += 1
+                        continue
+
                 if status != 200:
                     raise_for_status(status, response_data)
 
@@ -538,9 +548,18 @@ class HTTPClient:
             ValueError: If ``path`` is an absolute URL that fails the
                 same-origin/HTTPS policy (see :meth:`_binary_url`).
             MegaplanError: Subclasses mapped from the HTTP status code.
+
+        Note:
+            Only the proactive half of auto-refresh applies here: a 401 on an
+            already-open stream is not retried, because replaying it means
+            re-opening the connection. Call the method again after
+            re-authenticating.
         """
         await self._ensure_client()
         assert self._client is not None  # For mypy: ensured by _ensure_client()
+
+        if self._token_provider is not None:
+            await self._token_provider.ensure_valid_token()
 
         headers = self._build_headers()
         headers.pop("Content-Type", None)
