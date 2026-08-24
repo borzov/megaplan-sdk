@@ -21,6 +21,12 @@ class AuthManager:
     only interprets token payloads.
     """
 
+    _REAUTH_HINT = (
+        "The refresh token was rejected by the server. Refresh tokens are "
+        "single-use and rotate on every refresh, so a stale one always fails. "
+        "Re-authenticate with client.authenticate(username, password)."
+    )
+
     def __init__(self, http_client: HTTPClient) -> None:
         """Initialize auth manager.
 
@@ -158,6 +164,76 @@ class AuthManager:
         if not self._expires_at:
             return True
         return time.time() >= (self._expires_at - buffer_seconds)
+
+    async def _refresh_or_explain(self) -> str:
+        """Refresh the access token, translating failures into actionable errors.
+
+        Returns:
+            The new access token.
+
+        Raises:
+            AuthenticationError: If the server rejected the refresh token.
+        """
+        try:
+            return (await self.refresh()).access_token
+        except AuthenticationError as e:
+            logger.error("Token refresh rejected by the server")
+            raise AuthenticationError(self._REAUTH_HINT) from e
+
+    async def ensure_valid_token(self) -> str | None:
+        """Return the token to send with a new request (TokenProvider).
+
+        Returns:
+            The token to send, or None when the client is unauthenticated.
+
+        Raises:
+            AuthenticationError: If the token is known to be expired and
+                cannot be refreshed.
+        """
+        if self._expires_at is None:
+            # Expiry unknown (token restored from outside): refreshing on a
+            # guess would break clients constructed with access_token only.
+            return self._access_token
+
+        if not self.is_token_expired():
+            return self._access_token
+
+        async with self._refresh_lock:
+            # Re-check: a concurrent request may have refreshed while waiting.
+            if not self.is_token_expired():
+                return self._access_token
+
+            if not self._refresh_token:
+                raise AuthenticationError(
+                    "Access token has expired and no refresh token is available. "
+                    "Re-authenticate with client.authenticate(username, password)."
+                )
+
+            return await self._refresh_or_explain()
+
+    async def refresh_expired_token(self, rejected_token: str | None) -> str | None:
+        """Replace a token the server rejected with 401 (TokenProvider).
+
+        Args:
+            rejected_token: The token that was sent and rejected.
+
+        Returns:
+            A usable token, or None when there is no refresh token.
+
+        Raises:
+            AuthenticationError: If the server rejected the refresh token.
+        """
+        async with self._refresh_lock:
+            if self._access_token and self._access_token != rejected_token:
+                # A concurrent request already refreshed; reuse its result
+                # instead of spending a second refresh (and rotating twice).
+                logger.debug("Token already refreshed by a concurrent request")
+                return self._access_token
+
+            if not self._refresh_token:
+                return None
+
+            return await self._refresh_or_explain()
 
     async def ensure_authenticated(self, username: str, password: str) -> str:
         """Ensure we have a valid access token.

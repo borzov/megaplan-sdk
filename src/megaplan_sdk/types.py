@@ -1,8 +1,11 @@
 """Type definitions for Megaplan SDK."""
 
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol
 
 from typing_extensions import TypedDict
+
+from megaplan_sdk.models.auth import AuthTokenResponse
 
 
 class LinkEntity(TypedDict, total=False):
@@ -96,3 +99,51 @@ class AuthTokenPayload(TypedDict):
     token_type: str
     scope: str | None
     refresh_token: str | None
+
+
+TokenRefreshCallback = Callable[[AuthTokenResponse], None | Awaitable[None]]
+"""Application hook invoked with every freshly issued token pair.
+
+May be a plain function or a coroutine function; an awaitable return value
+is awaited. See ``MegaplanClient(on_token_refresh=...)``.
+"""
+
+
+class TokenProvider(Protocol):
+    """Source of access tokens for the transport (0.6.2 auto-refresh).
+
+    Implemented by :class:`~megaplan_sdk.auth.AuthManager`. ``HTTPClient``
+    depends only on this narrow interface, so the transport never imports
+    the auth layer and no import cycle is created.
+    """
+
+    async def ensure_valid_token(self) -> str | None:
+        """Return the token to send with a new request.
+
+        Refreshes proactively when the expiry is known and imminent. An
+        unknown expiry is never a reason to refresh: a token restored from
+        outside has no expiry, and a 401 is the only reliable signal for it.
+
+        Returns:
+            The token to send, or None when the client is unauthenticated.
+
+        Raises:
+            AuthenticationError: If the token is known to be expired and
+                cannot be refreshed.
+        """
+        ...
+
+    async def refresh_expired_token(self, rejected_token: str | None) -> str | None:
+        """Obtain a replacement for a token the server rejected with 401.
+
+        Args:
+            rejected_token: The token that was sent and rejected. Lets the
+                provider detect that a concurrent caller already refreshed.
+
+        Returns:
+            A usable token, or None when refreshing is impossible.
+
+        Raises:
+            AuthenticationError: If the refresh token itself was rejected.
+        """
+        ...
