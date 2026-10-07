@@ -6,6 +6,8 @@ from urllib.parse import unquote
 import pytest
 
 from megaplan_sdk.models.comment import Comment
+from megaplan_sdk.models.deal import Deal, DealFullDetails
+from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.resources.full_details import FullDetailsMixin
 from megaplan_sdk.resources.tasks import TasksResource
@@ -600,11 +602,9 @@ class FakeResource(BaseResource, FullDetailsMixin):
     """Bare resource exposing only the post-processing tail under test."""
 
 
-class _Details:
-    """Stand-in for a FullDetails model: only the attributes a case sets."""
-
-    def __init__(self, **attrs: Any) -> None:
-        self.__dict__.update(attrs)
+def _task_details(**attrs: Any) -> TaskFullDetails:
+    """TaskFullDetails with only the fields a case cares about set."""
+    return TaskFullDetails(task=Task(**{"id": 1, "contentType": "Task"}), **attrs)
 
 
 def _recording_resolver(calls: list[str]):
@@ -626,7 +626,7 @@ async def test_finalize_resolves_each_non_empty_participant_list_once():
     calls: list[str] = []
     resource._resolve_employee_entities = _recording_resolver(calls)  # type: ignore[method-assign]
 
-    details = _Details(auditors=[{"id": 1}], executors=[{"id": 2}, {"id": 3}])
+    details = _task_details(auditors=[{"id": 1}], executors=[{"id": 2}, {"id": 3}])
 
     result = await resource._finalize_full_details(details, resolve_participants=True)
 
@@ -640,28 +640,47 @@ async def test_finalize_skips_participant_resolution_when_disabled():
     resource = FakeResource(http_client=None)  # type: ignore[arg-type]
     calls: list[str] = []
     resource._resolve_employee_entities = _recording_resolver(calls)  # type: ignore[method-assign]
-    auditors = [{"id": 1}]
+    details = _task_details(auditors=[{"id": 1}], executors=[])
 
-    result = await resource._finalize_full_details(
-        _Details(auditors=auditors, executors=[]), resolve_participants=False
-    )
+    result = await resource._finalize_full_details(details, resolve_participants=False)
 
     assert calls == []
-    assert result.auditors is auditors
+    assert result.auditors is details.auditors
+    assert result.executors == []
 
 
-async def test_finalize_skips_attributes_the_details_object_lacks():
-    """A details model without executors (deals) is resolved for auditors only."""
+async def test_finalize_resolves_only_fields_the_details_class_declares():
+    """Deals have no executors field; an extra key proxied from the deal stays raw.
+
+    Tasks declare executors, so the same key on a task is resolved.
+    """
     resource = FakeResource(http_client=None)  # type: ignore[arg-type]
     calls: list[str] = []
     resource._resolve_employee_entities = _recording_resolver(calls)  # type: ignore[method-assign]
+    raw_executors = [{"contentType": "Employee", "id": 9}]
 
-    result = await resource._finalize_full_details(
-        _Details(auditors=[{"id": 1}]), resolve_participants=True
+    deal_details = DealFullDetails(
+        deal=Deal(**{"id": 1, "contentType": "Deal", "executors": raw_executors}),
+        auditors=[{"id": 1}],
     )
 
+    result = await resource._finalize_full_details(deal_details, resolve_participants=True)
+
     assert calls == ["employees:1"]
-    assert not hasattr(result, "executors")
+    assert result.auditors == ["resolved:1"]
+    assert result.deal.model_extra["executors"] is raw_executors
+    assert "executors" not in result.__dict__
+
+    task_details = TaskFullDetails(
+        task=Task(**{"id": 2, "contentType": "Task"}),
+        auditors=[{"id": 1}],
+        executors=raw_executors,
+    )
+
+    await resource._finalize_full_details(task_details, resolve_participants=True)
+
+    assert calls == ["employees:1", "employees:1", "employees:1"]
+    assert task_details.executors == ["resolved:1"]
 
 
 async def test_finalize_resolves_comment_owners_before_participants():
@@ -681,12 +700,12 @@ async def test_finalize_resolves_comment_owners_before_participants():
     comments = [Comment(**{"id": 1, "contentType": "Comment", "content": "hi"})]
 
     await resource._finalize_full_details(
-        _Details(comments=comments, auditors=[{"id": 1}]),
+        _task_details(comments=comments, auditors=[{"id": 1}]),
         resolve_participants=True,
         expand_comment_owners=True,
     )
     await resource._finalize_full_details(
-        _Details(comments=None, auditors=[{"id": 1}]),
+        _task_details(comments=None, auditors=[{"id": 1}]),
         resolve_participants=True,
         expand_comment_owners=True,
     )
