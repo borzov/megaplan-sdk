@@ -70,17 +70,11 @@ class IdParamMeta(type):
 
     def __init__(cls, name: str, bases: tuple[type, ...], namespace: dict[str, Any]) -> None:
         super().__init__(name, bases, namespace)
-        excluded = {
-            method_name
-            for base in cls.__mro__
-            for method_name in base.__dict__.get("_without_id_param_methods", ())
-        }
         cls._id_param_methods = tuple(
             dict.fromkeys(
                 method_name
                 for base in reversed(cls.__mro__)
                 for method_name in base.__dict__.get("_own_id_param_methods", ())
-                if method_name not in excluded
             )
         )
         alias = namespace.get("_history_id_param")

@@ -51,7 +51,7 @@ class _TodosHost(Protocol):
 class EntityTodosMixin(metaclass=IdParamMeta):
     """Access to the todos attached to an entity (/{entity}/{id}/todos)."""
 
-    _own_id_param_methods = ("get_todos",)
+    _own_id_param_methods = ("_todos_of_entity",)
 
     async def _get_entity_todos(
         self: _TodosHost,
@@ -76,13 +76,17 @@ class EntityTodosMixin(metaclass=IdParamMeta):
         params = self._build_list_params(limit=limit, page_after=page_after)
         return await self._get_list(path, Todo, params)
 
-    async def get_todos(
+    async def _todos_of_entity(
         self: _TodosHost,
         entity_id: int,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
     ) -> list[Todo]:
-        """Get todos attached to this entity.
+        """Todos of this resource's own entity.
+
+        Shared body behind ``get_todos``. A resource exposes it by overriding
+        ``get_todos`` with a one-line delegation; the mixin method raises, so a
+        resource that never had ``get_todos`` behaves as if it still does not.
 
         Args:
             entity_id: Entity identifier. Bound per resource under its own
@@ -93,9 +97,23 @@ class EntityTodosMixin(metaclass=IdParamMeta):
 
         Returns:
             Todos of the entity.
-
-        Examples:
-            >>> todos = await client.tasks.get_todos(task_id=1006256, limit=50)
-            >>> todos = await client.deals.get_todos(deal_id=219)
         """
         return await self._get_entity_todos(self._history_entity_type, entity_id, limit, page_after)
+
+    async def get_todos(
+        self: _TodosHost,
+        entity_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+    ) -> list[Todo]:
+        """Get todos attached to this entity.
+
+        Only the resources that override this method actually have it. For
+        every other resource the call fails as a missing attribute, because the
+        method is inherited from a mixin shared by all of them.
+
+        Raises:
+            AttributeError: This resource does not expose ``get_todos``.
+        """
+        del entity_id, limit, page_after
+        raise AttributeError(f"{type(self).__name__} has no attribute 'get_todos'")

@@ -6,10 +6,12 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, cast
 
 from megaplan_sdk.constants import ContentType
+from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.deal import Deal
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task
+from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
@@ -443,6 +445,26 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             **kwargs,
         ):
             yield project
+
+    async def get_comments(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Comment]:
+        """Get comments for a project. See ``HistoryMixin._comments_of_entity``."""
+        return await self._comments_of_entity(project_id, limit, page_after, page_before, page_with)
+
+    async def get_todos(
+        self,
+        project_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+    ) -> list[Todo]:
+        """Get todos attached to this project. See ``EntityTodosMixin._todos_of_entity``."""
+        return await self._todos_of_entity(project_id, limit, page_after)
 
     async def get_auditors(
         self,

@@ -92,7 +92,7 @@ class HistoryMixin(metaclass=IdParamMeta):
         "iterate_history",
         "get_link_events",
         "search_history",
-        "get_comments",
+        "_comments_of_entity",
     )
     """Journal access for resources whose entity has /history in the API."""
 
@@ -289,7 +289,7 @@ class HistoryMixin(metaclass=IdParamMeta):
         response = await self._http.get(path, params=params_dict)
         return self._parse_list_response(response)
 
-    async def get_comments(
+    async def _comments_of_entity(
         self: _HistoryHost,
         entity_id: int,
         limit: int | None = None,
@@ -297,7 +297,12 @@ class HistoryMixin(metaclass=IdParamMeta):
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
     ) -> list[Comment]:
-        """Get comments for an entity.
+        """Comments of this resource's own entity.
+
+        Shared body behind ``get_comments``. A resource exposes it by overriding
+        ``get_comments`` with a one-line delegation; the mixin method raises, so
+        a resource that never had ``get_comments`` behaves as if it still does
+        not.
 
         Args:
             entity_id: Entity identifier. Bound per resource under its own
@@ -309,14 +314,30 @@ class HistoryMixin(metaclass=IdParamMeta):
 
         Returns:
             List of comments.
-
-        Examples:
-            >>> comments = await client.tasks.get_comments(task_id=123)
-            >>> comments = await client.deals.get_comments(deal_id=123)
         """
         return await self._get_entity_comments(
             self._history_entity_type, entity_id, limit, page_after, page_before, page_with
         )
+
+    async def get_comments(
+        self: _HistoryHost,
+        entity_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Comment]:
+        """Get comments for an entity.
+
+        Only the resources that override this method actually have it. For
+        every other resource the call fails as a missing attribute, because the
+        method is inherited from a mixin shared by all of them.
+
+        Raises:
+            AttributeError: This resource does not expose ``get_comments``.
+        """
+        del entity_id, limit, page_after, page_before, page_with
+        raise AttributeError(f"{type(self).__name__} has no attribute 'get_comments'")
 
     async def get_history(
         self: _HistoryHost,

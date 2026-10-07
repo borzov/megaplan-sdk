@@ -9,8 +9,10 @@ from megaplan_sdk.constants import (
     DEFAULT_SORT_RECENT,
     ContentType,
 )
+from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.task import Task, TaskFullDetails
+from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
@@ -562,6 +564,26 @@ class TasksResource(BaseResource, FullDetailsMixin):
             **kwargs,
         ):
             yield task
+
+    async def get_comments(
+        self,
+        task_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Comment]:
+        """Get comments for a task. See ``HistoryMixin._comments_of_entity``."""
+        return await self._comments_of_entity(task_id, limit, page_after, page_before, page_with)
+
+    async def get_todos(
+        self,
+        task_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+    ) -> list[Todo]:
+        """Get todos attached to this task. See ``EntityTodosMixin._todos_of_entity``."""
+        return await self._todos_of_entity(task_id, limit, page_after)
 
     async def create_simple(
         self,

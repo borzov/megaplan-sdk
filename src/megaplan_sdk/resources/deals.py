@@ -11,10 +11,12 @@ from megaplan_sdk.constants import (
     ContentType,
 )
 from megaplan_sdk.logging_config import logger
+from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.task import Task
+from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
@@ -430,6 +432,26 @@ class DealsResource(BaseResource, FullDetailsMixin):
             **kwargs,
         ):
             yield deal
+
+    async def get_comments(
+        self,
+        deal_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Comment]:
+        """Get comments for a deal. See ``HistoryMixin._comments_of_entity``."""
+        return await self._comments_of_entity(deal_id, limit, page_after, page_before, page_with)
+
+    async def get_todos(
+        self,
+        deal_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+    ) -> list[Todo]:
+        """Get todos attached to this deal. See ``EntityTodosMixin._todos_of_entity``."""
+        return await self._todos_of_entity(deal_id, limit, page_after)
 
     async def get_auditors(
         self,

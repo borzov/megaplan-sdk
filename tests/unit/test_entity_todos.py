@@ -113,11 +113,23 @@ async def test_get_todos_keeps_each_resources_own_id_keyword(
             await resource.get_todos(**{foreign_keyword: 1})
 
 
-def test_employees_grow_no_comment_keyword(employees):
+async def test_todos_have_no_get_todos(todos):
+    """A todo's todos were never wrapped: ``GET /todo/{id}/todos`` is not a route.
+
+    The method lives on a shared mixin, so it must behave as absent here rather
+    than reach the server.
+    """
+    assert "get_todos" not in todos.__class__.__dict__
+    with pytest.raises(AttributeError):
+        await todos.get_todos(1)
+
+
+async def test_employees_have_no_get_comments(employees):
     """Employees never had ``get_comments``; lifting it must not add one.
 
-    Whether ``GET /employee/{id}/comments`` exists is unverified, so the method
-    keeps the mixin's ``entity_id`` spelling instead of a public ``employee_id``.
+    Whether ``GET /employee/{id}/comments`` exists is unverified, so the call
+    fails as a missing attribute instead of hitting that route.
     """
-    params = list(inspect.signature(employees.get_comments).parameters)
-    assert params[0] == "entity_id"
+    assert "get_comments" not in employees.__class__.__dict__
+    with pytest.raises(AttributeError):
+        await employees.get_comments(1)
