@@ -76,3 +76,6 @@ examples/real_tests/temp_api_responses/
 
 # Documentation (local only)
 docs/
+
+# Local worktrees
+.worktrees/
