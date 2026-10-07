@@ -31,6 +31,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
 
     _page_content_type = ContentType.DEAL
     _filter_content_type = filter_content_type_for("deal")
+    _default_sort = list(DEFAULT_SORT_RECENT)
 
     _UNSUPPORTED_LIST_FIELDS = UNSUPPORTED_DEAL_FIELDS
 
@@ -190,16 +191,8 @@ class DealsResource(BaseResource, FullDetailsMixin):
 
         self._validate_list_fields(fields)
 
-        # #14: default to newest-first; sort_by=[] opts out.
-        if sort_by is None:
-            sort_by = list(DEFAULT_SORT_RECENT)
-
-        # #11: raw `q` is ignored server-side; convert to a real name filter.
-        if q is not None:
-            if filter is not None:
-                raise ValueError("Pass either `q` or `filter`, not both.")
-            filter = self._q_to_filter(self._filter_content_type, q, q_in or ["name"])
-            q = None
+        # #14 newest-first default and #11 q→filter conversion live in the base.
+        filter, q, sort_by = self._apply_list_defaults(filter, q, q_in, sort_by)
 
         # Convert filter ID to object format if needed
         processed_filter = filter

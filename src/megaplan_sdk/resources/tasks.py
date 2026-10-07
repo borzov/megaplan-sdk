@@ -43,6 +43,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
 
     _page_content_type = ContentType.TASK
     _filter_content_type = filter_content_type_for("task")
+    _default_sort = list(DEFAULT_SORT_RECENT)
 
     _expand_rules = {
         "responsible": ExpandRule("employee", Employee),
@@ -214,17 +215,8 @@ class TasksResource(BaseResource, FullDetailsMixin):
         """
         path = self._build_path("api", "v3", "task")
 
-        # #14: bare list order is not by date; default to newest-first.
-        # sort_by=[] is an explicit opt-out (keeps server's native order).
-        if sort_by is None:
-            sort_by = list(DEFAULT_SORT_RECENT)
-
-        # #11: raw `q` is ignored server-side; convert to a real name filter.
-        if q is not None:
-            if filter is not None:
-                raise ValueError("Pass either `q` or `filter`, not both.")
-            filter = self._q_to_filter(self._filter_content_type, q, q_in or ["name"])
-            q = None
+        # #14 newest-first default and #11 q→filter conversion live in the base.
+        filter, q, sort_by = self._apply_list_defaults(filter, q, q_in, sort_by)
 
         # Validate statuses if provided
         if statuses:

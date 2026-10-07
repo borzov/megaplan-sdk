@@ -1,5 +1,6 @@
 """Unit tests for BaseResource."""
 
+import pytest
 from httpx import Response
 
 from megaplan_sdk.resources.base import BaseResource
@@ -240,3 +241,23 @@ def test_entity_type_maps_knowledge_segments():
     """Test that knowledgeBase and knowledgeArticle map to correct ContentTypes."""
     assert BaseResource._entity_type_to_content_type("knowledgeBase") == "KnowledgeBase"
     assert BaseResource._entity_type_to_content_type("knowledgeArticle") == "KnowledgeArticle"
+
+
+async def test_apply_list_defaults_converts_q_and_sort(tasks):
+    filt, q, sort = tasks._apply_list_defaults(None, "договор", ["name"], None)
+    assert q is None
+    assert filt["contentType"] == tasks._filter_content_type
+    assert sort == [{"contentType": "SortField", "fieldName": "timeCreated", "desc": True}]
+
+
+async def test_apply_list_defaults_rejects_q_with_filter(tasks):
+    with pytest.raises(ValueError, match="either `q` or `filter`"):
+        tasks._apply_list_defaults({"id": "1"}, "договор", ["name"], None)
+
+
+async def test_apply_list_defaults_keeps_explicit_sort_and_opt_out(tasks):
+    custom = [{"fieldName": "name", "desc": False}]
+    _, _, sort = tasks._apply_list_defaults(None, None, None, custom)
+    assert sort == custom
+    _, _, opted_out = tasks._apply_list_defaults(None, None, None, [])
+    assert opted_out == []

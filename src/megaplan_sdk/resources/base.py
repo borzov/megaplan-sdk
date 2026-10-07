@@ -323,6 +323,36 @@ class BaseResource(HistoryMixin, EntityTodosMixin):
 
     _Q_ALLOWED_FIELDS = ("name", "statement")
 
+    # Content type of the filter a free-text `q` becomes. None = this resource
+    # does not opt into the shared list-query policy.
+    _filter_content_type: str | None = None
+
+    # Default sort applied when list() is called without sort_by. Empty = no
+    # default; a caller passing sort_by=[] opts out explicitly.
+    _default_sort: ClassVar[list[dict[str, str]]] = []
+
+    def _apply_list_defaults(
+        self,
+        filter: Any | None,
+        q: str | None,
+        q_in: list[str] | None,
+        sort_by: list[dict[str, str]] | None,
+    ) -> tuple[Any | None, str | None, list[dict[str, str]] | None]:
+        """Apply the list-query policy shared by resources that opt in.
+
+        A resource opts in by setting `_filter_content_type` (enables `q`) and
+        `_default_sort` (enables the default ordering). `sort_by=[]` is an
+        explicit opt-out and is preserved as-is.
+        """
+        if sort_by is None and self._default_sort:
+            sort_by = list(self._default_sort)
+        if q is not None:
+            if filter is not None:
+                raise ValueError("Pass either `q` or `filter`, not both.")
+            filter = self._q_to_filter(self._filter_content_type, q, q_in or ["name"])
+            q = None
+        return filter, q, sort_by
+
     def _q_to_filter(self, filter_content_type: str, q: str, q_in: list[str]) -> dict[str, Any]:
         """Convert a free-text query into a FilterBuilder filter.
 
