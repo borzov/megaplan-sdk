@@ -25,6 +25,7 @@ class _HistoryHost(Protocol):
 
     _http: HTTPClient
     _page_content_type: str | None
+    _history_entity_type: str
 
     def _build_path(self, *parts: str) -> str: ...
 
@@ -259,3 +260,172 @@ class HistoryMixin:
 
         response = await self._http.get(path, params=params_dict)
         return self._parse_list_response(response)
+
+    @staticmethod
+    def _resolve_history_id(
+        entity_id: int | None,
+        task_id: int | None,
+        deal_id: int | None,
+        project_id: int | None,
+        todo_id: int | None,
+    ) -> int:
+        """Pick the one id a caller passed, under any of the historical names."""
+        given = [
+            value
+            for value in (entity_id, task_id, deal_id, project_id, todo_id)
+            if value is not None
+        ]
+        if len(given) != 1:
+            raise TypeError(
+                "exactly one of entity_id, task_id, deal_id, project_id, todo_id is required"
+            )
+        return given[0]
+
+    async def get_history(
+        self: _HistoryHost,
+        entity_id: int | None = None,
+        *,
+        task_id: int | None = None,
+        deal_id: int | None = None,
+        project_id: int | None = None,
+        todo_id: int | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        raw: bool = False,
+    ) -> list[Any]:
+        """Get the journal of an entity.
+
+        The stream is mixed: ``Changeset`` (field changes), ``BasedOnHistory``
+        (link/unlink), comments, trigger logs. Known types are parsed; unknown
+        ones are returned as raw dicts, so a new server-side type never breaks
+        the call.
+
+        Args:
+            task_id: Task identifier.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+            raw: Return untouched payloads (pre-0.6.1 behaviour).
+
+        Returns:
+            Journal entries, newest first.
+
+        Examples:
+            >>> history = await client.tasks.get_history(task_id=123, limit=10)
+        """
+        entity_id = self._resolve_history_id(entity_id, task_id, deal_id, project_id, todo_id)
+        entries = await self._get_entity_history(
+            self._history_entity_type, entity_id, limit, page_after, page_before, page_with
+        )
+        if raw:
+            return list(entries)
+        return [parse_history_entry(entry) for entry in entries]
+
+    async def iterate_history(
+        self: _HistoryHost,
+        entity_id: int | None = None,
+        limit: int = 100,
+        raw: bool = False,
+        *,
+        task_id: int | None = None,
+        deal_id: int | None = None,
+        project_id: int | None = None,
+        todo_id: int | None = None,
+    ) -> AsyncIterator[Any]:
+        """Iterate the entity's journal with automatic pagination.
+
+        Args:
+            task_id: Task identifier.
+            limit: Number of entries per page.
+            raw: Yield untouched payloads instead of parsed entries.
+
+        Yields:
+            Journal entries, newest first.
+        """
+        entity_id = self._resolve_history_id(entity_id, task_id, deal_id, project_id, todo_id)
+        async for entry in self._iterate_entity_history(
+            self._history_entity_type, entity_id, limit, raw
+        ):
+            yield entry
+
+    async def get_link_events(
+        self: _HistoryHost,
+        entity_id: int | None = None,
+        since_id: int | None = None,
+        since_time: str | None = None,
+        limit: int = 100,
+        *,
+        task_id: int | None = None,
+        deal_id: int | None = None,
+        project_id: int | None = None,
+        todo_id: int | None = None,
+    ) -> list[LinkEvent]:
+        """Get link/unlink events for an entity.
+
+        Megaplan has no webhook for linking (the app event streams only carry
+        on_after_create/update/drop) and the task card exposes no list of
+        related entities — only counters. The journal does record every link
+        change, so this is the way to learn *which* link appeared or
+        disappeared without diffing two states of the task.
+
+        Args:
+            task_id: Task identifier.
+            since_id: Return only events newer than this event id — store the
+                largest id seen to poll incrementally.
+            since_time: Return only events created strictly after this
+                ISO-8601 timestamp.
+            limit: Number of journal entries fetched per page.
+
+        Returns:
+            Link events, newest first.
+
+        Examples:
+            >>> events = await client.tasks.get_link_events(task_id=77, since_id=1096)
+            >>> for event in events:
+            ...     verb = "отвязал" if event.unlink else "привязал"
+            ...     print(verb, event.other.content_type, event.other.id)
+        """
+        entity_id = self._resolve_history_id(entity_id, task_id, deal_id, project_id, todo_id)
+        return await self._get_link_events(
+            self._history_entity_type, entity_id, since_id, since_time, limit
+        )
+
+    async def search_history(
+        self: _HistoryHost,
+        entity_id: int | None = None,
+        query: str | None = None,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+        *,
+        task_id: int | None = None,
+        deal_id: int | None = None,
+        project_id: int | None = None,
+        todo_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search in entity history log.
+
+        Args:
+            task_id: Task identifier.
+            query: Search query.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of matching history entries.
+
+        Examples:
+            >>> results = await client.tasks.search_history(task_id=123, query="status")
+        """
+        entity_id = self._resolve_history_id(entity_id, task_id, deal_id, project_id, todo_id)
+        if query is None:
+            raise TypeError("query is required")
+        return await self._search_entity_history(
+            self._history_entity_type, entity_id, query, limit, page_after, page_before, page_with
+        )

@@ -196,6 +196,12 @@ async def test_todo_iterate_history_yields_typed_entries(megaplan_api, todos):
     assert isinstance(entries[0], Changeset)
 
 
+def test_history_docstrings_survive_the_mixin(tasks, deals, projects, todos):
+    for resource in (tasks, deals, projects, todos):
+        assert "newest first" in resource.get_history.__doc__
+        assert "since_id" in resource.get_link_events.__doc__
+
+
 # --- sanity: BasedOnHistory type is importable and matches raw shape --------
 
 
