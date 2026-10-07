@@ -1,5 +1,8 @@
 """Unit tests for BaseResource."""
 
+import inspect
+
+import pytest
 from httpx import Response
 
 from megaplan_sdk.resources.base import BaseResource
@@ -174,6 +177,32 @@ async def test_get_entity_comments(megaplan_api, tasks):
     assert comments[1].content == "Comment 2"
 
 
+async def test_get_comments_keeps_each_resources_own_id_keyword(
+    megaplan_api, tasks, deals, projects
+):
+    """``get_comments(task_id=)`` / ``deal_id=`` / ``project_id=`` still bind.
+
+    Docstrings and ``tests`` call these by keyword, so lifting the method must
+    not rename the parameter to a bare ``entity_id``. A foreign keyword raises
+    the ordinary ``TypeError``; positional calls stay valid either way.
+    """
+    resources = (
+        (tasks, "task", "task_id", "deal_id"),
+        (deals, "deal", "deal_id", "task_id"),
+        (projects, "project", "project_id", "task_id"),
+    )
+    for resource, segment, own_keyword, foreign_keyword in resources:
+        megaplan_api.get(f"{segment}/1/comments", data=[])
+
+        params = list(inspect.signature(resource.get_comments).parameters)
+        assert params[0] == own_keyword
+
+        await resource.get_comments(**{own_keyword: 1})
+
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            await resource.get_comments(**{foreign_keyword: 1})
+
+
 async def test_get_entity_comments_with_pagination(megaplan_api, tasks):
     """Test _get_entity_comments with page_after."""
     megaplan_api.get(
@@ -240,3 +269,23 @@ def test_entity_type_maps_knowledge_segments():
     """Test that knowledgeBase and knowledgeArticle map to correct ContentTypes."""
     assert BaseResource._entity_type_to_content_type("knowledgeBase") == "KnowledgeBase"
     assert BaseResource._entity_type_to_content_type("knowledgeArticle") == "KnowledgeArticle"
+
+
+async def test_apply_list_defaults_converts_q_and_sort(tasks):
+    filt, q, sort = tasks._apply_list_defaults(None, "договор", ["name"], None)
+    assert q is None
+    assert filt["contentType"] == tasks._filter_content_type
+    assert sort == [{"contentType": "SortField", "fieldName": "timeCreated", "desc": True}]
+
+
+async def test_apply_list_defaults_rejects_q_with_filter(tasks):
+    with pytest.raises(ValueError, match="either `q` or `filter`"):
+        tasks._apply_list_defaults({"id": "1"}, "договор", ["name"], None)
+
+
+async def test_apply_list_defaults_keeps_explicit_sort_and_opt_out(tasks):
+    custom = [{"fieldName": "name", "desc": False}]
+    _, _, sort = tasks._apply_list_defaults(None, None, None, custom)
+    assert sort == custom
+    _, _, opted_out = tasks._apply_list_defaults(None, None, None, [])
+    assert opted_out == []

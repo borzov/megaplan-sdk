@@ -15,7 +15,6 @@ from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
 from megaplan_sdk.models.employee import Employee
-from megaplan_sdk.models.history import LinkEvent, parse_history_entry
 from megaplan_sdk.models.task import Task
 from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
@@ -30,7 +29,10 @@ class DealsResource(BaseResource, FullDetailsMixin):
     """Resource for working with deals."""
 
     _page_content_type = ContentType.DEAL
+    _history_entity_type = "deal"
+    _history_id_param = "deal_id"
     _filter_content_type = filter_content_type_for("deal")
+    _default_sort = list(DEFAULT_SORT_RECENT)
 
     _UNSUPPORTED_LIST_FIELDS = UNSUPPORTED_DEAL_FIELDS
 
@@ -190,16 +192,8 @@ class DealsResource(BaseResource, FullDetailsMixin):
 
         self._validate_list_fields(fields)
 
-        # #14: default to newest-first; sort_by=[] opts out.
-        if sort_by is None:
-            sort_by = list(DEFAULT_SORT_RECENT)
-
-        # #11: raw `q` is ignored server-side; convert to a real name filter.
-        if q is not None:
-            if filter is not None:
-                raise ValueError("Pass either `q` or `filter`, not both.")
-            filter = self._q_to_filter(self._filter_content_type, q, q_in or ["name"])
-            q = None
+        # #14 newest-first default and #11 q→filter conversion live in the base.
+        filter, q, sort_by = self._apply_list_defaults(filter, q, q_in, sort_by)
 
         # Convert filter ID to object format if needed
         processed_filter = filter
@@ -447,29 +441,17 @@ class DealsResource(BaseResource, FullDetailsMixin):
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
     ) -> list[Comment]:
-        """Get comments for a deal.
+        """Get comments for a deal. See ``HistoryMixin._comments_of_entity``."""
+        return await self._comments_of_entity(deal_id, limit, page_after, page_before, page_with)
 
-        Args:
-            deal_id: Deal identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-            page_before: Load page strictly before this entity.
-            page_with: Load page containing this entity.
-
-        Returns:
-            List of comments.
-
-        Examples:
-            >>> comments = await client.deals.get_comments(deal_id=123)
-        """
-        return await self._get_entity_comments(
-            "deal",
-            deal_id,
-            limit,
-            page_after,
-            page_before,
-            page_with,
-        )
+    async def get_todos(
+        self,
+        deal_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+    ) -> list[Todo]:
+        """Get todos attached to this deal. See ``EntityTodosMixin._todos_of_entity``."""
+        return await self._todos_of_entity(deal_id, limit, page_after)
 
     async def get_auditors(
         self,
@@ -549,115 +531,6 @@ class DealsResource(BaseResource, FullDetailsMixin):
             # API irregularity: /deal/{id}/auditors/{auditorId} — no contentType
             content_type_in_path=False,
         )
-
-    async def get_history(
-        self,
-        deal_id: int,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-        raw: bool = False,
-    ) -> list[Any]:
-        """Get the journal of a deal.
-
-        The stream is mixed: ``Changeset`` (field changes), ``BasedOnHistory``
-        (link/unlink), comments, trigger logs. Known types are parsed; unknown
-        ones are returned as raw dicts, so a new server-side type never breaks
-        the call.
-
-        Args:
-            deal_id: Deal identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-            page_before: Load page strictly before this entity.
-            page_with: Load page containing this entity.
-            raw: Return untouched payloads (pre-0.6.0 behaviour).
-
-        Returns:
-            Journal entries, newest first.
-
-        Examples:
-            >>> history = await client.deals.get_history(deal_id=123, limit=10)
-            >>> [entry for entry in history if getattr(entry, "unlink", None) is True]
-        """
-        entries = await self._get_entity_history(
-            "deal", deal_id, limit, page_after, page_before, page_with
-        )
-        if raw:
-            return list(entries)
-        return [parse_history_entry(entry) for entry in entries]
-
-    async def iterate_history(
-        self,
-        deal_id: int,
-        limit: int = 100,
-        raw: bool = False,
-    ) -> AsyncIterator[Any]:
-        """Iterate the deal's journal with automatic pagination.
-
-        Args:
-            deal_id: Deal identifier.
-            limit: Number of entries per page.
-            raw: Yield untouched payloads instead of parsed entries.
-
-        Yields:
-            Journal entries, newest first.
-        """
-        async for entry in self._iterate_entity_history("deal", deal_id, limit, raw):
-            yield entry
-
-    async def get_link_events(
-        self,
-        deal_id: int,
-        since_id: int | None = None,
-        since_time: str | None = None,
-        limit: int = 100,
-    ) -> list[LinkEvent]:
-        """Get link/unlink events for a deal.
-
-        Megaplan has no webhook for linking (the app event streams only carry
-        on_after_create/update/drop) and the deal card exposes no list of
-        related entities — only counters. The journal does record every link
-        change, so this is the way to learn *which* link appeared or
-        disappeared without diffing two states of the deal.
-
-        Args:
-            deal_id: Deal identifier.
-            since_id: Return only events newer than this event id — store the
-                largest id seen to poll incrementally.
-            since_time: Return only events created strictly after this
-                ISO-8601 timestamp.
-            limit: Number of journal entries fetched per page.
-
-        Returns:
-            Link events, newest first.
-
-        Examples:
-            >>> events = await client.deals.get_link_events(deal_id=219, since_id=1096)
-            >>> for event in events:
-            ...     verb = "отвязал" if event.unlink else "привязал"
-            ...     print(verb, event.other.content_type, event.other.id)
-        """
-        return await self._get_link_events("deal", deal_id, since_id, since_time, limit)
-
-    async def get_todos(
-        self,
-        deal_id: int,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-    ) -> list[Todo]:
-        """Get todos attached to this deal.
-
-        Args:
-            deal_id: Deal identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-
-        Returns:
-            Todos of the deal.
-        """
-        return await self._get_entity_todos("deal", deal_id, limit, page_after)
 
     async def get_linked_deals(
         self,
@@ -831,35 +704,6 @@ class DealsResource(BaseResource, FullDetailsMixin):
         data = response.get("data") or {}
         return [int(value) for value in data.get("value", [])]
 
-    async def search_history(
-        self,
-        deal_id: int,
-        query: str,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Search in deal history log.
-
-        Args:
-            deal_id: Deal identifier.
-            query: Search query.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-            page_before: Load page strictly before this entity.
-            page_with: Load page containing this entity.
-
-        Returns:
-            List of matching history entries.
-
-        Examples:
-            >>> results = await client.deals.search_history(deal_id=123, query="transition")
-        """
-        return await self._search_entity_history(
-            "deal", deal_id, query, limit, page_after, page_before, page_with
-        )
-
     async def get_full_details(
         self,
         deal_id: int,
@@ -949,9 +793,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
                 history_limit=history_limit,
             ),
         )
-        if resolve_participants and details.auditors:
-            details.auditors = await self._resolve_employee_entities(details.auditors)
-        return details
+        return await self._finalize_full_details(details, resolve_participants=resolve_participants)
 
     async def get_all_participants(
         self,

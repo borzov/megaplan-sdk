@@ -159,3 +159,47 @@ class FullDetailsMixin:
             details_kwargs[item_config.field_name] = task_results.get(item_config.field_name)
 
         return full_details_class(**details_kwargs)
+
+    async def _finalize_full_details(
+        self: BaseResource,
+        details: Any,
+        *,
+        resolve_participants: bool,
+        expand_comment_owners: bool = False,
+    ) -> Any:
+        """Apply the shared post-processing tail of get_full_details.
+
+        Comment authors are resolved before participants, matching the order
+        the three resources used to apply by hand.
+
+        ``auditors`` and ``executors`` are resolved only when the details
+        class itself declares the field. Reading them off the instance is not
+        safe: a FullDetails container proxies unknown attributes to its wrapped
+        entity, and that entity keeps undeclared payload keys
+        (``extra="allow"``). A deal whose payload happens to contain
+        ``executors`` would otherwise be resolved and written back, which
+        ``deals.get_full_details`` never did. Deals declare only ``auditors``;
+        tasks and projects declare both. A declared but empty list is skipped.
+
+        Args:
+            details: FullDetails instance returned by ``_get_full_details_generic``.
+            resolve_participants: Resolve non-empty ``auditors`` and
+                ``executors`` lists to full Employee objects.
+            expand_comment_owners: Resolve comment authors when comments were
+                loaded. The caller guards the flag against ``include_comments``.
+
+        Returns:
+            The same ``details`` instance, with the resolved fields replaced.
+        """
+        if expand_comment_owners and getattr(details, "comments", None):
+            await self._resolve_comment_owners(details.comments)
+        if resolve_participants:
+            # Class fields, not the instance: getattr/hasattr follow the proxy.
+            declared = getattr(type(details), "model_fields", {})
+            for attr in ("auditors", "executors"):
+                if attr not in declared:
+                    continue
+                items = details.__dict__.get(attr)
+                if items:
+                    setattr(details, attr, await self._resolve_employee_entities(items))
+        return details

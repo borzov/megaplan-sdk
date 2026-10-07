@@ -19,6 +19,8 @@ class EmployeesResource(BaseResource):
     """Resource for working with employees."""
 
     _page_content_type = ContentType.EMPLOYEE
+    _history_entity_type = "employee"
+    _history_id_param = "employee_id"
 
     # Replace mode: no details model — loaded entities replace the reference
     # fields on immutable copies, the public return type stays list[Employee].
@@ -246,14 +248,5 @@ class EmployeesResource(BaseResource):
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
     ) -> list[Todo]:
-        """Get todos attached to this employee.
-
-        Args:
-            employee_id: Employee identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-
-        Returns:
-            Todos of the employee.
-        """
-        return await self._get_entity_todos("employee", employee_id, limit, page_after)
+        """Get todos attached to this employee. See ``EntityTodosMixin._todos_of_entity``."""
+        return await self._todos_of_entity(employee_id, limit, page_after)

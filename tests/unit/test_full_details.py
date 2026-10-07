@@ -5,6 +5,11 @@ from urllib.parse import unquote
 
 import pytest
 
+from megaplan_sdk.models.comment import Comment
+from megaplan_sdk.models.deal import Deal, DealFullDetails
+from megaplan_sdk.models.task import Task, TaskFullDetails
+from megaplan_sdk.resources.base import BaseResource
+from megaplan_sdk.resources.full_details import FullDetailsMixin
 from megaplan_sdk.resources.tasks import TasksResource
 
 
@@ -591,3 +596,118 @@ async def test_project_full_details_resolve_participants_opt_out(megaplan_api, p
     )
 
     assert details.auditors == [{"contentType": "Employee", "id": 21}]
+
+
+class FakeResource(BaseResource, FullDetailsMixin):
+    """Bare resource exposing only the post-processing tail under test."""
+
+
+def _task_details(**attrs: Any) -> TaskFullDetails:
+    """TaskFullDetails with only the fields a case cares about set."""
+    return TaskFullDetails(task=Task(**{"id": 1, "contentType": "Task"}), **attrs)
+
+
+def _recording_resolver(calls: list[str]):
+    """Replace a resolver with one that records each call and returns a marker.
+
+    Assigned straight onto the instance, so it takes no ``self``.
+    """
+
+    async def resolve(items: list[Any]) -> list[Any]:
+        calls.append(f"employees:{len(items)}")
+        return [f"resolved:{len(items)}"]
+
+    return resolve
+
+
+async def test_finalize_resolves_each_non_empty_participant_list_once():
+    """resolve_participants=True runs the employee resolver once per non-empty list."""
+    resource = FakeResource(http_client=None)  # type: ignore[arg-type]
+    calls: list[str] = []
+    resource._resolve_employee_entities = _recording_resolver(calls)  # type: ignore[method-assign]
+
+    details = _task_details(auditors=[{"id": 1}], executors=[{"id": 2}, {"id": 3}])
+
+    result = await resource._finalize_full_details(details, resolve_participants=True)
+
+    assert calls == ["employees:1", "employees:2"]
+    assert result.auditors == ["resolved:1"]
+    assert result.executors == ["resolved:2"]
+
+
+async def test_finalize_skips_participant_resolution_when_disabled():
+    """resolve_participants=False never touches auditors or executors."""
+    resource = FakeResource(http_client=None)  # type: ignore[arg-type]
+    calls: list[str] = []
+    resource._resolve_employee_entities = _recording_resolver(calls)  # type: ignore[method-assign]
+    details = _task_details(auditors=[{"id": 1}], executors=[])
+
+    result = await resource._finalize_full_details(details, resolve_participants=False)
+
+    assert calls == []
+    assert result.auditors is details.auditors
+    assert result.executors == []
+
+
+async def test_finalize_resolves_only_fields_the_details_class_declares():
+    """Deals have no executors field; an extra key proxied from the deal stays raw.
+
+    Tasks declare executors, so the same key on a task is resolved.
+    """
+    resource = FakeResource(http_client=None)  # type: ignore[arg-type]
+    calls: list[str] = []
+    resource._resolve_employee_entities = _recording_resolver(calls)  # type: ignore[method-assign]
+    raw_executors = [{"contentType": "Employee", "id": 9}]
+
+    deal_details = DealFullDetails(
+        deal=Deal(**{"id": 1, "contentType": "Deal", "executors": raw_executors}),
+        auditors=[{"id": 1}],
+    )
+
+    result = await resource._finalize_full_details(deal_details, resolve_participants=True)
+
+    assert calls == ["employees:1"]
+    assert result.auditors == ["resolved:1"]
+    assert result.deal.model_extra["executors"] is raw_executors
+    assert "executors" not in result.__dict__
+
+    task_details = TaskFullDetails(
+        task=Task(**{"id": 2, "contentType": "Task"}),
+        auditors=[{"id": 1}],
+        executors=raw_executors,
+    )
+
+    await resource._finalize_full_details(task_details, resolve_participants=True)
+
+    assert calls == ["employees:1", "employees:1", "employees:1"]
+    assert task_details.executors == ["resolved:1"]
+
+
+async def test_finalize_resolves_comment_owners_before_participants():
+    """Comment authors are resolved first, and only when comments were loaded."""
+    resource = FakeResource(http_client=None)  # type: ignore[arg-type]
+    order: list[str] = []
+
+    async def resolve_owners(comments: list[Any]) -> None:
+        order.append(f"owners:{len(comments)}")
+
+    async def resolve_employees(items: list[Any]) -> list[Any]:
+        order.append(f"employees:{len(items)}")
+        return items
+
+    resource._resolve_comment_owners = resolve_owners  # type: ignore[method-assign]
+    resource._resolve_employee_entities = resolve_employees  # type: ignore[method-assign]
+    comments = [Comment(**{"id": 1, "contentType": "Comment", "content": "hi"})]
+
+    await resource._finalize_full_details(
+        _task_details(comments=comments, auditors=[{"id": 1}]),
+        resolve_participants=True,
+        expand_comment_owners=True,
+    )
+    await resource._finalize_full_details(
+        _task_details(comments=None, auditors=[{"id": 1}]),
+        resolve_participants=True,
+        expand_comment_owners=True,
+    )
+
+    assert order == ["owners:1", "employees:1", "employees:1"]
