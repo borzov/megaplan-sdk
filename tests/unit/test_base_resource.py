@@ -1,5 +1,7 @@
 """Unit tests for BaseResource."""
 
+import inspect
+
 import pytest
 from httpx import Response
 
@@ -173,6 +175,32 @@ async def test_get_entity_comments(megaplan_api, tasks):
     assert len(comments) == 2
     assert comments[0].content == "Comment 1"
     assert comments[1].content == "Comment 2"
+
+
+async def test_get_comments_keeps_each_resources_own_id_keyword(
+    megaplan_api, tasks, deals, projects
+):
+    """``get_comments(task_id=)`` / ``deal_id=`` / ``project_id=`` still bind.
+
+    Docstrings and ``tests`` call these by keyword, so lifting the method must
+    not rename the parameter to a bare ``entity_id``. A foreign keyword raises
+    the ordinary ``TypeError``; positional calls stay valid either way.
+    """
+    resources = (
+        (tasks, "task", "task_id", "deal_id"),
+        (deals, "deal", "deal_id", "task_id"),
+        (projects, "project", "project_id", "task_id"),
+    )
+    for resource, segment, own_keyword, foreign_keyword in resources:
+        megaplan_api.get(f"{segment}/1/comments", data=[])
+
+        params = list(inspect.signature(resource.get_comments).parameters)
+        assert params[0] == own_keyword
+
+        await resource.get_comments(**{own_keyword: 1})
+
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            await resource.get_comments(**{foreign_keyword: 1})
 
 
 async def test_get_entity_comments_with_pagination(megaplan_api, tasks):

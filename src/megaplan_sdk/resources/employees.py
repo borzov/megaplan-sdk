@@ -9,7 +9,6 @@ from megaplan_sdk.constants import ContentType
 from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.department import Department
 from megaplan_sdk.models.employee import Employee
-from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
@@ -19,6 +18,14 @@ class EmployeesResource(BaseResource):
     """Resource for working with employees."""
 
     _page_content_type = ContentType.EMPLOYEE
+    _history_entity_type = "employee"
+    _history_id_param = "employee_id"
+
+    # get_comments is lifted with the journal, but employees never had it and
+    # whether GET /employee/{id}/comments exists is unverified. Dropping it here
+    # keeps the method off this class: it stays reachable only through the
+    # mixin's `entity_id` spelling, which nothing calls.
+    _without_id_param_methods = ("get_comments",)
 
     # Replace mode: no details model — loaded entities replace the reference
     # fields on immutable copies, the public return type stays list[Employee].
@@ -239,21 +246,3 @@ class EmployeesResource(BaseResource):
             **kwargs,
         ):
             yield employee
-
-    async def get_todos(
-        self,
-        employee_id: int,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-    ) -> list[Todo]:
-        """Get todos attached to this employee.
-
-        Args:
-            employee_id: Employee identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-
-        Returns:
-            Todos of the employee.
-        """
-        return await self._get_entity_todos("employee", employee_id, limit, page_after)

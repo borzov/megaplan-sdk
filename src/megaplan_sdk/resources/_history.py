@@ -10,15 +10,17 @@ import-time dependency on `base.py`.
 
 from __future__ import annotations
 
-import types
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, Protocol
 
 from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.history import BasedOnHistory, LinkEvent, parse_history_entry
+from megaplan_sdk.resources._id_param import IdParamMeta
 
 if TYPE_CHECKING:
     from megaplan_sdk.http_client import HTTPClient
+
+from megaplan_sdk.models.comment import Comment
 
 
 class _HistoryHost(Protocol):
@@ -66,48 +68,32 @@ class _HistoryHost(Protocol):
         raw: bool = False,
     ) -> AsyncIterator[Any]: ...
 
+    async def _get_entity_comments(
+        self,
+        entity_type: str,
+        entity_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Comment]: ...
 
-def _with_id_param(method: Any, alias: str) -> Any:
-    """Expose ``method`` with its ``entity_id`` parameter renamed to ``alias``.
 
-    Renaming the code object's variable keeps argument binding native, so a
-    foreign keyword and a missing id raise the ordinary ``TypeError`` a
-    dedicated method would, instead of a hand-built one.
+class HistoryMixin(metaclass=IdParamMeta):
+    """Journal and comment access for resources whose entity exposes them.
+
+    ``_own_id_param_methods`` is this mixin's own set, renamed to a resource's
+    id keyword. ``_id_param_methods`` is the accumulated union and is derived
+    from it, so a sibling mixin (todos) is not overwritten.
     """
-    code = method.__code__
-    index = code.co_varnames.index("entity_id")
-    renamed = types.FunctionType(
-        code.replace(
-            co_varnames=(*code.co_varnames[:index], alias, *code.co_varnames[index + 1 :])
-        ),
-        method.__globals__,
-        method.__name__,
-        method.__defaults__,
-        method.__closure__,
+
+    _own_id_param_methods = (
+        "get_history",
+        "iterate_history",
+        "get_link_events",
+        "search_history",
+        "get_comments",
     )
-    renamed.__annotations__ = {
-        alias if name == "entity_id" else name: annotation
-        for name, annotation in method.__annotations__.items()
-    }
-    renamed.__doc__ = method.__doc__
-    renamed.__qualname__ = method.__qualname__
-    renamed.__module__ = method.__module__
-    return renamed
-
-
-class _HistoryMeta(type):
-    """Bind each resource's journal methods to its own id keyword."""
-
-    def __init__(cls, name: str, bases: tuple[type, ...], namespace: dict[str, Any]) -> None:
-        super().__init__(name, bases, namespace)
-        alias = namespace.get("_history_id_param")
-        if not isinstance(alias, str):
-            return
-        for method_name in ("get_history", "iterate_history", "get_link_events", "search_history"):
-            setattr(cls, method_name, _with_id_param(getattr(cls, method_name), alias))
-
-
-class HistoryMixin(metaclass=_HistoryMeta):
     """Journal access for resources whose entity has /history in the API."""
 
     async def _get_entity_history(
@@ -302,6 +288,35 @@ class HistoryMixin(metaclass=_HistoryMeta):
 
         response = await self._http.get(path, params=params_dict)
         return self._parse_list_response(response)
+
+    async def get_comments(
+        self: _HistoryHost,
+        entity_id: int,
+        limit: int | None = None,
+        page_after: dict[str, Any] | None = None,
+        page_before: dict[str, Any] | None = None,
+        page_with: dict[str, Any] | None = None,
+    ) -> list[Comment]:
+        """Get comments for an entity.
+
+        Args:
+            entity_id: Entity identifier. Bound per resource under its own
+                keyword — ``task_id``, ``deal_id``, ``project_id``.
+            limit: Number of items per page.
+            page_after: Load page starting from this entity.
+            page_before: Load page strictly before this entity.
+            page_with: Load page containing this entity.
+
+        Returns:
+            List of comments.
+
+        Examples:
+            >>> comments = await client.tasks.get_comments(task_id=123)
+            >>> comments = await client.deals.get_comments(deal_id=123)
+        """
+        return await self._get_entity_comments(
+            self._history_entity_type, entity_id, limit, page_after, page_before, page_with
+        )
 
     async def get_history(
         self: _HistoryHost,

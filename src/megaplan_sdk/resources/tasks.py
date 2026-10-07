@@ -9,10 +9,8 @@ from megaplan_sdk.constants import (
     DEFAULT_SORT_RECENT,
     ContentType,
 )
-from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.task import Task, TaskFullDetails
-from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
@@ -565,38 +563,6 @@ class TasksResource(BaseResource, FullDetailsMixin):
         ):
             yield task
 
-    async def get_comments(
-        self,
-        task_id: int,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-    ) -> list[Comment]:
-        """Get comments for a task.
-
-        Args:
-            task_id: Task identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-            page_before: Load page strictly before this entity.
-            page_with: Load page containing this entity.
-
-        Returns:
-            List of comments.
-
-        Examples:
-            >>> comments = await client.tasks.get_comments(task_id=123)
-        """
-        return await self._get_entity_comments(
-            "task",
-            task_id,
-            limit,
-            page_after,
-            page_before,
-            page_with,
-        )
-
     async def create_simple(
         self,
         name: str,
@@ -924,24 +890,6 @@ class TasksResource(BaseResource, FullDetailsMixin):
             ... )
         """
         return await self._add_milestone_generic("task", task_id, milestone_data)
-
-    async def get_todos(
-        self,
-        task_id: int,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-    ) -> list[Todo]:
-        """Get todos attached to this task.
-
-        Args:
-            task_id: Task identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-
-        Returns:
-            Todos of the task.
-        """
-        return await self._get_entity_todos("task", task_id, limit, page_after)
 
     async def get_full_details(
         self,

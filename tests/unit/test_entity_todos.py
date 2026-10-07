@@ -7,6 +7,10 @@ out: ``GET /contractor/{id}/todos`` 500s (task 12b) — but ``GET
 works, confirmed live 2026-08-21 — see ``ContractorsResource``'s docstring.
 """
 
+import inspect
+
+import pytest
+
 TODO = {
     "contentType": "Todo",
     "id": "501",
@@ -80,3 +84,40 @@ async def test_employee_todos_hit_the_subresource(megaplan_api, employees):
 
     assert route.called
     assert [t.id for t in items] == [501]
+
+
+async def test_get_todos_keeps_each_resources_own_id_keyword(
+    megaplan_api, tasks, deals, projects, employees
+):
+    """The published keyword (README: ``deal_id=``, ``task_id=``, ...) still binds.
+
+    A foreign keyword raises the ordinary ``TypeError`` a dedicated method
+    would — the lifted method does not accept every resource's keyword at once.
+    Positional calls are covered by the route tests above.
+    """
+    resources = (
+        (tasks, "task", "task_id", "deal_id"),
+        (deals, "deal", "deal_id", "task_id"),
+        (projects, "project", "project_id", "task_id"),
+        (employees, "employee", "employee_id", "task_id"),
+    )
+    for resource, segment, own_keyword, foreign_keyword in resources:
+        megaplan_api.get(f"{segment}/1/todos", data=[])
+
+        params = list(inspect.signature(resource.get_todos).parameters)
+        assert params[0] == own_keyword
+
+        await resource.get_todos(**{own_keyword: 1})
+
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            await resource.get_todos(**{foreign_keyword: 1})
+
+
+def test_employees_grow_no_comment_keyword(employees):
+    """Employees never had ``get_comments``; lifting it must not add one.
+
+    Whether ``GET /employee/{id}/comments`` exists is unverified, so the method
+    keeps the mixin's ``entity_id`` spelling instead of a public ``employee_id``.
+    """
+    params = list(inspect.signature(employees.get_comments).parameters)
+    assert params[0] == "entity_id"

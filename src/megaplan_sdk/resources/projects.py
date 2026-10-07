@@ -6,12 +6,10 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, cast
 
 from megaplan_sdk.constants import ContentType
-from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.deal import Deal
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task
-from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources._expand import ExpandRule
 from megaplan_sdk.resources.base import BaseResource
@@ -446,38 +444,6 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         ):
             yield project
 
-    async def get_comments(
-        self,
-        project_id: int,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-    ) -> list[Comment]:
-        """Get comments for a project.
-
-        Args:
-            project_id: Project identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-            page_before: Load page strictly before this entity.
-            page_with: Load page containing this entity.
-
-        Returns:
-            List of comments.
-
-        Examples:
-            >>> comments = await client.projects.get_comments(project_id=123)
-        """
-        return await self._get_entity_comments(
-            "project",
-            project_id,
-            limit,
-            page_after,
-            page_before,
-            page_with,
-        )
-
     async def get_auditors(
         self,
         project_id: int,
@@ -688,24 +654,6 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             ... )
         """
         return await self._add_milestone_generic("project", project_id, milestone_data)
-
-    async def get_todos(
-        self,
-        project_id: int,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-    ) -> list[Todo]:
-        """Get todos attached to this project.
-
-        Args:
-            project_id: Project identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-
-        Returns:
-            Todos of the project.
-        """
-        return await self._get_entity_todos("project", project_id, limit, page_after)
 
     async def get_full_details(
         self,

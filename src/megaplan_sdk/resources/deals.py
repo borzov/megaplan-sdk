@@ -11,12 +11,10 @@ from megaplan_sdk.constants import (
     ContentType,
 )
 from megaplan_sdk.logging_config import logger
-from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.contractor import Contractor
 from megaplan_sdk.models.deal import Deal, DealFullDetails, ProgramState
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.task import Task
-from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.registry import filter_content_type_for
 from megaplan_sdk.resources._expand import ExpandRule
@@ -433,38 +431,6 @@ class DealsResource(BaseResource, FullDetailsMixin):
         ):
             yield deal
 
-    async def get_comments(
-        self,
-        deal_id: int,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-        page_before: dict[str, Any] | None = None,
-        page_with: dict[str, Any] | None = None,
-    ) -> list[Comment]:
-        """Get comments for a deal.
-
-        Args:
-            deal_id: Deal identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-            page_before: Load page strictly before this entity.
-            page_with: Load page containing this entity.
-
-        Returns:
-            List of comments.
-
-        Examples:
-            >>> comments = await client.deals.get_comments(deal_id=123)
-        """
-        return await self._get_entity_comments(
-            "deal",
-            deal_id,
-            limit,
-            page_after,
-            page_before,
-            page_with,
-        )
-
     async def get_auditors(
         self,
         deal_id: int,
@@ -543,24 +509,6 @@ class DealsResource(BaseResource, FullDetailsMixin):
             # API irregularity: /deal/{id}/auditors/{auditorId} — no contentType
             content_type_in_path=False,
         )
-
-    async def get_todos(
-        self,
-        deal_id: int,
-        limit: int | None = None,
-        page_after: dict[str, Any] | None = None,
-    ) -> list[Todo]:
-        """Get todos attached to this deal.
-
-        Args:
-            deal_id: Deal identifier.
-            limit: Number of items per page.
-            page_after: Load page starting from this entity.
-
-        Returns:
-            Todos of the deal.
-        """
-        return await self._get_entity_todos("deal", deal_id, limit, page_after)
 
     async def get_linked_deals(
         self,
