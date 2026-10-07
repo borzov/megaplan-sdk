@@ -202,6 +202,54 @@ def test_history_docstrings_survive_the_mixin(tasks, deals, projects, todos):
         assert "since_id" in resource.get_link_events.__doc__
 
 
+_ID_PARAMS = (
+    (lambda tasks, deals, projects, todos: tasks, "task_id"),
+    (lambda tasks, deals, projects, todos: deals, "deal_id"),
+    (lambda tasks, deals, projects, todos: projects, "project_id"),
+    (lambda tasks, deals, projects, todos: todos, "todo_id"),
+)
+
+
+async def test_history_accepts_only_its_own_id_keyword(megaplan_api, tasks, deals, projects, todos):
+    """Each resource keeps its historical keyword and rejects the other three."""
+    import pytest
+
+    for select, own in _ID_PARAMS:
+        resource = select(tasks, deals, projects, todos)
+        segment = resource._history_entity_type
+        megaplan_api.get(f"{segment}/1/history", data=[CHANGESET])
+        megaplan_api.get(f"{segment}/1/history/search", data=[CHANGESET])
+
+        entries = await resource.get_history(**{own: 1})
+        assert isinstance(entries[0], Changeset)
+        events = await resource.get_link_events(**{own: 1})
+        assert events == []
+        found = await resource.search_history(query="status", **{own: 1})
+        assert found[0]["contentType"] == "Changeset"
+
+        for foreign in ("task_id", "deal_id", "project_id", "todo_id"):
+            if foreign == own:
+                continue
+            with pytest.raises(TypeError):
+                await resource.get_history(**{foreign: 1})
+            with pytest.raises(TypeError):
+                await resource.get_link_events(since_id=5, **{foreign: 1})
+
+
+async def test_history_id_is_required(tasks, deals, projects, todos):
+    """A missing id raises before any request, as a plain missing-argument error."""
+    import pytest
+
+    for select, _own in _ID_PARAMS:
+        resource = select(tasks, deals, projects, todos)
+        with pytest.raises(TypeError, match="required positional argument"):
+            await resource.get_history(limit=10)
+        with pytest.raises(TypeError, match="required positional argument"):
+            await resource.get_link_events(since_id=5)
+        with pytest.raises(TypeError, match="required positional argument"):
+            await resource.search_history(query="status")
+
+
 # --- sanity: BasedOnHistory type is importable and matches raw shape --------
 
 

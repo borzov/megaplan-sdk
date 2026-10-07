@@ -46,6 +46,7 @@ class TodosResource(BaseResource):
 
     _page_content_type = ContentType.TODO
     _history_entity_type = "todo"
+    _history_id_param = "todo_id"
     _filter_content_type = filter_content_type_for("todo")
 
     _expand_rules = {

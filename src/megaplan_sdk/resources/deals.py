@@ -30,6 +30,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
 
     _page_content_type = ContentType.DEAL
     _history_entity_type = "deal"
+    _history_id_param = "deal_id"
     _filter_content_type = filter_content_type_for("deal")
     _default_sort = list(DEFAULT_SORT_RECENT)
 

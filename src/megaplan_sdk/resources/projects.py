@@ -28,6 +28,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
 
     _page_content_type = ContentType.PROJECT
     _history_entity_type = "project"
+    _history_id_param = "project_id"
 
     _expand_rules = {
         "responsible": ExpandRule("employee", Employee),

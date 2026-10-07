@@ -42,6 +42,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
 
     _page_content_type = ContentType.TASK
     _history_entity_type = "task"
+    _history_id_param = "task_id"
     _filter_content_type = filter_content_type_for("task")
     _default_sort = list(DEFAULT_SORT_RECENT)
 

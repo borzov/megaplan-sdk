@@ -10,6 +10,7 @@ import-time dependency on `base.py`.
 
 from __future__ import annotations
 
+import types
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -26,6 +27,7 @@ class _HistoryHost(Protocol):
     _http: HTTPClient
     _page_content_type: str | None
     _history_entity_type: str
+    _history_id_param: str
 
     def _build_path(self, *parts: str) -> str: ...
 
@@ -65,7 +67,47 @@ class _HistoryHost(Protocol):
     ) -> AsyncIterator[Any]: ...
 
 
-class HistoryMixin:
+def _with_id_param(method: Any, alias: str) -> Any:
+    """Expose ``method`` with its ``entity_id`` parameter renamed to ``alias``.
+
+    Renaming the code object's variable keeps argument binding native, so a
+    foreign keyword and a missing id raise the ordinary ``TypeError`` a
+    dedicated method would, instead of a hand-built one.
+    """
+    code = method.__code__
+    index = code.co_varnames.index("entity_id")
+    renamed = types.FunctionType(
+        code.replace(
+            co_varnames=(*code.co_varnames[:index], alias, *code.co_varnames[index + 1 :])
+        ),
+        method.__globals__,
+        method.__name__,
+        method.__defaults__,
+        method.__closure__,
+    )
+    renamed.__annotations__ = {
+        alias if name == "entity_id" else name: annotation
+        for name, annotation in method.__annotations__.items()
+    }
+    renamed.__doc__ = method.__doc__
+    renamed.__qualname__ = method.__qualname__
+    renamed.__module__ = method.__module__
+    return renamed
+
+
+class _HistoryMeta(type):
+    """Bind each resource's journal methods to its own id keyword."""
+
+    def __init__(cls, name: str, bases: tuple[type, ...], namespace: dict[str, Any]) -> None:
+        super().__init__(name, bases, namespace)
+        alias = namespace.get("_history_id_param")
+        if not isinstance(alias, str):
+            return
+        for method_name in ("get_history", "iterate_history", "get_link_events", "search_history"):
+            setattr(cls, method_name, _with_id_param(getattr(cls, method_name), alias))
+
+
+class HistoryMixin(metaclass=_HistoryMeta):
     """Journal access for resources whose entity has /history in the API."""
 
     async def _get_entity_history(
@@ -261,34 +303,9 @@ class HistoryMixin:
         response = await self._http.get(path, params=params_dict)
         return self._parse_list_response(response)
 
-    @staticmethod
-    def _resolve_history_id(
-        entity_id: int | None,
-        task_id: int | None,
-        deal_id: int | None,
-        project_id: int | None,
-        todo_id: int | None,
-    ) -> int:
-        """Pick the one id a caller passed, under any of the historical names."""
-        given = [
-            value
-            for value in (entity_id, task_id, deal_id, project_id, todo_id)
-            if value is not None
-        ]
-        if len(given) != 1:
-            raise TypeError(
-                "exactly one of entity_id, task_id, deal_id, project_id, todo_id is required"
-            )
-        return given[0]
-
     async def get_history(
         self: _HistoryHost,
-        entity_id: int | None = None,
-        *,
-        task_id: int | None = None,
-        deal_id: int | None = None,
-        project_id: int | None = None,
-        todo_id: int | None = None,
+        entity_id: int,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
@@ -316,7 +333,6 @@ class HistoryMixin:
         Examples:
             >>> history = await client.tasks.get_history(task_id=123, limit=10)
         """
-        entity_id = self._resolve_history_id(entity_id, task_id, deal_id, project_id, todo_id)
         entries = await self._get_entity_history(
             self._history_entity_type, entity_id, limit, page_after, page_before, page_with
         )
@@ -326,14 +342,9 @@ class HistoryMixin:
 
     async def iterate_history(
         self: _HistoryHost,
-        entity_id: int | None = None,
+        entity_id: int,
         limit: int = 100,
         raw: bool = False,
-        *,
-        task_id: int | None = None,
-        deal_id: int | None = None,
-        project_id: int | None = None,
-        todo_id: int | None = None,
     ) -> AsyncIterator[Any]:
         """Iterate the entity's journal with automatic pagination.
 
@@ -345,7 +356,6 @@ class HistoryMixin:
         Yields:
             Journal entries, newest first.
         """
-        entity_id = self._resolve_history_id(entity_id, task_id, deal_id, project_id, todo_id)
         async for entry in self._iterate_entity_history(
             self._history_entity_type, entity_id, limit, raw
         ):
@@ -353,15 +363,10 @@ class HistoryMixin:
 
     async def get_link_events(
         self: _HistoryHost,
-        entity_id: int | None = None,
+        entity_id: int,
         since_id: int | None = None,
         since_time: str | None = None,
         limit: int = 100,
-        *,
-        task_id: int | None = None,
-        deal_id: int | None = None,
-        project_id: int | None = None,
-        todo_id: int | None = None,
     ) -> list[LinkEvent]:
         """Get link/unlink events for an entity.
 
@@ -388,24 +393,18 @@ class HistoryMixin:
             ...     verb = "отвязал" if event.unlink else "привязал"
             ...     print(verb, event.other.content_type, event.other.id)
         """
-        entity_id = self._resolve_history_id(entity_id, task_id, deal_id, project_id, todo_id)
         return await self._get_link_events(
             self._history_entity_type, entity_id, since_id, since_time, limit
         )
 
     async def search_history(
         self: _HistoryHost,
-        entity_id: int | None = None,
-        query: str | None = None,
+        entity_id: int,
+        query: str,
         limit: int | None = None,
         page_after: dict[str, Any] | None = None,
         page_before: dict[str, Any] | None = None,
         page_with: dict[str, Any] | None = None,
-        *,
-        task_id: int | None = None,
-        deal_id: int | None = None,
-        project_id: int | None = None,
-        todo_id: int | None = None,
     ) -> list[dict[str, Any]]:
         """Search in entity history log.
 
@@ -423,9 +422,6 @@ class HistoryMixin:
         Examples:
             >>> results = await client.tasks.search_history(task_id=123, query="status")
         """
-        entity_id = self._resolve_history_id(entity_id, task_id, deal_id, project_id, todo_id)
-        if query is None:
-            raise TypeError("query is required")
         return await self._search_entity_history(
             self._history_entity_type, entity_id, query, limit, page_after, page_before, page_with
         )
