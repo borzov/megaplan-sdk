@@ -161,4 +161,4 @@ __all__ = [
     "DEFAULT_TASK_LIST_FIELDS",
 ]
 
-__version__ = "0.6.2"
+__version__ = "0.6.3"
