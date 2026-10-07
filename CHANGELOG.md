@@ -5,6 +5,24 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
 и этот проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.6.3] — не выпущен
+
+### Изменено
+
+- `TaskFilterConfig`, `TradeFilterConfig` и `ProjectFilterConfig` в `types.py` —
+  алиасы одного `FilterConfig`. Старые имена сохранены и по-прежнему описывают
+  тот же объект.
+
+### Известное, не исправленное
+
+- Два разных класса `TaskFilter` не объединены: `models.task.TaskFilter`
+  (`id` + `config`) и `models.filter.TaskFilter` (сохранённый фильтр, наследник
+  `BaseFilter`). То же для `TradeFilter` и `ProjectFilter`. Одинаковое имя при
+  разных полях — ловушка, но слияние меняет импортируемые имена и ломает
+  совместимость. `from megaplan_sdk import TaskFilter` по-прежнему берёт класс
+  из `models.filter`, а `from megaplan_sdk.models import TaskFilter` — класс
+  из `models.task`.
+
 ## [0.6.2] — 2026-08-24
 
 ### Добавлено

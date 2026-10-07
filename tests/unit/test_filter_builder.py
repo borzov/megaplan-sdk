@@ -479,3 +479,17 @@ def test_field_equals_string_unchanged():
 
     built = FilterBuilder("TaskFilter").field("name").equals("ДВФМ").build()
     assert built["config"]["termGroup"]["terms"][0]["contentType"] == "FilterTermString"
+
+
+def test_filter_config_aliases_are_one_type():
+    """The three filter config TypedDicts are aliases of one FilterConfig."""
+    from megaplan_sdk.types import (
+        FilterConfig,
+        ProjectFilterConfig,
+        TaskFilterConfig,
+        TradeFilterConfig,
+    )
+
+    assert TaskFilterConfig is FilterConfig
+    assert TradeFilterConfig is FilterConfig
+    assert ProjectFilterConfig is FilterConfig

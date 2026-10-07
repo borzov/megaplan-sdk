@@ -15,10 +15,10 @@ class LinkEntity(TypedDict, total=False):
     id: int
 
 
-class TaskFilterConfig(TypedDict, total=False):
-    """Task filter configuration.
+class FilterConfig(TypedDict, total=False):
+    """Filter configuration shared by tasks, trades, and projects.
 
-    Can contain FilterConfig with termGroup for complex filtering.
+    Can contain a nested term group for complex filtering.
     Example:
         {
             "contentType": "FilterConfig",
@@ -42,38 +42,10 @@ class TaskFilterConfig(TypedDict, total=False):
     filterId: int | str | None
 
 
-class TradeFilterConfig(TypedDict, total=False):
-    """Trade filter configuration.
-
-    Can contain FilterConfig with termGroup for complex filtering.
-    Example:
-        {
-            "contentType": "FilterConfig",
-            "termGroup": {
-                "contentType": "FilterTermGroup",
-                "join": "and",
-                "terms": [
-                    {
-                        "contentType": "FilterTermString",
-                        "field": "name",
-                        "comparison": "contains",
-                        "value": "Leader"
-                    }
-                ]
-            }
-        }
-    """
-
-    contentType: str  # "FilterConfig"
-    termGroup: dict[str, Any]  # FilterTermGroup
-    filterId: int | str | None
-
-
-class ProjectFilterConfig(TypedDict, total=False):
-    """Project filter configuration."""
-
-    pass  # Will be extended based on API documentation
-
+# Compatibility aliases: the three names described identical objects.
+TaskFilterConfig = FilterConfig
+TradeFilterConfig = FilterConfig
+ProjectFilterConfig = FilterConfig
 
 FilterType = int | str | TaskFilterConfig | TradeFilterConfig | ProjectFilterConfig
 
