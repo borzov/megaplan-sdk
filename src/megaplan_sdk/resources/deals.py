@@ -793,9 +793,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
                 history_limit=history_limit,
             ),
         )
-        if resolve_participants and details.auditors:
-            details.auditors = await self._resolve_employee_entities(details.auditors)
-        return details
+        return await self._finalize_full_details(details, resolve_participants=resolve_participants)
 
     async def get_all_participants(
         self,

@@ -159,3 +159,36 @@ class FullDetailsMixin:
             details_kwargs[item_config.field_name] = task_results.get(item_config.field_name)
 
         return full_details_class(**details_kwargs)
+
+    async def _finalize_full_details(
+        self: BaseResource,
+        details: Any,
+        *,
+        resolve_participants: bool,
+        expand_comment_owners: bool = False,
+    ) -> Any:
+        """Apply the shared post-processing tail of get_full_details.
+
+        Comment authors are resolved before participants, matching the order
+        the three resources used to apply by hand. An attribute the details
+        model does not declare (deals have no ``executors``) or an empty list
+        is skipped, so each resource keeps exactly its own set of resolutions.
+
+        Args:
+            details: FullDetails instance returned by ``_get_full_details_generic``.
+            resolve_participants: Resolve non-empty ``auditors`` and
+                ``executors`` lists to full Employee objects.
+            expand_comment_owners: Resolve comment authors when comments were
+                loaded. The caller guards the flag against ``include_comments``.
+
+        Returns:
+            The same ``details`` instance, with the resolved fields replaced.
+        """
+        if expand_comment_owners and getattr(details, "comments", None):
+            await self._resolve_comment_owners(details.comments)
+        if resolve_participants:
+            for attr in ("auditors", "executors"):
+                items = getattr(details, attr, None)
+                if items:
+                    setattr(details, attr, await self._resolve_employee_entities(items))
+        return details

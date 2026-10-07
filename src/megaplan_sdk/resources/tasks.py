@@ -1030,14 +1030,11 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 history_limit=history_limit,
             ),
         )
-        if expand_comment_owners and details.comments:
-            await self._resolve_comment_owners(details.comments)
-        if resolve_participants:
-            if details.auditors:
-                details.auditors = await self._resolve_employee_entities(details.auditors)
-            if details.executors:
-                details.executors = await self._resolve_employee_entities(details.executors)
-        return details
+        return await self._finalize_full_details(
+            details,
+            resolve_participants=resolve_participants,
+            expand_comment_owners=expand_comment_owners,
+        )
 
     async def get_available_parents(
         self,

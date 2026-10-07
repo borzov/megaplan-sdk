@@ -5,6 +5,9 @@ from urllib.parse import unquote
 
 import pytest
 
+from megaplan_sdk.models.comment import Comment
+from megaplan_sdk.resources.base import BaseResource
+from megaplan_sdk.resources.full_details import FullDetailsMixin
 from megaplan_sdk.resources.tasks import TasksResource
 
 
@@ -591,3 +594,101 @@ async def test_project_full_details_resolve_participants_opt_out(megaplan_api, p
     )
 
     assert details.auditors == [{"contentType": "Employee", "id": 21}]
+
+
+class FakeResource(BaseResource, FullDetailsMixin):
+    """Bare resource exposing only the post-processing tail under test."""
+
+
+class _Details:
+    """Stand-in for a FullDetails model: only the attributes a case sets."""
+
+    def __init__(self, **attrs: Any) -> None:
+        self.__dict__.update(attrs)
+
+
+def _recording_resolver(calls: list[str]):
+    """Replace a resolver with one that records each call and returns a marker.
+
+    Assigned straight onto the instance, so it takes no ``self``.
+    """
+
+    async def resolve(items: list[Any]) -> list[Any]:
+        calls.append(f"employees:{len(items)}")
+        return [f"resolved:{len(items)}"]
+
+    return resolve
+
+
+async def test_finalize_resolves_each_non_empty_participant_list_once():
+    """resolve_participants=True runs the employee resolver once per non-empty list."""
+    resource = FakeResource(http_client=None)  # type: ignore[arg-type]
+    calls: list[str] = []
+    resource._resolve_employee_entities = _recording_resolver(calls)  # type: ignore[method-assign]
+
+    details = _Details(auditors=[{"id": 1}], executors=[{"id": 2}, {"id": 3}])
+
+    result = await resource._finalize_full_details(details, resolve_participants=True)
+
+    assert calls == ["employees:1", "employees:2"]
+    assert result.auditors == ["resolved:1"]
+    assert result.executors == ["resolved:2"]
+
+
+async def test_finalize_skips_participant_resolution_when_disabled():
+    """resolve_participants=False never touches auditors or executors."""
+    resource = FakeResource(http_client=None)  # type: ignore[arg-type]
+    calls: list[str] = []
+    resource._resolve_employee_entities = _recording_resolver(calls)  # type: ignore[method-assign]
+    auditors = [{"id": 1}]
+
+    result = await resource._finalize_full_details(
+        _Details(auditors=auditors, executors=[]), resolve_participants=False
+    )
+
+    assert calls == []
+    assert result.auditors is auditors
+
+
+async def test_finalize_skips_attributes_the_details_object_lacks():
+    """A details model without executors (deals) is resolved for auditors only."""
+    resource = FakeResource(http_client=None)  # type: ignore[arg-type]
+    calls: list[str] = []
+    resource._resolve_employee_entities = _recording_resolver(calls)  # type: ignore[method-assign]
+
+    result = await resource._finalize_full_details(
+        _Details(auditors=[{"id": 1}]), resolve_participants=True
+    )
+
+    assert calls == ["employees:1"]
+    assert not hasattr(result, "executors")
+
+
+async def test_finalize_resolves_comment_owners_before_participants():
+    """Comment authors are resolved first, and only when comments were loaded."""
+    resource = FakeResource(http_client=None)  # type: ignore[arg-type]
+    order: list[str] = []
+
+    async def resolve_owners(comments: list[Any]) -> None:
+        order.append(f"owners:{len(comments)}")
+
+    async def resolve_employees(items: list[Any]) -> list[Any]:
+        order.append(f"employees:{len(items)}")
+        return items
+
+    resource._resolve_comment_owners = resolve_owners  # type: ignore[method-assign]
+    resource._resolve_employee_entities = resolve_employees  # type: ignore[method-assign]
+    comments = [Comment(**{"id": 1, "contentType": "Comment", "content": "hi"})]
+
+    await resource._finalize_full_details(
+        _Details(comments=comments, auditors=[{"id": 1}]),
+        resolve_participants=True,
+        expand_comment_owners=True,
+    )
+    await resource._finalize_full_details(
+        _Details(comments=None, auditors=[{"id": 1}]),
+        resolve_participants=True,
+        expand_comment_owners=True,
+    )
+
+    assert order == ["owners:1", "employees:1", "employees:1"]
