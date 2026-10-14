@@ -5,7 +5,7 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -166,7 +166,7 @@ class HTTPClient:
 
         if params:
             params_json = json.dumps(params, ensure_ascii=False)
-            url = f"{url}?{params_json}"
+            url = f"{url}?{quote(params_json, safe='')}"
 
         return url
 
@@ -197,6 +197,7 @@ class HTTPClient:
         json_data: dict[str, Any] | list[Any] | None = None,
         files: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        retry_on_error: bool = True,
     ) -> dict[str, Any]:
         """Make HTTP request with retry logic.
 
@@ -207,6 +208,9 @@ class HTTPClient:
             json_data: JSON body data.
             files: Files for multipart/form-data.
             headers: Additional headers.
+            retry_on_error: Replay network/5xx/429 failures. Disable for writes
+                whose outcome may be unknown. A rejected 401 still permits
+                one replay after authentication refresh.
 
         Returns:
             Response JSON as dictionary.
@@ -225,7 +229,7 @@ class HTTPClient:
         attempt = 0
         # The auth retry gets its own budget: max_retries is documented as the
         # 5xx/network budget, and max_retries=0 must not disable auto-refresh.
-        max_attempt = self.max_retries
+        max_attempt = self.max_retries if retry_on_error else 0
         auth_retried = False
 
         while attempt <= max_attempt:
@@ -392,6 +396,8 @@ class HTTPClient:
         files: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        retry_on_error: bool = True,
     ) -> dict[str, Any]:
         """Make POST request.
 
@@ -401,12 +407,19 @@ class HTTPClient:
             files: Files for multipart/form-data.
             params: Query parameters.
             headers: Additional headers.
+            retry_on_error: Whether to replay network/5xx/429 failures.
 
         Returns:
             Response JSON as dictionary.
         """
         return await self._request(
-            "POST", path, json_data=json_data, files=files, params=params, headers=headers
+            "POST",
+            path,
+            json_data=json_data,
+            files=files,
+            params=params,
+            headers=headers,
+            retry_on_error=retry_on_error,
         )
 
     async def put(

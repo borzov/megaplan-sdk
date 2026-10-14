@@ -219,7 +219,8 @@ class BaseResource(
             if item_id is None:
                 logger.warning(f"Entity without id during pagination: {type(last_item).__name__}")
                 break
-            page_after = {"contentType": content_type, "id": item_id}
+            item_type = getattr(last_item, "content_type", None) or content_type
+            page_after = {"contentType": item_type, "id": item_id}
 
     async def _get_entity_comments(
         self,

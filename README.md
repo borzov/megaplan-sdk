@@ -2329,19 +2329,64 @@ filter_obj = TradeFilterBuilder().field("contractor").equals({"contentType": "Co
 deals = await client.deals.list(filter=filter_obj)
 ```
 
-### Пагинация контрагентов
+### Контрагенты и плательщики
 
-Пагинация через `page_after`, `page_before`, `page_with` для контрагентов может возвращать ошибку 422 ValidationError из-за ограничений API. SDK автоматически нормализует BaseEntity объекты, но рекомендуется использовать `limit` и ручную итерацию:
+Пагинация контрагентов сохраняет конкретный подтип последнего элемента:
 
 ```python
-# Может вернуть 422 ошибку
-# contractors = await client.contractors.list(page_after={"contentType": "Contractor", "id": 123})
+async for contractor in client.contractors.iterate(limit=100):
+    print(contractor.display_name())
 
-# Рекомендуется: используйте limit и iterate()
-async for contractor in client.contractors.iterate(limit=50):
-    # Обработка контрагента
-    pass
+matches = await client.contractors.search("Название", limit=20)
+# Старый list(q=...) сохранён как сокращение для поиска.
+profile = await client.contractors.get(contractor_id)
+payers = await client.contractors.get_payers(contractor_id)
 ```
+
+Поиск возвращает компании и физлиц, сокращённые карточки без плательщиков.
+Поиск по ИНН ненадёжен: для точного сопоставления используйте
+`client.payers.iterate()`. Пагинационный курсор требует ContractorCompany или
+ContractorHuman, а не абстрактный Contractor. Поиск q нельзя сочетать с
+category_id; обычный список по категории остаётся доступным.
+
+Реквизиты хранятся в типизированных `profile.payers`; основного плательщика
+сервер не определяет. Старые поля компании `inn/kpp/ogrn/legal_*` сохранены
+для совместимости, но устарели и не вычисляются из первого плательщика.
+Контакты представлены ContactInfo/Address, страна плательщика имеет строковый ID.
+
+`client.payers`: list/iterate/get/create/update/delete/extra_fields.
+`client.contractors`: search/iterate_search/get_payers/possible_duplicates/
+find_duplicates/get_similar; слияние не выполняется.
+
+```python
+preview = await client.payers.update(payer_id, {"inn": "1234567890"}, dry_run=True)
+for change in preview.changes:
+    print(change.field, change.before, change.after)
+
+# После рассмотрения изменений:
+updated = await client.payers.apply_update(
+    preview, audit_path="/existing/private/directory/profiles.jsonl", actor="operator-id",
+)
+```
+
+Предварительный просмотр не пишет на сервер. Apply перечитывает объект,
+отклоняет конфликт и сохраняет JSONL-намерение до POST, результат после POST.
+Пара GET/POST не атомарна. При сетевой ошибке исход записи может быть неизвестен:
+новые POST не повторяются автоматически, кроме авторефреша после отклонённого 401.
+Поддержку частичного обновления и очистки полей нужно проверить на отдельном
+тестовом объекте перед пакетной актуализацией.
+Обычный `contractors.update(id, dict)` сохраняет историческое поведение;
+безопасный просмотр/apply доступен также для контрагентов.
+
+[Полные примеры, аудит, конфликты и ограничения](examples/cookbook/contractor-profiles.md).
+
+### Ограничение архивного списка задач
+
+На проверенном аккаунте список задач без фильтра показывает активную выборку;
+архивный обход может пропускать карточки, доступные по прямому ID. Параметр
+statuses и термин status внутри фильтра имеют разное серверное поведение.
+SDK пока не предоставляет include_archive и не обещает полную выгрузку.
+При смешанной выдаче идентифицируйте записи по `(contentType, id)`.
 
 ### Нормализация BaseEntity
 

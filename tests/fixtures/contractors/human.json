@@ -1,0 +1,415 @@
+{
+  "contentType": "ContractorHuman",
+  "id": "1001581",
+  "humanNumber": 1581,
+  "type": {
+    "contentType": "ContractorType",
+    "id": "1",
+    "name": "<name:6>",
+    "type": "client",
+    "fixedFields": [],
+    "layoutSetting": null,
+    "layoutTabletSetting": null,
+    "rights": {
+      "contentType": "ContractorTypeRights",
+      "readShort": true
+    },
+    "responsibleRights": {
+      "contentType": "ContractorTypeRights",
+      "readShort": true
+    },
+    "visibleInCardFields": [
+      "name",
+      "gender",
+      "company",
+      "position",
+      "phones",
+      "email",
+      "description",
+      "birthday",
+      "type",
+      "activityType",
+      "links",
+      "responsibles",
+      "preferTransport",
+      "attaches"
+    ],
+    "requiredFields": [
+      "name",
+      "type"
+    ],
+    "visibleOnCreationFields": [
+      "name",
+      "gender",
+      "company",
+      "position",
+      "phones",
+      "email",
+      "description",
+      "birthday",
+      "type",
+      "activityType",
+      "links",
+      "preferTransport",
+      "attaches"
+    ]
+  },
+  "responsibles": [
+    {
+      "contentType": "Employee",
+      "id": "1000003",
+      "name": "<name:13>",
+      "firstName": "<firstName:6>",
+      "middleName": "",
+      "lastName": "<lastName:6>",
+      "position": "<position:20>",
+      "department": {
+        "contentType": "Department",
+        "id": "1000004",
+        "name": "<name:11>"
+      },
+      "uid": 1000077,
+      "gender": "male",
+      "birthday": {
+        "contentType": "DateOnly",
+        "year": 1985,
+        "month": 8,
+        "day": 14
+      },
+      "inn": "",
+      "contactInfo": [
+        {
+          "contentType": "ContactInfo",
+          "type": "email",
+          "value": "<value:18>",
+          "comment": "",
+          "isMain": true,
+          "subject": {
+            "contentType": "Employee",
+            "id": "1000003"
+          }
+        },
+        {
+          "contentType": "ContactInfo",
+          "type": "phone",
+          "value": "<value:16>",
+          "comment": "<comment:11>",
+          "isMain": false
+        },
+        {
+          "contentType": "Address",
+          "value": "",
+          "city": {
+            "contentType": "City",
+            "id": "1000000",
+            "name": "<name:6>"
+          },
+          "street": "",
+          "house": "",
+          "metro": null
+        }
+      ],
+      "contactInfoCount": 3,
+      "isWorking": true,
+      "nearestVacation": null,
+      "isReadable": true,
+      "isOnline": true,
+      "lastOnline": {
+        "contentType": "DateTime",
+        "value": "<value:25>"
+      },
+      "canLogin": true,
+      "avatar": {
+        "contentType": "File",
+        "id": "32717",
+        "name": "<name:36>",
+        "extension": "png",
+        "size": 9113159,
+        "path": "<path:138>",
+        "thumbnail": "<thumbnail:134>"
+      }
+    }
+  ],
+  "responsiblesCount": 1,
+  "canSeeFull": true,
+  "possibleActions": [
+    "act_edit",
+    "message",
+    "task",
+    "add_item",
+    "add_deal",
+    "act_fake_drop",
+    "act_view_fin_operation",
+    "act_invite",
+    "act_read",
+    "act_attaches",
+    "read_full"
+  ],
+  "contactInfo": [
+    {
+      "contentType": "ContactInfo",
+      "type": "email",
+      "value": "<value:15>",
+      "comment": "",
+      "isMain": true,
+      "subject": {
+        "contentType": "ContractorHuman",
+        "id": "1001581"
+      }
+    }
+  ],
+  "contactInfoCount": 1,
+  "description": "",
+  "textDescription": "",
+  "birthday": null,
+  "attaches": [],
+  "attachesCount": 0,
+  "linksCount": 0,
+  "relationLinks": [],
+  "relationLinksCount": 0,
+  "payers": [
+    {
+      "contentType": "Payer",
+      "id": "1001700",
+      "name": "<name:15>",
+      "type": "Natural",
+      "firstName": "<firstName:15>",
+      "lastName": "",
+      "country": {
+        "contentType": "Country",
+        "id": "RU",
+        "name": "<name:6>",
+        "isDefault": true
+      },
+      "inn": "",
+      "address": "",
+      "legalAddress": "",
+      "edrpou": "",
+      "currentAccount": "",
+      "unp": "",
+      "isDropped": false,
+      "contractor": {
+        "contentType": "ContractorHuman",
+        "id": "1001581"
+      }
+    }
+  ],
+  "payersCount": 1,
+  "timeCreated": {
+    "contentType": "DateTime",
+    "value": "<value:25>"
+  },
+  "timeUpdated": {
+    "contentType": "DateTime",
+    "value": "<value:25>"
+  },
+  "userCreated": {
+    "contentType": "Employee",
+    "id": "1000003"
+  },
+  "userUpdated": {
+    "contentType": "Employee",
+    "id": "1000005",
+    "name": "<name:19>",
+    "firstName": "<firstName:7>",
+    "middleName": "",
+    "lastName": "<lastName:11>",
+    "position": "<position:74>",
+    "department": {
+      "contentType": "Department",
+      "id": "1000002",
+      "name": "<name:35>"
+    },
+    "uid": 1000131,
+    "gender": "male",
+    "birthday": {
+      "contentType": "DateOnly",
+      "year": 2019,
+      "month": 2,
+      "day": 16
+    },
+    "inn": "",
+    "contactInfo": [
+      {
+        "contentType": "ContactInfo",
+        "type": "email",
+        "value": "<value:14>",
+        "comment": "",
+        "isMain": true,
+        "subject": {
+          "contentType": "Employee",
+          "id": "1000005"
+        }
+      }
+    ],
+    "contactInfoCount": 1,
+    "isWorking": true,
+    "nearestVacation": null,
+    "isReadable": true,
+    "isOnline": true,
+    "lastOnline": {
+      "contentType": "DateTime",
+      "value": "<value:25>"
+    },
+    "canLogin": true,
+    "avatar": {
+      "contentType": "File",
+      "id": "21",
+      "name": "<name:37>",
+      "extension": "jpeg",
+      "size": 4893707,
+      "path": "<path:97>",
+      "thumbnail": "<thumbnail:131>"
+    }
+  },
+  "nextCommunication": null,
+  "nextCommunicationDate": null,
+  "lastCommunicationDate": null,
+  "countCommunications": 0,
+  "countScheduledCommunications": 0,
+  "countOverdueCommunications": 0,
+  "countDeals": 1,
+  "countActiveDeals": 0,
+  "countNegativeDeals": 1,
+  "countPositiveDeals": 0,
+  "summDeals": {
+    "contentType": "Money",
+    "currency": "RUB",
+    "valueInMain": 0,
+    "rate": 1,
+    "value": 0
+  },
+  "summActiveDeals": {
+    "contentType": "Money",
+    "currency": "RUB",
+    "valueInMain": 0,
+    "rate": 1,
+    "value": 0
+  },
+  "summPositiveDeals": {
+    "contentType": "Money",
+    "currency": "RUB",
+    "valueInMain": 0,
+    "rate": 1,
+    "value": 0
+  },
+  "countInvoice": 0,
+  "countNotPaidInvoice": 0,
+  "summInvoice": {
+    "contentType": "Money",
+    "currency": "RUB",
+    "valueInMain": 0,
+    "rate": 1,
+    "value": 0
+  },
+  "summNotPaidInvoice": {
+    "contentType": "Money",
+    "currency": "RUB",
+    "valueInMain": 0,
+    "rate": 1,
+    "value": 0
+  },
+  "summAccountReceivable": {
+    "contentType": "Money",
+    "currency": "RUB",
+    "valueInMain": 0,
+    "rate": 1,
+    "value": 0
+  },
+  "summAccountReceivableOverdue": {
+    "contentType": "Money",
+    "currency": "RUB",
+    "valueInMain": 0,
+    "rate": 1,
+    "value": 0
+  },
+  "issuesCount": 0,
+  "activeIssuesCount": 0,
+  "inactiveIssuesCount": 0,
+  "totalAttachesCount": 0,
+  "lastComment": null,
+  "lastCommentTimeCreated": null,
+  "balance": {
+    "contentType": "Money",
+    "currency": "RUB",
+    "valueInMain": 0,
+    "rate": 1,
+    "value": 0
+  },
+  "nextTaskDate": {
+    "contentType": "DateTime",
+    "value": "<value:25>"
+  },
+  "preferTransport": "",
+  "status": null,
+  "isPublic": false,
+  "activityType": null,
+  "advertisingWay": null,
+  "competitors": [],
+  "competitorsCount": 0,
+  "partners": [],
+  "partnersCount": 0,
+  "todos": [],
+  "isDropped": false,
+  "countBalance": 0,
+  "messagesCount": 0,
+  "callsCount": 0,
+  "reminderTime": null,
+  "interactionsCounters": [
+    {
+      "contentType": "InteractionCounter",
+      "action": "read",
+      "count": 2
+    }
+  ],
+  "uid": 1005905,
+  "firstName": "<firstName:15>",
+  "middleName": "",
+  "lastName": "",
+  "dateLastReadNews": null,
+  "company": null,
+  "gender": "male",
+  "position": "",
+  "loginEmail": null,
+  "lastOnline": null,
+  "settings": [],
+  "contacts": [],
+  "contactsCount": 0,
+  "canLogin": false,
+  "isGuestAccessEnabled": false,
+  "consignmentsCount": 0,
+  "avatar": null,
+  "photo": null,
+  "isFavorite": false,
+  "lastView": {
+    "contentType": "DateTime",
+    "value": "<value:25>"
+  },
+  "tags": [],
+  "tagsCount": 0,
+  "actualTodosCount": 0,
+  "finishedTodosCount": 0,
+  "comments": [],
+  "commentsCount": 0,
+  "unreadCommentsCount": null,
+  "attachesCountInComments": 0,
+  "unreadAnswer": false,
+  "subscribed": true,
+  "commentsWithoutTransportCount": 0,
+  "emailsCount": 0,
+  "whatsappCount": 0,
+  "telegramCount": 0,
+  "maxMessengerCount": 0,
+  "instagramCount": 0,
+  "allFilesCount": 0,
+  "attachesInfo": {
+    "contentType": "AttachesInfo",
+    "imageFiles": [],
+    "imageFilesCount": 0,
+    "audioFiles": [],
+    "audioFilesCount": 0,
+    "otherFiles": [],
+    "otherFilesCount": 0
+  },
+  "hiddenCommentsCount": 0
+}

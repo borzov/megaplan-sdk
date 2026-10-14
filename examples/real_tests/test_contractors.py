@@ -93,7 +93,7 @@ async def test_get_contractor():
             if contractor.manager:
                 print(f"   Менеджер: {contractor.manager}")
             if contractor.inn:
-                print(f"   ИНН: {contractor.inn}")
+                print(f"   ИНН плательщиков: {[p.inn for p in contractor.payers or [] if p.inn]}")
             if contractor.email:
                 print(f"   Email: {contractor.email}")
             if contractor.phone:
@@ -137,7 +137,7 @@ async def test_search_contractors():
             search_query = contractors_list[0].name.split()[0] if contractors_list[0].name else "test"
 
             print(f"\n⏳ Поиск контрагентов по запросу: '{search_query}'...")
-            contractors = await client.contractors.list(q=search_query, limit=5)
+            contractors = await client.contractors.search(q=search_query, limit=5)
             print_success(f"Найдено контрагентов: {len(contractors)}")
 
             if contractors:
@@ -222,7 +222,7 @@ async def test_list_with_pagination():
                 print(f"\n⏳ Загрузка второй страницы (после контрагента #{last_contractor.id})...")
                 second_page = await client.contractors.list(
                     limit=5,
-                    page_after={"contentType": "Contractor", "id": last_contractor.id}
+                    page_after={"contentType": last_contractor.content_type, "id": last_contractor.id}
                 )
                 print_success(f"Загружено контрагентов на второй странице: {len(second_page)}")
 

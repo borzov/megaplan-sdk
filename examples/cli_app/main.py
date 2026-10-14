@@ -1301,7 +1301,7 @@ async def test_contractors(client: MegaplanClient):
             if query:
                 try:
                     print(f"\n⏳ Поиск '{query}'...")
-                    contractors = await client.contractors.list(q=query, limit=5)
+                    contractors = await client.contractors.search(q=query, limit=5)
                     print(f"\n✅ Найдено: {len(contractors)}")
                     for contractor in contractors:
                         print(f"  - #{contractor.id}: {contractor.name}")

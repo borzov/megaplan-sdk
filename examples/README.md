@@ -89,3 +89,8 @@ Credentials можно передать:
 - [Официальная документация SDK](../README.md)
 - [API Reference](https://api.megaplan.ru/v3/docs/)
 - [Megaplan Help](https://help.megaplan.ru/)
+
+## Профили и реквизиты
+
+[Контрагенты и плательщики](cookbook/contractor-profiles.md): пагинация, поиск,
+реквизиты, preview/apply с аудитом и отчёт возможных дублей без слияния.

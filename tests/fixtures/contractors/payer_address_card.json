@@ -1,0 +1,33 @@
+{
+  "contentType": "Payer",
+  "id": "1000509",
+  "name": "<name:66>",
+  "type": "Legal",
+  "country": {
+    "contentType": "Country",
+    "id": "RU",
+    "name": "<name:6>",
+    "isDefault": true
+  },
+  "inn": "",
+  "address": "",
+  "legalAddress": "",
+  "edrpou": "",
+  "currentAccount": "",
+  "ogrn": "",
+  "bank": "",
+  "bik": "",
+  "kpp": "",
+  "correspondentAccount": "",
+  "okpo": "",
+  "mfo": "",
+  "unp": "",
+  "isDropped": false,
+  "contractor": {
+    "contentType": "ContractorCompany",
+    "id": "1000486"
+  },
+  "Category715CustomFieldDolzhnostPodpisanta": "",
+  "Category715CustomFieldFioPodpisanta": "",
+  "Category715CustomFieldNaOsnovanii": ""
+}

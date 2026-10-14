@@ -1,5 +1,88 @@
 """Unit tests for ContractorsResource."""
 
+import json
+from urllib.parse import unquote
+
+import pytest
+from httpx import Response
+
+
+async def test_iterate_uses_last_contractor_subtype(megaplan_api, contractors):
+    """A page cursor must carry the concrete subtype, not Contractor."""
+    pages = [
+        [
+            {"id": 1, "contentType": "ContractorCompany"},
+            {"id": 2, "contentType": "ContractorHuman"},
+        ],
+        [{"id": 3, "contentType": "ContractorCompany"}],
+    ]
+    route = megaplan_api.router.get(f"{megaplan_api.base_url}/api/v3/contractor").mock(
+        side_effect=[Response(200, json={"data": page}) for page in pages]
+    )
+    result = [item async for item in contractors.iterate(limit=2)]
+    assert [item.id for item in result] == [1, 2, 3]
+    query = json.loads(unquote(route.calls[1].request.url.query.decode()))
+    assert query["pageAfter"] == {"contentType": "ContractorHuman", "id": 2}
+
+
+async def test_search_parses_both_types(megaplan_api, contractors):
+    """The concrete search route can return either contractor subtype."""
+    route = megaplan_api.get(
+        "contractorCompany/search",
+        data=[
+            {"id": 1, "contentType": "ContractorCompany", "name": "Company"},
+            {"id": 2, "contentType": "ContractorHuman", "firstName": "Person"},
+        ],
+    )
+    result = await contractors.search("needle", limit=5)
+    assert [item.content_type for item in result] == ["ContractorCompany", "ContractorHuman"]
+    assert json.loads(unquote(route.calls[0].request.url.query.decode())) == {
+        "q": "needle",
+        "limit": 5,
+    }
+
+
+async def test_legacy_list_search_uses_working_endpoint(megaplan_api, contractors):
+    """The existing list(q=...) signature remains a working search shortcut."""
+    megaplan_api.get(
+        "contractorCompany/search", data=[{"id": 1, "contentType": "ContractorCompany"}]
+    )
+    result = await contractors.list(q="needle", limit=5)
+    assert result[0].id == 1
+
+
+async def test_search_iteration_keeps_concrete_cursor(megaplan_api, contractors):
+    route = megaplan_api.router.get(
+        f"{megaplan_api.base_url}/api/v3/contractorCompany/search"
+    ).mock(
+        side_effect=[
+            Response(200, json={"data": [{"id": 1, "contentType": "ContractorHuman"}]}),
+            Response(200, json={"data": []}),
+        ]
+    )
+    assert [c.id async for c in contractors.iterate_search("needle", limit=1)] == [1]
+    query = json.loads(unquote(route.calls[1].request.url.query.decode()))
+    assert query["pageAfter"]["contentType"] == "ContractorHuman"
+
+
+async def test_search_category_does_not_silently_drop_constraint(contractors):
+    with pytest.raises(NotImplementedError, match="category"):
+        await contractors.list(q="needle", category_id=1)
+
+
+async def test_create_contractor_uses_concrete_route(contractors, megaplan_api):
+    megaplan_api.post("contractorCompany", data={"contentType": "ContractorCompany", "id": 1})
+    assert (await contractors.create({"contentType": "ContractorCompany", "name": "Test"})).id == 1
+
+
+async def test_search_preserves_reserved_characters_in_name(contractors, megaplan_api):
+    route = megaplan_api.get("contractorCompany/search", data=[])
+    query = "ООО #1 & 100%22"
+    await contractors.search(query)
+    sent = route.calls[0].request.url
+    assert not sent.fragment
+    assert json.loads(unquote(sent.query.decode()))["q"] == query
+
 
 async def test_list_contractors(megaplan_api, contractors):
     """Test listing contractors."""

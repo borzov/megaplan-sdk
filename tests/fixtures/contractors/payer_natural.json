@@ -1,0 +1,25 @@
+{
+  "contentType": "Payer",
+  "id": "1001700",
+  "name": "<name:15>",
+  "type": "Natural",
+  "firstName": "<firstName:15>",
+  "lastName": "",
+  "country": {
+    "contentType": "Country",
+    "id": "RU",
+    "name": "<name:6>",
+    "isDefault": true
+  },
+  "inn": "",
+  "address": "",
+  "legalAddress": "",
+  "edrpou": "",
+  "currentAccount": "",
+  "unp": "",
+  "isDropped": false,
+  "contractor": {
+    "contentType": "ContractorHuman",
+    "id": "1001581"
+  }
+}

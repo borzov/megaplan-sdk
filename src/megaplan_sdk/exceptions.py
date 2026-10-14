@@ -57,6 +57,27 @@ class AuthenticationError(MegaplanError):
         super().__init__(message, status_code=401, errors=errors, response=response)
 
 
+class UpdateConflictError(MegaplanError):
+    """A reviewed profile no longer matches its original state; no POST was sent."""
+
+
+class UpdateAuditError(MegaplanError):
+    """A POST outcome or its audit could not be confirmed; do not replay blindly."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        server_changed: bool | None,
+        operation_id: str,
+        response: dict[str, Any] | None = None,
+    ) -> None:
+        """Retain the operation id and confirmed/unknown server-write outcome."""
+        super().__init__(message, response=response)
+        self.server_changed = server_changed
+        self.operation_id = operation_id
+
+
 class AuthorizationError(MegaplanError):
     """Raised when authorization fails (403).
 

@@ -177,7 +177,7 @@ class ListParamsMixin:
 
         return params if params else {}
 
-    _Q_ALLOWED_FIELDS = ("name", "statement")
+    _Q_ALLOWED_FIELDS: tuple[str, ...] = ("name", "statement")
 
     # Content type of the filter a free-text `q` becomes. None = this resource
     # does not opt into the shared list-query policy.

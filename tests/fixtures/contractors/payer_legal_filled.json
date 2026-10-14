@@ -1,0 +1,33 @@
+{
+  "contentType": "Payer",
+  "id": "1001942",
+  "name": "<name:11>",
+  "type": "Legal",
+  "country": {
+    "contentType": "Country",
+    "id": "RU",
+    "name": "<name:6>",
+    "isDefault": true
+  },
+  "inn": "9999999999",
+  "address": "",
+  "legalAddress": "<legalAddress:64>",
+  "edrpou": "",
+  "currentAccount": "99999999999999999999",
+  "ogrn": "9999999999999",
+  "bank": "<bank:36>",
+  "bik": "999999999",
+  "kpp": "999999999",
+  "correspondentAccount": "99999999999999999999",
+  "okpo": "",
+  "mfo": "",
+  "unp": "",
+  "isDropped": false,
+  "contractor": {
+    "contentType": "ContractorCompany",
+    "id": "1001786"
+  },
+  "Category715CustomFieldDolzhnostPodpisanta": "<Category715CustomFieldDolzhnostPodpisanta:41>",
+  "Category715CustomFieldFioPodpisanta": "<Category715CustomFieldFioPodpisanta:26>",
+  "Category715CustomFieldNaOsnovanii": "<Category715CustomFieldNaOsnovanii:37>"
+}

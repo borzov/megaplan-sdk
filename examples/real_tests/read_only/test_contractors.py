@@ -93,7 +93,7 @@ async def test_get_contractor():
             if contractor.manager:
                 print(f"   Менеджер: {contractor.manager}")
             if contractor.inn:
-                print(f"   ИНН: {contractor.inn}")
+                print(f"   ИНН плательщиков: {[p.inn for p in contractor.payers or [] if p.inn]}")
             if contractor.email:
                 print(f"   Email: {contractor.email}")
             if contractor.phone:
@@ -137,7 +137,7 @@ async def test_search_contractors():
             search_query = contractors_list[0].name.split()[0] if contractors_list[0].name else "test"
 
             print(f"\n⏳ Поиск контрагентов по запросу: '{search_query}'...")
-            contractors = await client.contractors.list(q=search_query, limit=5)
+            contractors = await client.contractors.search(q=search_query, limit=5)
             print_success(f"Найдено контрагентов: {len(contractors)}")
 
             if contractors:
@@ -186,7 +186,7 @@ async def test_iterate_contractors():
             return True
 
     except Exception as e:
-        # API may not support pagination for contractors - not a critical failure
+        # Pagination failures are real failures; subtype cursors are supported
         print_warning(f"Итерация по контрагентам вернула ошибку (может быть связано с пагинацией): {e}")
         return True  # Not a critical failure
 
@@ -219,19 +219,19 @@ async def test_list_with_pagination():
             if len(first_page) >= 5:
                 last_contractor = first_page[-1]
                 print(f"\n⏳ Загрузка второй страницы (после контрагента #{last_contractor.id})...")
-                # Note: API may not support page_after for contractors
+                # Cursor must carry the concrete subtype of the last entity
                 second_page = await client.contractors.list(
                     limit=5,
-                    page_after={"contentType": "Contractor", "id": last_contractor.id}
+                    page_after={"contentType": last_contractor.content_type, "id": last_contractor.id}
                 )
                 print_success(f"Загружено контрагентов на второй странице: {len(second_page)}")
 
             return True
 
     except Exception as e:
-        # API may not support pagination for contractors - not a critical failure
-        print_warning(f"Пагинация контрагентов не поддерживается или вернула ошибку: {e}")
-        return True  # Not a critical failure
+        # Pagination failures are real failures; subtype cursors are supported
+        print_warning(f"Пагинация контрагентов вернула ошибку: {e}")
+        return False
 
 
 async def test_get_contractor_deals():

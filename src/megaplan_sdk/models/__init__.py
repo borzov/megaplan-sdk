@@ -2,6 +2,7 @@
 
 from megaplan_sdk.models.base import BaseEntity
 from megaplan_sdk.models.common import File, Meta, Pagination, SortField
+from megaplan_sdk.models.contact import Address, ContactInfo
 from megaplan_sdk.models.deal import Deal, ProgramState, TradeFilter
 from megaplan_sdk.models.group import Group
 from megaplan_sdk.models.knowledge import (
@@ -10,12 +11,23 @@ from megaplan_sdk.models.knowledge import (
     KnowledgeSectionWithArticles,
 )
 from megaplan_sdk.models.participant import Participant, parse_participant, parse_participants
+from megaplan_sdk.models.payer import Country, Payer, PayerCreate, PayerPatch
 from megaplan_sdk.models.project import Project, ProjectFilter
 from megaplan_sdk.models.task import Task, TaskFilter
 from megaplan_sdk.models.todo import Todo, TodoCategory, TodoStatus, TodoWhen
+from megaplan_sdk.models.update import ContractorPatch, UpdateFieldChange, UpdatePreview
 
 __all__ = [
     "BaseEntity",
+    "Country",
+    "Payer",
+    "PayerCreate",
+    "PayerPatch",
+    "ContactInfo",
+    "Address",
+    "ContractorPatch",
+    "UpdateFieldChange",
+    "UpdatePreview",
     "Meta",
     "Pagination",
     "SortField",

@@ -20,6 +20,7 @@ from megaplan_sdk.resources.filters import FiltersResource
 from megaplan_sdk.resources.knowledge_article import KnowledgeArticleResource
 from megaplan_sdk.resources.knowledge_base import KnowledgeBaseResource
 from megaplan_sdk.resources.notifications import NotificationsResource
+from megaplan_sdk.resources.payers import PayersResource
 from megaplan_sdk.resources.projects import ProjectsResource
 from megaplan_sdk.resources.tasks import TasksResource
 from megaplan_sdk.resources.todos import TodosResource
@@ -145,6 +146,7 @@ class MegaplanClient:
         )
         self.comments = CommentsResource(self._http, cache=self._cache)
         self.contractors = ContractorsResource(self._http, cache=self._cache)
+        self.payers = PayersResource(self._http, cache=self._cache)
         self.employees = EmployeesResource(self._http, cache=self._cache)
         self.departments = DepartmentsResource(self._http, cache=self._cache)
         self.filters = FiltersResource(self._http, cache=self._cache)

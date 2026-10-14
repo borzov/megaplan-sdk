@@ -1,5 +1,22 @@
 # Скрипты для разработки
 
+## verify_contractor_writes.py
+
+Opt-in проверка записи на новых объектах «ТЕСТ SDK, не трогать»: частичный POST,
+очистка необязательного банка, кастомное поле и замена контактов. Сценарий
+удаляет своего плательщика, помечает компанию на удаление и проверяет состояние
+автоматического плательщика. При ошибке аудит содержит созданные ID для сверки.
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/verify_contractor_writes.py --allow-test-writes --contractor-type-id 1 --audit-path /tmp/sdk-write-probe.jsonl --actor operator-id
+```
+
+Выберите существующий ContractorType ID своего аккаунта; 1 — пример.
+Авторизация: MEGAPLAN_URL и MEGAPLAN_USERNAME/MEGAPLAN_PASSWORD либо
+MEGAPLAN_ACCESS_TOKEN. Файл .env.local читается без shell source; другой файл
+задаётся через --env-file. Секреты не печатаются.
+[Контракты и ограничения](../examples/cookbook/contractor-profiles.md).
+
 ## check.sh - Локальный запуск проверок CI
 
 Скрипт для запуска всех проверок, которые выполняются в GitHub Actions, локально перед коммитом.

@@ -44,6 +44,7 @@ _ENTITIES: tuple[EntityInfo, ...] = (
     EntityInfo("project", ContentType.PROJECT),
     EntityInfo("employee", ContentType.EMPLOYEE),
     EntityInfo("contractor", ContentType.CONTRACTOR),
+    EntityInfo("payer", ContentType.PAYER),
     EntityInfo("contractorCompany", ContentType.CONTRACTOR_COMPANY),
     EntityInfo("contractorHuman", ContentType.CONTRACTOR_HUMAN),
     EntityInfo("contractorCategory", ContentType.CONTRACTOR_CATEGORY),

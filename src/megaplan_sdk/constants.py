@@ -6,6 +6,7 @@ from typing import Any
 class ContentType:
     """Content type constants for Megaplan API entities."""
 
+    PAYER = "Payer"
     TASK = "Task"
     TODO = "Todo"
     TODO_STATUS = "TodoStatus"

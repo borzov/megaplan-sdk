@@ -10,6 +10,8 @@ from megaplan_sdk.exceptions import (
     NotFoundError,
     RateLimitError,
     ServerError,
+    UpdateAuditError,
+    UpdateConflictError,
     ValidationError,
 )
 from megaplan_sdk.filter_builder import (
@@ -32,6 +34,7 @@ from megaplan_sdk.models.auth import AuthTokenResponse
 from megaplan_sdk.models.bulk import ApiCall, BulkCallResult
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.common import DateInterval, DateOnly, DateTime, Money
+from megaplan_sdk.models.contact import Address, ContactInfo
 from megaplan_sdk.models.contractor import Contractor, ContractorCompany, ContractorHuman
 from megaplan_sdk.models.deal import Deal, DealFullDetails
 from megaplan_sdk.models.department import Department
@@ -64,11 +67,14 @@ from megaplan_sdk.models.notification import (
     NotificationType,
 )
 from megaplan_sdk.models.participant import Participant, parse_participant, parse_participants
+from megaplan_sdk.models.payer import Country, Payer, PayerCreate, PayerPatch
 from megaplan_sdk.models.project import Project, ProjectFullDetails
 from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.models.todo import Todo, TodoCategory, TodoStatus, TodoWhen
+from megaplan_sdk.models.update import ContractorPatch, UpdateFieldChange, UpdatePreview
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.filters import FiltersResource
+from megaplan_sdk.resources.payers import PayersResource
 from megaplan_sdk.resources.todos import TodosResource
 from megaplan_sdk.sync.todos import TodoChanges, TodoSync, TodoSyncState
 from megaplan_sdk.task_query import TaskQuery
@@ -84,6 +90,8 @@ __all__ = [
     "ValidationError",
     "RateLimitError",
     "ServerError",
+    "UpdateConflictError",
+    "UpdateAuditError",
     # Models
     "AuthTokenResponse",
     "Task",
@@ -97,6 +105,16 @@ __all__ = [
     "Contractor",
     "ContractorCompany",
     "ContractorHuman",
+    "Country",
+    "Payer",
+    "PayerCreate",
+    "PayerPatch",
+    "PayersResource",
+    "ContactInfo",
+    "Address",
+    "ContractorPatch",
+    "UpdateFieldChange",
+    "UpdatePreview",
     "Employee",
     "Department",
     "Group",
@@ -161,4 +179,4 @@ __all__ = [
     "DEFAULT_TASK_LIST_FIELDS",
 ]
 
-__version__ = "0.6.3"
+__version__ = "0.7.0"
