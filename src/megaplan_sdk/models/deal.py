@@ -61,8 +61,8 @@ class Deal(TimestampMixin):
     Note:
         The list endpoint (``GET /api/v3/deal``) returns a subset of fields
         compared to the single-entity endpoint (``GET /api/v3/deal/{id}``).
-        Fields like ``description``, ``deadline``, ``invoices``, and custom
-        category fields are only available via ``client.deals.get(deal_id)``.
+        Request ``fields=["description"]`` for the full description in a list.
+        The list endpoint rejects ``deadline``.
 
         When using the ``fields`` parameter in ``list()``, use the actual
         API field names: ``manager``, ``price``, ``timeCreated``, etc.

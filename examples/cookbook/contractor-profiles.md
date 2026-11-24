@@ -39,15 +39,14 @@ Payer и контакты сохраняют неизвестные поля и 
 model_extra и model_dump(by_alias=True). Страна имеет строковый ID, например RU.
 Контакт может быть Address; его форма отличается от обычного ContactInfo.
 
-Поиск по ИНН на сервере ненадёжен. Для точного сопоставления обходите плательщиков:
+Точный поиск по ИНН проходит по плательщикам и возвращает все различные компании и физлица, совпавшие по реквизитам. Если нужен КПП, он должен совпасть у того же плательщика.
 
 ```python
-target_inn = "1234567890"
-async for payer in client.payers.iterate(limit=100):
-    if payer.inn == target_inn and not payer.is_dropped and payer.contractor:
-        profile = await client.contractors.get(payer.contractor.id)
-        print(profile.display_name())
+for profile in await client.contractors.find_by_inn(target_inn, kpp=target_kpp):
+    print(profile.content_type, profile.id, profile.display_name())
 ```
+
+Для чтения после внешнего изменения реквизитов сбросьте индекс вызовом `client.clear_cache_type("Payer")`.
 
 ## Ресурс плательщиков
 
@@ -148,11 +147,7 @@ for candidate in candidates:
 
 ## Архив задач
 
-На проверенном аккаунте обычный /task отдаёт активную выборку, а термин status
-расширяет её, игнорируя своё значение. Параметр statuses давал пустой список.
-Архивная выдача пропускает некоторые карточки, доступные по прямому ID.
-Это наблюдения одного аккаунта; include_archive пока не добавлен. Ключ записи —
-(contentType, id): Task и Project могут иметь одинаковый числовой ID.
+Для задач всех доступных статусов используйте `tasks.iterate(include_archive=True)`. Для завершённых добавьте `statuses=["completed"]`. Карточки, доступные по прямому ID, иногда отсутствуют в общем обходе. Известные расхождения проверяет `tasks.find_missing_in_archive(ids=known_ids)`.
 
 ## Проверено на аккаунте 14.10.2026
 

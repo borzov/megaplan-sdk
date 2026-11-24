@@ -1,5 +1,6 @@
 """Contractor models for Megaplan SDK."""
 
+import warnings
 from typing import Any
 
 from pydantic import ConfigDict, Field, field_validator
@@ -115,6 +116,27 @@ class Contractor(AliasItemAccess, BaseEntity, TimestampMixin):
         return self.display_name()
 
 
+_LEGACY_REQUISITES = {
+    "inn",
+    "kpp",
+    "ogrn",
+    "legal_name",
+    "legalName",
+    "legal_address",
+    "legalAddress",
+    "actual_address",
+    "actualAddress",
+}
+
+
+def _warn_deprecated_requisite(key: str) -> None:
+    warnings.warn(
+        f"ContractorCompany.{key} is deprecated. Read the company's payers for current requisites.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
 class ContractorCompany(Contractor):
     """Company contractor entity.
 
@@ -139,6 +161,17 @@ class ContractorCompany(Contractor):
     legal_name: str | None = Field(alias="legalName", default=None)
     legal_address: str | None = Field(alias="legalAddress", default=None)
     actual_address: str | None = Field(alias="actualAddress", default=None)
+
+    def __getattribute__(self, key: str) -> Any:
+        if key in _LEGACY_REQUISITES and key.islower():
+            _warn_deprecated_requisite(key)
+        return super().__getattribute__(key)
+
+    def __getitem__(self, key: str) -> Any:
+        """Read legacy keys with the same warning as attribute access."""
+        if isinstance(key, str) and key in _LEGACY_REQUISITES:
+            _warn_deprecated_requisite(key)
+        return super().__getitem__(key)
 
 
 class ContractorHuman(Contractor):

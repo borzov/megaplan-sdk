@@ -16,19 +16,19 @@ echo ""
 
 # Ruff check
 echo "✅ Запуск ruff check..."
-ruff check megaplan_sdk
+ruff check src/megaplan_sdk
 echo "✓ ruff check пройден"
 echo ""
 
 # Ruff format check
 echo "✅ Запуск ruff format check..."
-ruff format --check megaplan_sdk
+ruff format --check src/megaplan_sdk
 echo "✓ ruff format check пройден"
 echo ""
 
 # MyPy
 echo "✅ Запуск mypy..."
-mypy megaplan_sdk
+mypy src/megaplan_sdk
 echo "✓ mypy пройден"
 echo ""
 

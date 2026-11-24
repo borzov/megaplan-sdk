@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, cast
+import builtins
+from collections.abc import AsyncIterator, Iterable
+from typing import TYPE_CHECKING, Any, cast, overload
 
 from megaplan_sdk.constants import (
     DEFAULT_SORT_RECENT,
     ContentType,
 )
+from megaplan_sdk.exceptions import MegaplanError, NotFoundError
+from megaplan_sdk.filter_builder import FilterBuilder
+from megaplan_sdk.models.base import BaseEntity
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.task import Task, TaskFullDetails
@@ -24,13 +28,14 @@ from megaplan_sdk.resources.full_details import FullDetailsMixin, RelatedDataCon
 from megaplan_sdk.task_query import (
     VALID_TASK_STATUSES,
     TaskQuery,
-    validate_task_fields,
     validate_task_sort_field,
     validate_task_statuses,
 )
 from megaplan_sdk.types import FilterType
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     from megaplan_sdk.models.milestone import Milestone
     from megaplan_sdk.models.participant import Participant
 
@@ -130,6 +135,23 @@ class TasksResource(BaseResource, FullDetailsMixin):
 
         return await self._create_entity("task", task_data, Task)
 
+    def _archive_filter(
+        self, explicit_filter: FilterType | None, q: str | None, q_in: list[str] | None
+    ) -> dict[str, Any]:
+        if explicit_filter is not None:
+            raise ValueError("include_archive cannot be combined with an explicit filter")
+        archive = FilterBuilder("TaskFilter").field_enum("status").equals("completed").build()
+        if q is not None:
+            text_filter = self._q_to_filter("TaskFilter", q, q_in or ["name"])
+            group = text_filter["config"]["termGroup"]
+            # The API rejects a nested group in terms. The status marker widens
+            # the list but takes no part in matching, so the text terms can
+            # share the root join (OR when several fields are searched).
+            root = archive["config"]["termGroup"]
+            root["join"] = group["join"]
+            root["terms"].extend(group["terms"])
+        return archive
+
     async def list(
         self,
         filter: FilterType | None = None,
@@ -145,10 +167,15 @@ class TasksResource(BaseResource, FullDetailsMixin):
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         expand: list[str] | None = None,
+        *,
+        include_archive: bool = False,
+        fields_strict: bool = False,
     ) -> list[Task]:
         """Get list of tasks.
 
         Args:
+            include_archive: Include archived tasks in the visible list. Some cards accessible
+                by ID can be missing. Without a filter the default list covers active tasks.
             filter: Task filter (ID, string ID, or filter object with contentType and id).
                 If filter is int/str, it will be converted to {"contentType": "TaskFilter", "id": filter}.
                 If filter is dict, it will be used as is.
@@ -169,6 +196,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
             page: Page position (replaces page_after/page_before/page_with).
+            fields_strict: Require fields confirmed on this list route.
             fields: Additional fields to include.
                 **Important:** list endpoints do NOT return date fields
                 (timeCreated, activity, lastCommentTimeCreated, ...) unless
@@ -183,7 +211,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 occurrence per response (#36); the SDK fills the repeats from
                 it, so every reference on the page carries its ``name``
                 (#BUG-4). Use ``expand=`` to load the entities in full.
-            sort_by: Sort fields.
+            sort_by: Defaults to timeCreated descending. Pass [] for server order.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["responsible", "owner"]).
                 Supported values: "responsible", "owner".
@@ -216,6 +244,10 @@ class TasksResource(BaseResource, FullDetailsMixin):
         """
         path = self._build_path("api", "v3", "task")
 
+        if include_archive:
+            filter = self._archive_filter(filter, q, q_in)
+            q = None
+
         # #14 newest-first default and #11 q→filter conversion live in the base.
         filter, q, sort_by = self._apply_list_defaults(filter, q, q_in, sort_by)
 
@@ -230,10 +262,6 @@ class TasksResource(BaseResource, FullDetailsMixin):
                 if field_name is not None:
                     validate_task_sort_field(field_name)
 
-        # Validate fields against known-unsupported synonyms (raw 422) (#32).
-        if fields and isinstance(fields, list | tuple):
-            validate_task_fields([f for f in fields if isinstance(f, str)])
-
         # Convert filter ID to object format if needed
         processed_filter = filter
         if filter is not None and isinstance(filter, int | str) and not isinstance(filter, dict):
@@ -242,6 +270,8 @@ class TasksResource(BaseResource, FullDetailsMixin):
 
         # Use base method to build params (DRY)
         params = self._build_list_params(
+            list_route="task",
+            fields_strict=fields_strict,
             filter=processed_filter,
             limit=limit,
             page_after=page_after,
@@ -255,9 +285,16 @@ class TasksResource(BaseResource, FullDetailsMixin):
         )
 
         tasks = await self._get_list(path, Task, params)
+        if include_archive:
+            # Keep the last occurrence at its true position so page[-1] remains
+            # the server cursor even when the boundary row occurs twice.
+            unique = {}
+            for task in reversed(tasks):
+                unique.setdefault((task.content_type, task.id), task)
+            tasks = list(reversed(unique.values()))
         return await self._expand_references(tasks, expand)
 
-    async def list_by(self, query: TaskQuery) -> list[Task]:
+    async def list_by(self, query: TaskQuery) -> builtins.list[Task]:
         """Get list of tasks described by a :class:`TaskQuery`.
 
         The query is validated at construction time — invalid combinations
@@ -529,6 +566,8 @@ class TasksResource(BaseResource, FullDetailsMixin):
         filter: FilterType | None = None,
         statuses: list[str] | None = None,
         limit: int = 100,
+        *,
+        include_archive: bool = False,
         **kwargs: Any,
     ) -> AsyncIterator[Task]:
         """Iterate over all tasks with automatic pagination.
@@ -542,6 +581,8 @@ class TasksResource(BaseResource, FullDetailsMixin):
             filter: Task filter (ID or config).
             statuses: List of statuses to filter by.
             limit: Number of items per page.
+            include_archive: Walk the visible archive, including mixed Task/Project pages.
+                Deduplicates by type and ID. Cards visible by direct ID can be absent.
             **kwargs: Additional parameters passed through to ``list()``
                 (e.g. ``fields=[...]``, ``sort_by=[...]``, ``expand=[...]``).
 
@@ -554,6 +595,9 @@ class TasksResource(BaseResource, FullDetailsMixin):
             ... ):
             ...     print(task.time_created)
         """
+        if include_archive:
+            filter = self._archive_filter(filter, kwargs.pop("q", None), kwargs.pop("q_in", None))
+        seen: set[tuple[str, int]] = set()
         task: Task
         async for task in self._iterate_generic(  # type: ignore[valid-type]
             ContentType.TASK,
@@ -563,7 +607,68 @@ class TasksResource(BaseResource, FullDetailsMixin):
             statuses=statuses,
             **kwargs,
         ):
+            if include_archive:
+                key = (task.content_type, task.id)
+                if key in seen:
+                    continue
+                seen.add(key)
             yield task
+
+    @overload
+    async def find_missing_in_archive(self, ids: Iterable[int]) -> builtins.list[int]: ...
+
+    @overload
+    async def find_missing_in_archive(
+        self, *, links: Iterable[dict[str, Any] | BaseModel]
+    ) -> builtins.list[dict[str, Any]]: ...
+
+    async def find_missing_in_archive(
+        self,
+        ids: Iterable[int] | None = None,
+        *,
+        links: Iterable[dict[str, Any] | BaseModel] | None = None,
+    ) -> builtins.list[int] | builtins.list[dict[str, Any]]:
+        """Return known cards accessible by ID but missing from one archive scan.
+
+        Supply numeric task IDs, or typed Task/Project links. Results preserve input
+        order and form. A missing card (404) is skipped. Permission and transport
+        errors propagate because they leave the comparison inconclusive.
+        """
+        if (ids is None) == (links is None):
+            raise ValueError("Supply exactly one of ids or links")
+        keys: dict[tuple[str, int], None] = {}
+        if ids is not None:
+            for identifier in ids:
+                if isinstance(identifier, bool) or not isinstance(identifier, int):
+                    raise ValueError("Task IDs must be integers")
+                keys[(ContentType.TASK, identifier)] = None
+        else:
+            for link in links or ():
+                ref = BaseEntity.model_validate(link, from_attributes=True)
+                if ref.content_type not in (ContentType.TASK, ContentType.PROJECT):
+                    raise ValueError("Archive links must identify a Task or Project")
+                keys[(ref.content_type, ref.id)] = None
+
+        missing = dict(keys)
+        if missing:
+            async for item in self.iterate(
+                include_archive=True, only_requested_fields=True, fields=["id"]
+            ):
+                missing.pop((item.content_type, item.id), None)
+                if not missing:
+                    break
+        found: builtins.list[dict[str, Any]] = []
+        for kind, identifier in missing:
+            try:
+                card = await self._get_entity(kind.lower(), identifier, BaseEntity)
+            except NotFoundError:
+                continue
+            if (card.content_type, card.id) != (kind, identifier):
+                raise MegaplanError("Archive card response does not match the requested link")
+            found.append({"contentType": kind, "id": identifier})
+        if ids is not None:
+            return [r["id"] for r in found]
+        return found
 
     async def get_comments(
         self,
@@ -855,7 +960,7 @@ class TasksResource(BaseResource, FullDetailsMixin):
         """Get milestones for a task.
 
         Note: Direct endpoint /task/{id}/milestones returns 500 error.
-        This method uses /task/{id} with fields parameter to get milestones.
+        This method reads /task/{id} with fields. The shared GET /milestone returns 405.
 
         Args:
             task_id: Task identifier.

@@ -218,6 +218,8 @@ class TodosResource(BaseResource):
         expand: list[str] | None = None,
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
+        *,
+        fields_strict: bool = False,
     ) -> list[Todo]:
         """Get a page of todos.
 
@@ -235,6 +237,7 @@ class TodosResource(BaseResource):
             expand: Reference fields to load fully (e.g. ["responsible"]).
                 The loaded entities replace the bare references; the type is
                 unchanged.
+            fields_strict: Require fields confirmed on this list route.
             fields: Additional fields to request from the API.
             sort_by: Sort fields, e.g.
                 ``[{"contentType": "SortField", "fieldName": "timeCreated", "desc": True}]``.
@@ -283,6 +286,8 @@ class TodosResource(BaseResource):
 
         path = self._build_path("api", "v3", "todo")
         params = self._build_list_params(
+            list_route="todo",
+            fields_strict=fields_strict,
             filter=filter,
             limit=limit,
             page_after=page_after,

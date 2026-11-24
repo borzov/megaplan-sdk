@@ -31,13 +31,14 @@ from megaplan_sdk.helpers import (
 )
 from megaplan_sdk.logging_config import setup_logging
 from megaplan_sdk.models.auth import AuthTokenResponse
-from megaplan_sdk.models.bulk import ApiCall, BulkCallResult
+from megaplan_sdk.models.bulk import ApiCall, BulkCallResult, BulkEntitiesResult
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.common import DateInterval, DateOnly, DateTime, Money
 from megaplan_sdk.models.contact import Address, ContactInfo
 from megaplan_sdk.models.contractor import Contractor, ContractorCompany, ContractorHuman
 from megaplan_sdk.models.deal import Deal, DealFullDetails
 from megaplan_sdk.models.department import Department
+from megaplan_sdk.models.doc import Doc, DocContent, DocFolder, DocVersion
 from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.models.filter import (
     BaseFilter,
@@ -73,6 +74,7 @@ from megaplan_sdk.models.task import Task, TaskFullDetails
 from megaplan_sdk.models.todo import Todo, TodoCategory, TodoStatus, TodoWhen
 from megaplan_sdk.models.update import ContractorPatch, UpdateFieldChange, UpdatePreview
 from megaplan_sdk.pagination import Page
+from megaplan_sdk.resources.docs import DocsResource
 from megaplan_sdk.resources.filters import FiltersResource
 from megaplan_sdk.resources.payers import PayersResource
 from megaplan_sdk.resources.todos import TodosResource
@@ -117,6 +119,11 @@ __all__ = [
     "UpdatePreview",
     "Employee",
     "Department",
+    "BulkEntitiesResult",
+    "Doc",
+    "DocContent",
+    "DocFolder",
+    "DocVersion",
     "Group",
     "Milestone",
     "KnowledgeBase",
@@ -151,6 +158,7 @@ __all__ = [
     # Task queries
     "TaskQuery",
     # Filters
+    "DocsResource",
     "FiltersResource",
     "BaseFilter",
     "TaskFilter",
@@ -179,4 +187,4 @@ __all__ = [
     "DEFAULT_TASK_LIST_FIELDS",
 ]
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

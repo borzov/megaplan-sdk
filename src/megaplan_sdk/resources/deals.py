@@ -7,9 +7,9 @@ from typing import Any, cast
 
 from megaplan_sdk.constants import (
     DEFAULT_SORT_RECENT,
-    UNSUPPORTED_DEAL_FIELDS,
     ContentType,
 )
+from megaplan_sdk.helpers import normalize_state_name
 from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.comment import Comment
 from megaplan_sdk.models.contractor import Contractor
@@ -26,15 +26,13 @@ from megaplan_sdk.types import FilterType
 
 
 class DealsResource(BaseResource, FullDetailsMixin):
-    """Resource for working with deals."""
+    """Deal milestones are available through linked tasks or projects on the verified account."""
 
     _page_content_type = ContentType.DEAL
     _history_entity_type = "deal"
     _history_id_param = "deal_id"
     _filter_content_type = filter_content_type_for("deal")
     _default_sort = list(DEFAULT_SORT_RECENT)
-
-    _UNSUPPORTED_LIST_FIELDS = UNSUPPORTED_DEAL_FIELDS
 
     _expand_rules = {
         "manager": ExpandRule("employee", Employee),
@@ -132,11 +130,16 @@ class DealsResource(BaseResource, FullDetailsMixin):
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         expand: list[str] | None = None,
+        *,
+        state_in: list[str] | None = None,
+        fields_strict: bool = False,
     ) -> list[Deal]:
         """Get list of deals.
 
         Args:
             filter: Trade filter (ID or config).
+            state_in: Keep deals on this page whose normalized state name matches.
+                Use iterate(state_in=...) to check all pages.
             status: Program state to filter by.
             q: Text search by name (converted to a server-side name filter; #11).
                 Use q_in=["name", "statement"] to also match statement.
@@ -154,6 +157,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
             page: Page position (replaces page_after/page_before/page_with).
+            fields_strict: Require fields confirmed on this list route.
             fields: Additional fields to request from the API.
                 Must use actual API field names: ``manager``, ``price``,
                 ``timeCreated``, ``timeUpdated``, ``number``, ``cost``, ``debt``,
@@ -164,7 +168,7 @@ class DealsResource(BaseResource, FullDetailsMixin):
                 occurrence per response (#36); the SDK fills the repeats from
                 it, so every reference on the page carries its ``name``
                 (#BUG-4). Use ``expand=`` to load the entities in full.
-            sort_by: Sort fields.
+            sort_by: Defaults to timeCreated descending. Pass [] for server order.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["manager", "contractor"]).
                 Supported values: "manager", "contractor".
@@ -190,7 +194,8 @@ class DealsResource(BaseResource, FullDetailsMixin):
         """
         path = self._build_path("api", "v3", "deal")
 
-        self._validate_list_fields(fields)
+        if state_in is not None:
+            fields = self._fields_for_state_filter(fields)
 
         # #14 newest-first default and #11 q→filter conversion live in the base.
         filter, q, sort_by = self._apply_list_defaults(filter, q, q_in, sort_by)
@@ -212,6 +217,8 @@ class DealsResource(BaseResource, FullDetailsMixin):
 
         # Use base method to build params (DRY)
         params = self._build_list_params(
+            list_route="deal",
+            fields_strict=fields_strict,
             filter=processed_filter,
             limit=limit,
             page_after=page_after,
@@ -225,7 +232,23 @@ class DealsResource(BaseResource, FullDetailsMixin):
         )
 
         deals = await self._get_list(path, Deal, params)
+        if state_in is not None:
+            names = {normalize_state_name(s) for s in state_in}
+            deals = [
+                d
+                for d in deals
+                if d.state and d.state.name and normalize_state_name(d.state.name) in names
+            ]
         return await self._expand_references(deals, expand)
+
+    @staticmethod
+    def _fields_for_state_filter(fields: Any) -> list[Any]:
+        if fields is not None and not isinstance(fields, (list, tuple)):
+            raise ValueError("state_in requires fields to be a list or tuple")
+        values = list(fields or [])
+        if "state" not in values:
+            values.append("state")
+        return values
 
     async def get(self, deal_id: int, fields: list[str] | None = None) -> Deal:
         """Get deal by ID.
@@ -424,6 +447,11 @@ class DealsResource(BaseResource, FullDetailsMixin):
         Yields:
             Deal objects.
         """
+        state_in = kwargs.pop("state_in", None)
+        names = None
+        if state_in is not None:
+            names = {normalize_state_name(s) for s in state_in}
+            kwargs["fields"] = self._fields_for_state_filter(kwargs.get("fields"))
         deal: Deal
         async for deal in self._iterate_generic(  # type: ignore[valid-type]
             ContentType.DEAL,
@@ -431,7 +459,10 @@ class DealsResource(BaseResource, FullDetailsMixin):
             limit,
             **kwargs,
         ):
-            yield deal
+            if names is None or (
+                deal.state and deal.state.name and normalize_state_name(deal.state.name) in names
+            ):
+                yield deal
 
     async def get_comments(
         self,

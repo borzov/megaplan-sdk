@@ -2,24 +2,25 @@
 
 ## verify_contractor_writes.py
 
-Opt-in проверка записи на новых объектах «ТЕСТ SDK, не трогать»: частичный POST,
-очистка необязательного банка, кастомное поле и замена контактов. Сценарий
-удаляет своего плательщика, помечает компанию на удаление и проверяет состояние
-автоматического плательщика. При ошибке аудит содержит созданные ID для сверки.
+Сценарий создаёт тестовую компанию и плательщиков Legal и Natural на выделенном стенде. Для каждого доступного реквизита и поля подписанта он отдельно меняет значение, сравнивает остальные деловые поля и проверяет восстановление. В отчёт попадают также недоступные поля и результат очистки тестовых объектов.
 
 ```bash
-PYTHONPATH=src .venv/bin/python scripts/verify_contractor_writes.py --allow-test-writes --contractor-type-id 1 --audit-path /tmp/sdk-write-probe.jsonl --actor operator-id
+PYTHONPATH=src .venv/bin/python scripts/verify_contractor_writes.py --env-file /path/to/test.env --allow-test-writes --contractor-type-id 1 --audit-path /tmp/sdk-write-probe.jsonl --actor operator-id
 ```
 
-Выберите существующий ContractorType ID своего аккаунта; 1 — пример.
-Авторизация: MEGAPLAN_URL и MEGAPLAN_USERNAME/MEGAPLAN_PASSWORD либо
-MEGAPLAN_ACCESS_TOKEN. Файл .env.local читается без shell source; другой файл
-задаётся через --env-file. Секреты не печатаются.
-[Контракты и ограничения](../examples/cookbook/contractor-profiles.md).
+Подставьте ID типа контрагента со своего стенда. Авторизация поддерживает MEGAPLAN_URL с MEGAPLAN_USERNAME и MEGAPLAN_PASSWORD либо с MEGAPLAN_ACCESS_TOKEN. [Контракты и ограничения](../examples/cookbook/contractor-profiles.md).
+
+## Проверки чтения 0.8.0
+
+Экспортируйте параметры авторизации для аккаунта с завершёнными задачами, сотрудниками и плательщиками. Набор выбирает контрольные записи из данных этого аккаунта.
+
+```bash
+MEGAPLAN_LIVE_READ_080=1 .venv/bin/python -m pytest -o addopts= tests/integration/test_sdk_080_reads.py
+```
+
+Для проверки полей конкретного списка запустите `PYTHONPATH=src .venv/bin/python scripts/probe_list_fields.py --help`.
 
 ## check.sh - Локальный запуск проверок CI
-
-Скрипт для запуска всех проверок, которые выполняются в GitHub Actions, локально перед коммитом.
 
 ### Использование
 
@@ -48,16 +49,16 @@ pip install -e ".[dev]"
 
 ```bash
 # Только ruff check
-ruff check megaplan_sdk
+ruff check src/megaplan_sdk
 
 # Только проверка форматирования
-ruff format --check megaplan_sdk
+ruff format --check src/megaplan_sdk
 
 # Автоматическое исправление форматирования
-ruff format megaplan_sdk
+ruff format src/megaplan_sdk
 
 # Только mypy
-mypy megaplan_sdk
+mypy src/megaplan_sdk
 
 # Только тесты
 pytest --cov=megaplan_sdk --cov-report=term-missing

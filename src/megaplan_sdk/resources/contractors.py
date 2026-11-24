@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import builtins
+import re
 from collections.abc import AsyncIterator
 from os import PathLike
 from typing import Any, Literal, overload
@@ -15,6 +17,7 @@ from megaplan_sdk.models.todo import Todo
 from megaplan_sdk.models.update import ContractorPatch, UpdatePreview
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.base import BaseResource
+from megaplan_sdk.resources.payers import PayersResource, invalidate_payer_cache
 from megaplan_sdk.updates import apply_update, prepare_update
 
 # GET .../contractor/{id}/history and .../contractor/{id}/todos 500 server-side
@@ -84,7 +87,8 @@ class ContractorsResource(BaseResource):
         if segment is None:
             raise ValueError("contentType must be ContractorCompany or ContractorHuman")
         path = self._build_path("api", "v3", segment)
-        response = await self._http.post(path, json_data=contractor_data)
+        with invalidate_payer_cache(self._cache):
+            response = await self._http.post(path, json_data=contractor_data)
         data = response["data"]
         return self._parse_contractor_response(data)
 
@@ -100,6 +104,8 @@ class ContractorsResource(BaseResource):
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
+        *,
+        fields_strict: bool = False,
     ) -> list[Contractor]:
         """Get list of contractors.
 
@@ -118,6 +124,7 @@ class ContractorsResource(BaseResource):
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
             page: Page position (replaces page_after/page_before/page_with).
+            fields_strict: Require fields confirmed on this list route.
             fields: Additional fields to include.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
@@ -144,6 +151,7 @@ class ContractorsResource(BaseResource):
                 page_before=page_before,
                 page_with=page_with,
                 page=page,
+                fields_strict=fields_strict,
                 fields=fields,
                 sort_by=sort_by,
                 only_requested_fields=only_requested_fields,
@@ -162,6 +170,8 @@ class ContractorsResource(BaseResource):
 
         # Use base method to build params (DRY)
         params = self._build_list_params(
+            list_route="contractor",
+            fields_strict=fields_strict,
             limit=limit,
             page_after=page_after,
             page_before=page_before,
@@ -195,12 +205,14 @@ class ContractorsResource(BaseResource):
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
+        *,
+        fields_strict: bool = False,
     ) -> list[Contractor]:
         """Search reduced company and human profiles by name or contacts.
 
         Both concrete search routes return both subtypes. This method uses
         contractorCompany/search; the abstract contractor/search returns 500.
-        Payers are not included. INN matching is unreliable: use payers.iterate()
+        Payers are omitted by default. INN matching is unreliable: use payers.iterate()
         to find exact requisites, then load the contractor explicitly.
 
         Args:
@@ -210,6 +222,7 @@ class ContractorsResource(BaseResource):
             page_before: Cursor before the requested page.
             page_with: Cursor included in the requested page.
             page: Page position replacing the cursor arguments.
+            fields_strict: Require fields confirmed on this list route.
             fields: Additional fields.
             sort_by: Sort rules.
             only_requested_fields: Return only requested fields.
@@ -223,6 +236,8 @@ class ContractorsResource(BaseResource):
         if not q.strip():
             raise ValueError("q must contain search text")
         params = self._build_list_params(
+            list_route="contractorCompany/search",
+            fields_strict=fields_strict,
             q=q,
             limit=limit,
             page_after=page_after,
@@ -269,6 +284,60 @@ class ContractorsResource(BaseResource):
         path = self._build_path("api", "v3", "contractor", str(contractor_id))
         response = await self._http.get(path)
         return self._parse_contractor_response(response["data"])
+
+    async def find_by_inn(self, inn: str, kpp: str | None = None) -> builtins.list[Contractor]:
+        """Read all distinct company and human owners matching a payer's requisites.
+
+        Args:
+            inn: Ten or twelve ASCII digits. Spaces are ignored.
+            kpp: Optional exact registration code on the same active payer.
+
+        Returns:
+            Fresh contractor cards in the order their matching payers were found.
+            The first lookup scans all payer pages. Later lookups share the
+            client's cache TTL. Use clear_cache() after an external write.
+
+        Raises:
+            ValueError: The INN has an invalid format.
+        """
+        if not isinstance(inn, str) or not re.fullmatch(
+            r"[0-9]{10}(?:[0-9]{2})?", inn.replace(" ", "")
+        ):
+            raise ValueError("INN must contain 10 or 12 ASCII digits")
+        inn = inn.replace(" ", "")
+        cache = self._cache
+        index: dict[str, list[tuple[str | None, str, int]]] | None = (
+            cache.get("Payer", None) if cache is not None else None
+        )
+        if index is None:
+            generation = cache.invalidation_version if cache is not None else None
+            index = {}
+            payers = PayersResource(self._http, cache)
+            async for payer in payers.iterate(fields=["inn", "kpp", "contractor", "isDropped"]):
+                owner = payer.contractor
+                if (
+                    payer.is_dropped
+                    or not payer.inn
+                    or not owner
+                    or owner.content_type not in _SUBTYPE_SEGMENTS
+                ):
+                    continue
+                index.setdefault(payer.inn.replace(" ", ""), []).append(
+                    (payer.kpp, owner.content_type, owner.id)
+                )
+            if cache is not None and generation == cache.invalidation_version:
+                cache.set("Payer", None, index)
+        owners = dict.fromkeys(
+            (kind, owner_id)
+            for code, kind, owner_id in index.get(inn, ())
+            if kpp is None or code == kpp
+        )
+        result = []
+        for kind, owner_id in owners:
+            path = self._build_path("api", "v3", _SUBTYPE_SEGMENTS[kind], str(owner_id))
+            response = await self._http.get(path)
+            result.append(self._parse_contractor_response(response["data"]))
+        return result
 
     async def possible_duplicates(
         self,
@@ -410,7 +479,8 @@ class ContractorsResource(BaseResource):
                 ContractorPatch,
                 tuple(_SUBTYPE_SEGMENTS),
             )
-        response = await self._http.post(path, json_data=contractor_data)
+        with invalidate_payer_cache(self._cache):
+            response = await self._http.post(path, json_data=contractor_data)
         return self._parse_contractor_response(response["data"])
 
     async def apply_update(
@@ -444,16 +514,17 @@ class ContractorsResource(BaseResource):
         if segment is None:
             raise ValueError("Preview is not a concrete contractor")
         post_path = self._build_path("api", "v3", segment, str(preview.entity_id))
-        response = await apply_update(
-            self._http,
-            path,
-            preview,
-            ContractorPatch,
-            tuple(_SUBTYPE_SEGMENTS),
-            audit_path,
-            actor,
-            post_path=post_path,
-        )
+        with invalidate_payer_cache(self._cache):
+            response = await apply_update(
+                self._http,
+                path,
+                preview,
+                ContractorPatch,
+                tuple(_SUBTYPE_SEGMENTS),
+                audit_path,
+                actor,
+                post_path=post_path,
+            )
         return self._parse_contractor_response(response["data"])
 
     async def iterate(

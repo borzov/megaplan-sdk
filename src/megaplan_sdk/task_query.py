@@ -11,9 +11,9 @@ from typing import Any
 from megaplan_sdk.constants import (
     DEFAULT_SORT_RECENT,
     DEFAULT_TASK_LIST_FIELDS,
-    UNSUPPORTED_TASK_FIELDS,
     UNSUPPORTED_TASK_SORT_FIELDS,
 )
+from megaplan_sdk.list_fields import validate_list_options
 from megaplan_sdk.pagination import Page
 
 # Valid task statuses according to RAML documentation
@@ -69,28 +69,9 @@ def validate_task_sort_field(field_name: str) -> None:
         )
 
 
-def validate_task_fields(fields: list[str]) -> None:
-    """Reject ``fields`` values the API answers with a raw 422 (#32).
-
-    Only known foreign-API synonyms are rejected (blacklist); unknown and
-    custom category fields pass through — the pydantic model cannot serve
-    as an allowlist (see ``UNSUPPORTED_TASK_FIELDS`` in constants).
-
-    Args:
-        fields: Field names requested via the ``fields`` parameter.
-
-    Raises:
-        ValueError: If a field is a known-unsupported synonym, with the
-            real Task fields to use instead.
-    """
-    for field in fields:
-        suggestions = UNSUPPORTED_TASK_FIELDS.get(field)
-        if suggestions:
-            raise ValueError(
-                f"Task has no field '{field}' (API returns 422). "
-                f"Did you mean: {', '.join(suggestions)}? "
-                f"Commonly requested fields: {', '.join(DEFAULT_TASK_LIST_FIELDS)}."
-            )
+def validate_task_fields(fields: list[str], *, fields_strict: bool = False) -> None:
+    """Validate requested API names against the task list route."""
+    validate_list_options("task", fields, fields_strict=fields_strict)
 
 
 def validate_task_search_fields(fields: list[str]) -> None:
@@ -132,12 +113,14 @@ class TaskQuery:
     """
 
     def __init__(self) -> None:
+        self._include_archive = False
         self._q: str | None = None
         self._q_in: list[str] | None = None
         self._filter: Any | None = None
         self._statuses: list[str] | None = None
         self._sort_by: list[dict[str, Any]] | None = None
         self._fields: list[str] | None = None
+        self._fields_strict = False
         self._limit: int | None = None
         self._page: Page | None = None
         self._only_requested_fields: bool | None = None
@@ -169,7 +152,16 @@ class TaskQuery:
         """
         if self._q is not None:
             raise ValueError("Pass either search() or filter(), not both.")
+        if self._include_archive:
+            raise ValueError("include_archive cannot be combined with an explicit filter")
         self._filter = filter_ref
+        return self
+
+    def include_archive(self, enabled: bool = True) -> "TaskQuery":
+        """Include the visible archive in list_by(), optionally restricted by statuses()."""
+        if enabled and self._filter is not None:
+            raise ValueError("include_archive cannot be combined with an explicit filter")
+        self._include_archive = enabled
         return self
 
     def statuses(self, *statuses: str) -> "TaskQuery":
@@ -197,13 +189,20 @@ class TaskQuery:
         return self
 
     def fields(self, *fields: str) -> "TaskQuery":
-        """Request additional fields (validated against API-rejected synonyms)."""
-        validate_task_fields(list(fields))
+        """Request additional fields by their API names."""
+        validate_task_fields(list(fields), fields_strict=self._fields_strict)
         self._fields = [*(self._fields or []), *fields]
+        return self
+
+    def fields_strict(self, value: bool = True) -> "TaskQuery":
+        """Require confirmed names for previously and subsequently requested fields."""
+        validate_list_options("task", self._fields, fields_strict=value)
+        self._fields_strict = value
         return self
 
     def limit(self, limit: int) -> "TaskQuery":
         """Number of items per page."""
+        validate_list_options("task", limit=limit)
         self._limit = limit
         return self
 
@@ -220,6 +219,8 @@ class TaskQuery:
     def as_list_kwargs(self) -> dict[str, Any]:
         """Materialize the query as ``tasks.list()`` keyword arguments."""
         kwargs: dict[str, Any] = {}
+        if self._include_archive:
+            kwargs["include_archive"] = True
         if self._q is not None:
             kwargs["q"] = self._q
             kwargs["q_in"] = self._q_in
@@ -233,6 +234,8 @@ class TaskQuery:
             kwargs["sort_by"] = list(DEFAULT_SORT_RECENT)
         if self._fields is not None:
             kwargs["fields"] = self._fields
+        if self._fields_strict:
+            kwargs["fields_strict"] = True
         if self._limit is not None:
             kwargs["limit"] = self._limit
         if self._page is not None:

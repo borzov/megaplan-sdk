@@ -1,30 +1,48 @@
 """Main client for Megaplan SDK."""
 
+import asyncio
+from collections.abc import Iterable
 from types import TracebackType
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel
 
 from megaplan_sdk.auth import AuthManager
 from megaplan_sdk.cache import EntityCache
+from megaplan_sdk.exceptions import MegaplanError, NotFoundError
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger, setup_logging
 from megaplan_sdk.models.auth import AuthTokenResponse
-from megaplan_sdk.models.bulk import BulkCallResult
+from megaplan_sdk.models.base import BaseEntity
+from megaplan_sdk.models.bulk import ApiCall, BulkCallResult, BulkEntitiesResult
 from megaplan_sdk.resources.attachments import AttachmentsResource
 from megaplan_sdk.resources.auth import AuthResource
 from megaplan_sdk.resources.comments import CommentsResource
 from megaplan_sdk.resources.contractors import ContractorsResource
 from megaplan_sdk.resources.deals import DealsResource
 from megaplan_sdk.resources.departments import DepartmentsResource
+from megaplan_sdk.resources.docs import DocsResource, compact_employee_refs
 from megaplan_sdk.resources.employees import EmployeesResource
 from megaplan_sdk.resources.filters import FiltersResource
 from megaplan_sdk.resources.knowledge_article import KnowledgeArticleResource
 from megaplan_sdk.resources.knowledge_base import KnowledgeBaseResource
 from megaplan_sdk.resources.notifications import NotificationsResource
-from megaplan_sdk.resources.payers import PayersResource
+from megaplan_sdk.resources.payers import PayersResource, invalidate_payer_cache
 from megaplan_sdk.resources.projects import ProjectsResource
 from megaplan_sdk.resources.tasks import TasksResource
 from megaplan_sdk.resources.todos import TodosResource
 from megaplan_sdk.types import TokenRefreshCallback
+
+_ENTITY_BATCH_SIZE = 25
+_EMPLOYEE_CONCURRENCY = 8
+
+
+def _changes_payers(method: str, path: str) -> bool:
+    parts = path.partition("?")[0].strip("/").split("/")
+    return method.upper() in {"POST", "PUT", "PATCH", "DELETE"} and (
+        parts[-1] == "bulk"
+        or bool({"payer", "contractor", "contractorHuman", "contractorCompany"}.intersection(parts))
+    )
 
 
 class MegaplanClient:
@@ -151,6 +169,7 @@ class MegaplanClient:
         self.departments = DepartmentsResource(self._http, cache=self._cache)
         self.filters = FiltersResource(self._http, cache=self._cache)
         self.attachments = AttachmentsResource(self._http, cache=self._cache)
+        self.docs = DocsResource(self._http, self.attachments)
         self.notifications = NotificationsResource(self._http, cache=self._cache)
         self.todos = TodosResource(self._http, cache=self._cache)
         self.knowledge_article = KnowledgeArticleResource(self._http, cache=self._cache)
@@ -210,6 +229,8 @@ class MegaplanClient:
         path: str,
         query: dict[str, Any] | None = None,
         json: dict[str, Any] | list[Any] | None = None,
+        *,
+        compact: bool = False,
     ) -> dict[str, Any]:
         """Call an API endpoint that has no dedicated resource yet.
 
@@ -223,6 +244,7 @@ class MegaplanClient:
             path: Full API path, e.g. ``/api/v3/notification``.
             query: Query parameters, encoded as the Megaplan JSON literal.
             json: Request body for POST/PUT/PATCH.
+            compact: Shorten nested employee links in the returned data.
 
         Returns:
             Parsed response body including ``meta`` and ``data``.
@@ -231,7 +253,12 @@ class MegaplanClient:
             >>> body = await client.raw("GET", "/api/v3/notification", query={"limit": 60})
             >>> notifications = body["data"]
         """
-        return await self._http._request(method.upper(), path, params=query, json_data=json)
+        cache = self._cache if _changes_payers(method, path) else None
+        with invalidate_payer_cache(cache):
+            response = await self._http._request(method.upper(), path, params=query, json_data=json)
+        if compact and "data" in response:
+            return {**response, "data": compact_employee_refs(response["data"])}
+        return response
 
     async def bulk(self, calls: list[Any]) -> list[BulkCallResult]:
         """Send several API calls in one HTTP request (``POST /api/v3/bulk``).
@@ -254,7 +281,74 @@ class MegaplanClient:
             >>> [r.status for r in results]
             [200, 200]
         """
-        return await self.deals._bulk_calls(calls)
+        writes_payers = any(
+            _changes_payers(call.method, call.url)
+            if isinstance(call, ApiCall)
+            else isinstance(call, dict)
+            and _changes_payers(str(call.get("method")), str(call.get("url")))
+            for call in calls
+        )
+        with invalidate_payer_cache(self._cache if writes_payers else None):
+            return await self.deals._bulk_calls(calls)
+
+    async def get_entities_by_links(
+        self,
+        links: Iterable[BaseModel | dict[str, Any]],
+        *,
+        keep_order: bool = True,
+        on_missing: Literal["report", "skip", "raise"] = "report",
+    ) -> BulkEntitiesResult:
+        """Resolve mixed links, using individual reads for employees.
+
+        Args:
+            links: Entity models or dictionaries with contentType and a numeric id.
+            keep_order: Reproduce input positions including duplicates. If false,
+                return each resolved card once in retrieval order.
+            on_missing: Report distinct missing links, omit them, or raise
+                MegaplanError with the missing links in its errors attribute.
+
+        Returns:
+            Full cards, missing links, and the resolution method for each card.
+        """
+        if on_missing not in ("report", "skip", "raise"):
+            raise ValueError("on_missing must be 'report', 'skip' or 'raise'")
+        keys: list[tuple[str, int]] = []
+        for link in links:
+            ref = BaseEntity.model_validate(link, from_attributes=True)
+            keys.append((ref.content_type, ref.id))
+        unique = dict.fromkeys(keys)
+        bulk_links = [{"contentType": ct, "id": i} for ct, i in unique if ct != "Employee"]
+        cards: dict[tuple[str, int], dict[str, Any]] = {}
+        for start in range(0, len(bulk_links), _ENTITY_BATCH_SIZE):
+            batch = bulk_links[start : start + _ENTITY_BATCH_SIZE]
+            for card in await self.deals._bulk_get_entities_by_links(batch):
+                key = (card["contentType"], int(card["id"]))
+                if key in unique and key[0] != "Employee":
+                    cards[key] = card
+
+        employees = [i for ct, i in unique if ct == "Employee"]
+        for start in range(0, len(employees), _EMPLOYEE_CONCURRENCY):
+            ids = employees[start : start + _EMPLOYEE_CONCURRENCY]
+            results = await asyncio.gather(
+                *(self._http.get(f"/api/v3/employee/{i}") for i in ids), return_exceptions=True
+            )
+            for employee_id, response in zip(ids, results, strict=True):
+                if isinstance(response, NotFoundError):
+                    continue
+                if isinstance(response, BaseException):
+                    raise response
+                cards[("Employee", employee_id)] = response["data"]
+
+        missing = [{"contentType": ct, "id": i} for ct, i in unique if (ct, i) not in cards]
+        if missing and on_missing == "raise":
+            raise MegaplanError(f"Entity links missing from response: {missing}", errors=missing)
+        return BulkEntitiesResult(
+            items=[cards[key] for key in keys if key in cards]
+            if keep_order
+            else list(cards.values()),
+            missing=missing if on_missing == "report" else [],
+            resolved_via={key: "get" if key[0] == "Employee" else "bulk" for key in cards},
+        )
 
     async def close(self) -> None:
         """Close client and cleanup resources."""

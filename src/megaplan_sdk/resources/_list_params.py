@@ -11,12 +11,13 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Protocol
 
+from megaplan_sdk.list_fields import validate_list_options
+
 
 class _ListParamsHost(Protocol):
     """Members `ListParamsMixin` requires from the resource it is mixed into."""
 
     _page_content_type: str | None
-    _UNSUPPORTED_LIST_FIELDS: ClassVar[dict[str, tuple[str, ...]]]
     _Q_ALLOWED_FIELDS: tuple[str, ...]
     _filter_content_type: str | None
     _default_sort: ClassVar[list[dict[str, str]]]
@@ -34,35 +35,6 @@ class _ListParamsHost(Protocol):
 
 class ListParamsMixin:
     """Query-parameter assembly for the list endpoints every resource shares."""
-
-    # Field names this resource's list endpoint rejects with a raw 422, mapped
-    # to the fields to suggest instead. A blacklist, not an allowlist: custom
-    # category fields are unknowable in advance and must pass through.
-    _UNSUPPORTED_LIST_FIELDS: ClassVar[dict[str, tuple[str, ...]]] = {}
-
-    def _validate_list_fields(self: _ListParamsHost, fields: Any | None) -> None:
-        """Reject ``fields=`` values the list endpoint answers with a raw 422.
-
-        Args:
-            fields: Value passed to ``list(fields=...)``.
-
-        Raises:
-            ValueError: If a field is known-unsupported, naming the fields to
-                use instead and where the data is available.
-        """
-        if not fields or not isinstance(fields, list | tuple):
-            return
-        entity = self._page_content_type or type(self).__name__
-        for field in fields:
-            if not isinstance(field, str):
-                continue
-            suggestions = self._UNSUPPORTED_LIST_FIELDS.get(field)
-            if suggestions:
-                raise ValueError(
-                    f"{entity} list endpoint has no field '{field}' (API returns 422). "
-                    f"Did you mean: {', '.join(suggestions)}? "
-                    f"Card-only data is available via get()."
-                )
 
     def _coerce_page_ref(
         self: _ListParamsHost,
@@ -120,6 +92,8 @@ class ListParamsMixin:
         only_requested_fields: bool | None = None,
         page_content_type: str | None = None,
         page: Any | None = None,
+        list_route: str | None = None,
+        fields_strict: bool = False,
         **extra_params: Any,
     ) -> dict[str, Any]:
         """Build standard list parameters for pagination and filtering.
@@ -135,11 +109,15 @@ class ListParamsMixin:
             only_requested_fields: Return only requested fields.
             page: Page position; replaces the page_after/page_before/page_with
                 trio. Passing both raises ValueError.
+            list_route: Top-level route whose projection and page size to validate.
+            fields_strict: Require confirmed API field names for this route.
             **extra_params: Additional parameters (e.g., statuses, status, q).
 
         Returns:
             Dictionary with non-None parameters.
         """
+        if list_route is not None:
+            validate_list_options(list_route, fields, fields_strict=fields_strict, limit=limit)
         if page is not None:
             if page_after is not None or page_before is not None or page_with is not None:
                 raise ValueError("Pass either page= or page_after/page_before/page_with, not both.")

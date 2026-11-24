@@ -6,6 +6,7 @@ from megaplan_sdk.resources.comments import CommentsResource
 from megaplan_sdk.resources.contractors import ContractorsResource
 from megaplan_sdk.resources.deals import DealsResource
 from megaplan_sdk.resources.departments import DepartmentsResource
+from megaplan_sdk.resources.docs import DocsResource
 from megaplan_sdk.resources.employees import EmployeesResource
 from megaplan_sdk.resources.filters import FiltersResource
 from megaplan_sdk.resources.payers import PayersResource
@@ -23,5 +24,6 @@ __all__ = [
     "PayersResource",
     "EmployeesResource",
     "DepartmentsResource",
+    "DocsResource",
     "FiltersResource",
 ]

@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 from megaplan_sdk.constants import ContentType
+from megaplan_sdk.exceptions import MegaplanError
 from megaplan_sdk.http_client import HTTPClient
 from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.bulk import ApiCall, BulkCallResult
@@ -201,10 +202,15 @@ class BaseResource(
         Yields:
             Individual items from the paginated results.
         """
-        page_after = None
+        page_after = kwargs.pop("page_after", None)
+        cursors: set[tuple[str, int]] = set()
 
         while True:
             items: list[T] = await list_method(limit=limit, page_after=page_after, **kwargs)
+            # The caller's starting position applies only to the first request.
+            # All subsequent requests continue from the last raw item.
+            for position in ("page", "page_before", "page_with"):
+                kwargs.pop(position, None)
             if not items:
                 break
 
@@ -220,6 +226,10 @@ class BaseResource(
                 logger.warning(f"Entity without id during pagination: {type(last_item).__name__}")
                 break
             item_type = getattr(last_item, "content_type", None) or content_type
+            key = (item_type, item_id)
+            if key in cursors:
+                raise MegaplanError(f"Repeated pagination cursor for {content_type}")
+            cursors.add(key)
             page_after = {"contentType": item_type, "id": item_id}
 
     async def _get_entity_comments(

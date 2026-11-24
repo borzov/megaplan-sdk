@@ -5,7 +5,7 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 import httpx
 
@@ -509,8 +509,7 @@ class HTTPClient:
         """Join an attachment path to base_url; pass same-origin URLs through.
 
         Same-origin policy: an absolute URL is only followed if it uses
-        HTTPS (unless the client was built with ``allow_http=True``) and its
-        host matches ``base_url``'s host exactly (case-insensitive). This
+        the same scheme, hostname and effective port as ``base_url``. This
         keeps the Bearer token from being sent to an arbitrary third-party
         host or over plaintext HTTP. Relative paths are always joined to
         ``base_url`` and carry no such risk.
@@ -526,21 +525,24 @@ class HTTPClient:
                 ``allow_http=True``, or targets a host different from
                 ``base_url``.
         """
+        if path.startswith("//"):
+            raise ValueError("File path must be relative to this account or use its full origin")
         if path.startswith(("http://", "https://")):
-            if path.startswith("http://") and not self._allow_http:
+            try:
+                target = httpx.URL(path)
+            except httpx.InvalidURL as exc:
+                raise ValueError("Invalid download path") from exc
+            if target.scheme == "http" and not self._allow_http:
+                raise ValueError("Download path must use the client HTTPS origin")
+            origin = httpx.URL(self.base_url)
+            if (target.scheme, target.host, target.port) != (
+                origin.scheme,
+                origin.host,
+                origin.port,
+            ):
                 raise ValueError(
-                    f"Only HTTPS URLs are allowed for binary downloads. Got: {path}. "
-                    f"Use allow_http=True only for development/testing."
+                    "Binary download URL must have the same origin (scheme, host and port) as the client"
                 )
-
-            target_host = urlsplit(path).hostname
-            base_host = urlsplit(self.base_url).hostname
-            if not target_host or not base_host or target_host.lower() != base_host.lower():
-                raise ValueError(
-                    f"Refusing to send credentials to a different host than base_url. "
-                    f"Got: {path}, expected host matching base_url: {self.base_url}."
-                )
-
             return path
         return f"{self.base_url}{path}"
 

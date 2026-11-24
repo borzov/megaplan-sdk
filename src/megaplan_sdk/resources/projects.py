@@ -197,6 +197,8 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         expand: list[str] | None = None,
+        *,
+        fields_strict: bool = False,
     ) -> list[Project]:
         """Get list of projects.
 
@@ -216,6 +218,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
             page: Page position (replaces page_after/page_before/page_with).
+            fields_strict: Require fields confirmed on this list route.
             fields: Additional fields to include.
 
                 **Linked entities** (owner/responsible/manager/contractor):
@@ -223,7 +226,7 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
                 occurrence per response (#36); the SDK fills the repeats from
                 it, so every reference on the page carries its ``name``
                 (#BUG-4). Use ``expand=`` to load the entities in full.
-            sort_by: Sort fields.
+            sort_by: Sort fields. Defaults to the native project list order.
             only_requested_fields: Return only requested fields.
             expand: List of fields to expand (e.g., ["responsible", "owner"]).
                 Supported values: "responsible", "owner".
@@ -254,6 +257,8 @@ class ProjectsResource(BaseResource, FullDetailsMixin):
 
         # Use base method to build params (DRY)
         params = self._build_list_params(
+            list_route="project",
+            fields_strict=fields_strict,
             filter=filter,
             limit=limit,
             page_after=page_after,

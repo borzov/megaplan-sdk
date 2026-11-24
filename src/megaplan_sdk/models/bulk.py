@@ -1,7 +1,7 @@
 """Models for the batch endpoint ``POST /api/v3/bulk`` (#FR-E)."""
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -75,3 +75,16 @@ class BulkCallResult(BaseModel):
             data=payload.get("data"),
             pagination=meta.get("pagination"),
         )
+
+
+class BulkEntitiesResult(BaseModel):
+    """Resolved entity cards and the links absent from the server response.
+
+    items carries full wire-format cards. missing contains distinct normalized
+    links with integer IDs. resolved_via maps (contentType, integer ID) to
+    'bulk' or 'get' for each resolved card.
+    """
+
+    items: list[dict[str, Any]]
+    missing: list[dict[str, Any]]
+    resolved_via: dict[tuple[str, int], Literal["bulk", "get"]]

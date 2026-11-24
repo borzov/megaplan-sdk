@@ -8,6 +8,8 @@
 
 Профессиональная Python-библиотека для работы с API Мегаплана версии 3.
 
+В версии 0.8.0 появились поиск по архиву задач, документы и поиск контрагентов по реквизитам плательщика. [Примеры вызовов](#возможности-080) · [Примечания к релизу](https://github.com/borzov/megaplan-sdk/releases/tag/v0.8.0).
+
 ## О проекте
 
 Современная библиотека для интеграции с CRM Мегаплан. Она предоставляет удобный и типобезопасный интерфейс для работы с задачами, проектами, сделками и другими сущностями через REST API.
@@ -1041,14 +1043,14 @@ deals = await client.deals.list(filter=filter_obj)
 - `result: str` - Результат (`"positive"`, `"negative"`, `null`)
 - `currency: BaseEntity` - Валюта
 - `deadline: str` - Срок
-- `description: str` - Описание (только в `deals.get()`, не в списке)
+- `description: str` - Описание (в списке запрашивается через `fields=["description"]`)
 - `tags: list[BaseEntity]` - Теги
 - `attaches: list[BaseEntity]` - Вложения
 - `time_created: str` - Дата создания (API поле `timeCreated`)
 - `time_updated: str` - Дата обновления (API поле `timeUpdated`)
 - `state_time_updated: str` - Дата последнего изменения статуса
 
-> **Примечание:** Поля `description`, `deadline` и пользовательские поля доступны только при запросе отдельной сделки через `deals.get(id)`, но не в списке.
+> Списочный маршрут принимает `description` и отклоняет `deadline`. Поддержка пользовательских полей зависит от аккаунта.
 
 **Важно:** При создании сделки обязательно указывать поле `program` (программа/схема сделки).
 
@@ -2249,28 +2251,15 @@ deals = await client.deals.list(filter=filter_obj)
 
 ### Поиск сотрудников
 
-Серверная фильтрация на эндпоинте `/employee` **не работает вообще**: `q` / `filter`
-молча игнорируются (200 OK), а `department_id` / `status` отвергаются (422). Начиная с
-0.4.1 эти параметры убраны из сигнатуры, и любая попытка их передать кидает
-`NotImplementedError`. Фильтруйте на клиенте:
+Обычный список на проверенном аккаунте возвращает работающих. Для общей выборки SDK обходит штатные фильтры `all` и `not_working`. Произвольные `filter`, `q`, `department_id` и `status` в employees.list вызывают `NotImplementedError`.
 
 ```python
-# Вызовет NotImplementedError
-# employees = await client.employees.list(q="Иван Иванов")
-# employees = await client.employees.list(department_id=1000004)
-
-# Рекомендуется: загрузить страницу и фильтровать локально
-employees = await client.employees.list(limit=500)
-working = [e for e in employees if e.is_working]                       # статус-поля #13
+employees = [e async for e in client.employees.iterate(include_dismissed=True)]
+working = [e for e in employees if e.is_working]
 by_dept = [e for e in employees if getattr(e.department, "id", None) == 1000004]
-
-# Или get_many по известным ID
-employees_map = await client.employees.get_many([123, 456])
 ```
 
-Полезные статус-поля `Employee` (без серверного фильтра): `is_working`,
-`fire_in_progress`, `can_login`, `status.name` («В штате»). Поля `isDropped` у
-`Employee` нет (в отличие от Task/Deal/Project).
+Доступные признаки — `is_working`, `fire_in_progress`, `can_login` и `status.name`. На проверенном аккаунте встречается работающий сотрудник с `can_login=False`.
 
 #### Текущий пользователь
 
@@ -2380,13 +2369,32 @@ updated = await client.payers.apply_update(
 
 [Полные примеры, аудит, конфликты и ограничения](examples/cookbook/contractor-profiles.md).
 
-### Ограничение архивного списка задач
+### Архив задач и размер страницы
 
-На проверенном аккаунте список задач без фильтра показывает активную выборку;
-архивный обход может пропускать карточки, доступные по прямому ID. Параметр
-statuses и термин status внутри фильтра имеют разное серверное поведение.
-SDK пока не предоставляет include_archive и не обещает полную выгрузку.
-При смешанной выдаче идентифицируйте записи по `(contentType, id)`.
+```python
+async for task in client.tasks.iterate(include_archive=True, statuses=["completed"], limit=100):
+    print(task.content_type, task.id)
+missing = await client.tasks.find_missing_in_archive(ids=known_task_ids)
+```
+
+У задач, сделок, контрагентов (общего списка и обоих подтипов), плательщиков и дел Todo максимальный размер страницы — 100. Для полного обхода используйте `iterate(limit=100)`. Обычный список задач показывает активную выборку, а архив может пропускать карточки, доступные по прямому ID. Задача и проект могут иметь одинаковый номер. Для проверки смешанных ссылок передавайте `links=[{"contentType": "Project", "id": project_id}, ...]`.
+
+### Возможности 0.8.0
+
+| Задача | Вызов |
+|---|---|
+| Проверить известные поля маршрута до HTTP | `await client.tasks.list(fields=["name", "activity"], fields_strict=True)` |
+| Включить уволенных в обход сотрудников | `client.employees.iterate(include_dismissed=True)` |
+| Получить документы папки с подпапками | `client.docs.iterate(folder_id, recursive=True)` |
+| Скачать актуальную версию | `await client.docs.download(doc)` |
+| Восстановить порядок смешанных ссылок и увидеть пропуски | `await client.get_entities_by_links(links)` |
+| Найти всех владельцев плательщиков по ИНН | `await client.contractors.find_by_inn(inn, kpp=kpp)` |
+| Обойти сделки заданных состояний | `client.deals.iterate(state_in=["Договор"])` |
+| Вставить HTML-упоминание в комментарий | `client.comments.mention(employee)` |
+
+Обычный режим fields пропускает неизвестные поля аккаунта и заранее отклоняет установленные ошибки. Сортировка задач и сделок по умолчанию — timeCreated по убыванию. Проекты сохраняют порядок сервера. Для дат задачи запрашивайте `timeCreated`, `activity` или `lastCommentTimeCreated`, для изменений сделки — `timeUpdated`. При разборе проекций `model_fields_set` позволяет отличить явно возвращённый null от отсутствующего поля.
+
+[Примеры запросов](examples/cookbook/list-and-document-queries.md) · [Ограничения сервера](docs/server-limitations.md)
 
 ### Нормализация BaseEntity
 
@@ -2424,7 +2432,7 @@ class MegaplanClient:
 ### Требования
 
 - Python 3.11+
-- httpx >= 0.25.0
+- httpx >= 0.26.0
 - pydantic >= 2.0.0
 
 ### Разработка
@@ -2452,14 +2460,14 @@ pytest --cov=megaplan_sdk --cov-report=html
 ### Проверка типов
 
 ```bash
-mypy megaplan_sdk
+mypy src/megaplan_sdk
 ```
 
 ### Линтинг
 
 ```bash
-ruff check megaplan_sdk
-ruff format megaplan_sdk
+ruff check src/megaplan_sdk
+ruff format src/megaplan_sdk
 ```
 
 ## Лицензия

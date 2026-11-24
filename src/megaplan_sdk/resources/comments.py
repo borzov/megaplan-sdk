@@ -4,16 +4,26 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import AsyncIterator
+from html import escape
 from typing import Any, Literal, overload
 
 from megaplan_sdk.constants import ContentType
 from megaplan_sdk.models.comment import Comment
+from megaplan_sdk.models.employee import Employee
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.base import BaseResource
 
 
 class CommentsResource(BaseResource):
     """Resource for working with comments."""
+
+    @staticmethod
+    def mention(employee: Employee) -> str:
+        """Format an employee as escaped mention HTML suitable for create(content=...)."""
+        if employee.id <= 0 or employee.content_type != ContentType.EMPLOYEE:
+            raise ValueError("A mention requires an Employee with a positive ID")
+        name = employee.name or employee.full_name()
+        return f'<megaplan:mention to="Employee/{employee.id}">{escape(name)}</megaplan:mention>'
 
     @overload
     async def create(

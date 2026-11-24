@@ -1,6 +1,7 @@
 """Unit tests for ContractorsResource."""
 
 import json
+from typing import Any
 from urllib.parse import unquote
 
 import pytest
@@ -275,3 +276,166 @@ async def test_search_history_skips_the_lookup_when_content_type_is_known(
 
     assert route.called
     assert not lookup.called
+
+
+def _payer(
+    payer_id: int,
+    owner: str,
+    owner_id: int,
+    inn: str = "0123456789",
+    kpp: str | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "contentType": "Payer",
+        "id": payer_id,
+        "inn": inn,
+        "kpp": kpp,
+        "contractor": {"contentType": owner, "id": owner_id},
+        **extra,
+    }
+
+
+async def test_find_by_inn_checks_each_payer_before_deduplicating(megaplan_api):
+    from megaplan_sdk import MegaplanClient
+
+    company = _payer(1, "ContractorCompany", 10, kpp="A")
+    other = _payer(2, "ContractorCompany", 10, inn="012345678901", kpp="C")
+    fillers = [{"contentType": "Payer", "id": i} for i in range(3, 101)]
+    second = [
+        _payer(101, "ContractorHuman", 20, kpp="A"),
+        _payer(102, "ContractorCompany", 10, kpp="B"),
+        _payer(103, "ContractorCompany", 30, isDropped=True),
+    ]
+    scan = megaplan_api.router.get(f"{megaplan_api.base_url}/api/v3/payer").mock(
+        side_effect=[
+            Response(200, json={"data": page}) for page in [[company, other, *fillers], second]
+        ]
+    )
+    for segment, owner in [("contractorCompany", company), ("contractorHuman", second[0])]:
+        link = owner["contractor"]
+        megaplan_api.get(f"{segment}/{link['id']}", data={**link, "name": "Example"})
+    async with MegaplanClient(megaplan_api.base_url, access_token="test") as client:
+        lookup = client.contractors.find_by_inn
+        assert [x.content_type for x in await lookup(" 01234 56789 ")] == [
+            "ContractorCompany",
+            "ContractorHuman",
+        ]
+        assert [x.id for x in await lookup("0123456789", "B")] == [10]
+        assert await lookup("0123456789", "C") == []
+        assert await lookup("9999999999") == []
+        assert [x.id for x in await lookup("012345678901", "C")] == [10]
+    assert scan.call_count == 2
+    assert json.loads(unquote(scan.calls[1].request.url.query.decode()))["pageAfter"]["id"] == 100
+
+
+@pytest.mark.parametrize(
+    "inn", ["", "123456789", "12345678901", "１２３４５６７８９０", "012345-6789"]
+)
+async def test_find_by_inn_rejects_invalid_input(contractors, inn):
+    with pytest.raises(ValueError, match="INN"):
+        await contractors.find_by_inn(inn)
+
+
+@pytest.mark.parametrize("cache_config", [{"enable_cache": False}, {"cache_ttl": 0}, {}])
+async def test_inn_index_respects_cache_settings_and_clear(megaplan_api, cache_config):
+    from megaplan_sdk import MegaplanClient
+
+    scan = megaplan_api.get("payer", data=[])
+    async with MegaplanClient(megaplan_api.base_url, access_token="test", **cache_config) as client:
+        assert await client.contractors.find_by_inn("0123456789") == []
+        if not cache_config:
+            client.clear_cache()
+        assert await client.contractors.find_by_inn("0123456789") == []
+    assert scan.call_count == 2
+
+
+async def test_failed_payer_page_does_not_cache_partial_inn_index(megaplan_api):
+    from megaplan_sdk import MegaplanClient, ServerError
+
+    first = [_payer(i, "ContractorCompany", 10) for i in range(1, 101)]
+    scan = megaplan_api.router.get(f"{megaplan_api.base_url}/api/v3/payer").mock(
+        side_effect=[
+            Response(200, json={"data": first}),
+            Response(503),
+            Response(200, json={"data": []}),
+        ]
+    )
+    async with MegaplanClient(megaplan_api.base_url, access_token="test", max_retries=0) as client:
+        with pytest.raises(ServerError):
+            await client.contractors.find_by_inn("0123456789")
+        assert await client.contractors.find_by_inn("0123456789") == []
+    assert scan.call_count == 3
+
+
+async def test_inn_index_invalidated_by_payer_write(megaplan_api):
+    from megaplan_sdk import MegaplanClient
+
+    original = _payer(1, "ContractorHuman", 10)
+    updated = {**original, "inn": "012345678901"}
+    scan = megaplan_api.router.get(f"{megaplan_api.base_url}/api/v3/payer").mock(
+        side_effect=[Response(200, json={"data": [row]}) for row in (original, updated)]
+    )
+    megaplan_api.get("payer/1", data=original)
+    megaplan_api.post("payer/1", data=updated)
+    megaplan_api.get("contractorHuman/10", data=original["contractor"])
+    async with MegaplanClient(megaplan_api.base_url, access_token="test") as client:
+        assert [x.id for x in await client.contractors.find_by_inn("0123456789")] == [10]
+        await client.payers.update(1, {"inn": updated["inn"]})
+        assert await client.contractors.find_by_inn("0123456789") == []
+        assert [x.id for x in await client.contractors.find_by_inn(updated["inn"])] == [10]
+    assert scan.call_count == 2
+
+
+async def test_clear_during_scan_prevents_publishing_an_obsolete_inn_index(megaplan_api):
+    import asyncio
+
+    from megaplan_sdk import MegaplanClient
+
+    started = asyncio.Event()
+    resume = asyncio.Event()
+    first = True
+
+    async def list_payers(request):
+        nonlocal first
+        if first:
+            first = False
+            started.set()
+            await resume.wait()
+            return Response(200, json={"data": [_payer(1, "ContractorHuman", 10)]})
+        return Response(200, json={"data": []})
+
+    route = megaplan_api.router.get(f"{megaplan_api.base_url}/api/v3/payer").mock(
+        side_effect=list_payers
+    )
+    megaplan_api.get("contractorHuman/10", data={"contentType": "ContractorHuman", "id": 10})
+    async with MegaplanClient(megaplan_api.base_url, access_token="test") as client:
+        pending = asyncio.create_task(client.contractors.find_by_inn("0123456789"))
+        await started.wait()
+        client.clear_cache_type("Payer")
+        resume.set()
+        await pending
+        assert await client.contractors.find_by_inn("0123456789") == []
+    assert route.call_count == 2
+
+
+async def test_inn_index_discards_an_ambiguous_payer_write(megaplan_api):
+    import httpx
+
+    from megaplan_sdk import MegaplanClient
+
+    original = _payer(1, "ContractorHuman", 10)
+    scan = megaplan_api.router.get(f"{megaplan_api.base_url}/api/v3/payer").mock(
+        side_effect=[Response(200, json={"data": []}), Response(200, json={"data": [original]})]
+    )
+    megaplan_api.get("payer/1", data={**original, "inn": ""})
+    megaplan_api.get("contractorHuman/10", data=original["contractor"])
+    megaplan_api.router.post(f"{megaplan_api.base_url}/api/v3/payer/1").mock(
+        side_effect=httpx.ReadTimeout("ambiguous write")
+    )
+    async with MegaplanClient(megaplan_api.base_url, access_token="test") as client:
+        assert not await client.contractors.find_by_inn("0123456789")
+        with pytest.raises(httpx.ReadTimeout):
+            await client.payers.update(1, {"inn": "0123456789"})
+        assert [x.id for x in await client.contractors.find_by_inn("0123456789")] == [10]
+    assert scan.call_count == 2

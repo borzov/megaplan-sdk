@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import builtins
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from os import PathLike
 from typing import Any, Literal, overload
 
+from megaplan_sdk.cache import EntityCache
 from megaplan_sdk.models.payer import Payer, PayerCreate, PayerPatch
 from megaplan_sdk.models.update import UpdatePreview
 from megaplan_sdk.pagination import Page
 from megaplan_sdk.resources.base import BaseResource
 from megaplan_sdk.updates import apply_update, normalize_patch, prepare_update
+
+
+@contextmanager
+def invalidate_payer_cache(cache: EntityCache | None) -> Iterator[None]:
+    """Discard payer lookups after a write, including an unknown write outcome."""
+    try:
+        yield
+    finally:
+        if cache is not None:
+            cache.clear_type("Payer")
 
 
 class PayersResource(BaseResource):
@@ -29,6 +41,8 @@ class PayersResource(BaseResource):
         fields: Any | None = None,
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
+        *,
+        fields_strict: bool = False,
     ) -> list[Payer]:
         """List payers without assuming server-side INN filtering.
 
@@ -38,6 +52,7 @@ class PayersResource(BaseResource):
             page_before: Cursor before the requested page.
             page_with: Payer to include in the page.
             page: Page position replacing cursor parameters.
+            fields_strict: Require fields confirmed on this list route.
             fields: Additional fields.
             sort_by: Sort rules.
             only_requested_fields: Return only requested fields.
@@ -46,6 +61,8 @@ class PayersResource(BaseResource):
             Typed payers; unrequested fields can be absent.
         """
         params = self._build_list_params(
+            list_route="payer",
+            fields_strict=fields_strict,
             limit=limit,
             page_after=page_after,
             page_before=page_before,
@@ -102,7 +119,8 @@ class PayersResource(BaseResource):
         if isinstance(payload.get("country"), dict):
             payload["country"].setdefault("contentType", "Country")
         path = self._build_path("api", "v3", "contractor", str(contractor_id), "payers")
-        response = await self._http.post(path, json_data=payload, retry_on_error=False)
+        with invalidate_payer_cache(self._cache):
+            response = await self._http.post(path, json_data=payload, retry_on_error=False)
         return Payer.model_validate(response["data"])
 
     @overload
@@ -148,7 +166,8 @@ class PayersResource(BaseResource):
         if dry_run:
             return preview
         payload = {**preview.patch, "contentType": "Payer"}
-        response = await self._http.post(path, json_data=payload, retry_on_error=False)
+        with invalidate_payer_cache(self._cache):
+            response = await self._http.post(path, json_data=payload, retry_on_error=False)
         return Payer.model_validate(response["data"])
 
     async def apply_update(
@@ -177,15 +196,16 @@ class PayersResource(BaseResource):
             The final GET and POST are not atomic; there is no server lock.
         """
         path = self._build_path("api", "v3", "payer", str(preview.entity_id))
-        response = await apply_update(
-            self._http,
-            path,
-            preview,
-            PayerPatch,
-            ("Payer",),
-            audit_path,
-            actor,
-        )
+        with invalidate_payer_cache(self._cache):
+            response = await apply_update(
+                self._http,
+                path,
+                preview,
+                PayerPatch,
+                ("Payer",),
+                audit_path,
+                actor,
+            )
         return Payer.model_validate(response["data"])
 
     async def delete(self, payer_id: int) -> None:
@@ -197,7 +217,8 @@ class PayersResource(BaseResource):
         Note:
             This calls the server deletion endpoint; it is not a preview.
         """
-        await self._delete_entity("payer", payer_id)
+        with invalidate_payer_cache(self._cache):
+            await self._delete_entity("payer", payer_id)
 
     async def extra_fields(
         self,

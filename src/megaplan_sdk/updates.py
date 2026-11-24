@@ -28,6 +28,7 @@ _REFERENCE_FIELDS = {
     "partners",
     "competitors",
     "country",
+    "contractor",
     "tags",
 }
 
@@ -86,6 +87,8 @@ def _snapshot(source: dict[str, Any], model: type[BaseModel]) -> dict[str, Any]:
     keys = {item.alias or name for name, item in model.model_fields.items()}
     keys.update(key for key in source if _CUSTOM_FIELD.fullmatch(key))
     keys.update(("timeUpdated", "isDropped", "mergeInProgress"))
+    if source.get("contentType") == "Payer":
+        keys.add("contractor")
     return {
         key: _canonical(source[key], reference=key in _REFERENCE_FIELDS)
         for key in keys
@@ -174,6 +177,8 @@ async def apply_update(
     """Recheck the source state, persist intent, then send one reviewed POST.
 
     This is optimistic client-side checking, not an atomic server lock.
+    Once the patch changes the stored fields, replaying the same preview raises
+    UpdateConflictError. Read the current card and prepare a fresh preview.
     Network/5xx retries are disabled because the write outcome can be unknown.
     """
     if not actor.strip():

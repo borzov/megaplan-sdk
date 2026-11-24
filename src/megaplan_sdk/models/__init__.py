@@ -1,9 +1,11 @@
 """Models for Megaplan SDK."""
 
 from megaplan_sdk.models.base import BaseEntity
+from megaplan_sdk.models.bulk import BulkEntitiesResult
 from megaplan_sdk.models.common import File, Meta, Pagination, SortField
 from megaplan_sdk.models.contact import Address, ContactInfo
 from megaplan_sdk.models.deal import Deal, ProgramState, TradeFilter
+from megaplan_sdk.models.doc import Doc, DocContent, DocFolder, DocVersion
 from megaplan_sdk.models.group import Group
 from megaplan_sdk.models.knowledge import (
     KnowledgeArticle,
@@ -39,6 +41,11 @@ __all__ = [
     "Deal",
     "TradeFilter",
     "ProgramState",
+    "BulkEntitiesResult",
+    "Doc",
+    "DocContent",
+    "DocFolder",
+    "DocVersion",
     "Group",
     "Participant",
     "parse_participant",

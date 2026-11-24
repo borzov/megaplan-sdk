@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from megaplan_sdk.constants import ContentType
+from megaplan_sdk.exceptions import MegaplanError
 from megaplan_sdk.logging_config import logger
 from megaplan_sdk.models.department import Department
 from megaplan_sdk.models.employee import Employee
@@ -51,10 +52,6 @@ class EmployeesResource(BaseResource):
         """
         return await self._create_entity("employee", employee_data, Employee)
 
-    # No server-side filtering works on /api/v3/employee: filter/q are accepted
-    # (200 OK) but silently ignored (#13), while department/status are hard-
-    # rejected with 422 (#26/#27). These params are intentionally absent from
-    # the signature (#28); any attempt is caught below with clear guidance.
     _UNSUPPORTED_FILTER_PARAMS = ("filter", "q", "department_id", "status", "department")
 
     async def list(
@@ -68,22 +65,25 @@ class EmployeesResource(BaseResource):
         sort_by: list[dict[str, str]] | None = None,
         only_requested_fields: bool | None = None,
         expand: list[str] | None = None,
+        *,
+        include_dismissed: bool = False,
+        fields_strict: bool = False,
         **unsupported: Any,
     ) -> list[Employee]:
         """Get list of employees.
 
-        Server-side filtering on ``/api/v3/employee`` does not work at all
-        (#13/#26/#27/#28): ``filter``/``q`` are accepted with 200 OK but
-        silently ignored, and ``department``/``status`` are rejected with 422.
-        Passing any of them raises ``NotImplementedError`` with guidance to
-        filter client-side instead.
+        The default directory lists current staff. With include_dismissed=True
+        the SDK walks the account's all and not_working directories, in that order.
+        Use page_after for continuation or iterate() for a full traversal.
 
         Args:
+            include_dismissed: Include former staff using the named employee filters.
             limit: Number of items per page.
             page_after: Load page starting from this entity.
             page_before: Load page strictly before this entity.
             page_with: Load page containing this entity.
             page: Page position (replaces page_after/page_before/page_with).
+            fields_strict: Require fields confirmed on this list route.
             fields: Additional fields to include.
             sort_by: Sort fields.
             only_requested_fields: Return only requested fields.
@@ -99,12 +99,11 @@ class EmployeesResource(BaseResource):
 
         Raises:
             NotImplementedError: If any server-side filter param is provided
-                (the endpoint has no working filter — raise loudly to prevent
-                silent wrong results).
+                (arbitrary filter configurations and free-text search are unsupported).
 
         Examples:
-            >>> # No server filter; fetch a page and filter client-side
-            >>> employees = await client.employees.list(limit=500)
+            >>> # Scan all pages and filter client-side
+            >>> employees = [e async for e in client.employees.iterate(limit=100)]
             >>> working = [e for e in employees if e.is_working]
             >>> dept = [e for e in employees if getattr(e.department, "id", None) == 1000004]
             >>>
@@ -116,17 +115,16 @@ class EmployeesResource(BaseResource):
         if unsupported:
             bad = ", ".join(sorted(unsupported))
             raise NotImplementedError(
-                f"Server-side filtering on /api/v3/employee is not supported "
-                f"(got: {bad}). The endpoint ignores filter/q (200 OK, no effect) "
-                f"and 422s on department/status. Fetch `.list(limit=500)` and "
-                f"filter client-side, e.g. `[e for e in emps if e.is_working]`. "
-                f"(#13/#26/#27/#28)"
+                f"Unsupported employee filters: {bad}. Use include_dismissed=True for "
+                "the combined staff directory, or filter the result of iterate() locally."
             )
 
         path = self._build_path("api", "v3", "employee")
 
         # Use base method to build params (DRY)
         params = self._build_list_params(
+            list_route="employee",
+            fields_strict=fields_strict,
             limit=limit,
             page_after=page_after,
             page_before=page_before,
@@ -137,8 +135,87 @@ class EmployeesResource(BaseResource):
             only_requested_fields=only_requested_fields,
         )
 
+        if include_dismissed:
+            page_limit = 100 if limit is None else limit
+            rows: list[Employee] = []
+            async for employee in self._iterate_staff(params or {}, expand):
+                rows.append(employee)
+                if len(rows) == page_limit:
+                    break
+            return rows
+
         employees = await self._get_list(path, Employee, params)
         return await self._expand_references(employees, expand)
+
+    async def _iterate_staff(
+        self, params: dict[str, Any], expand: list[str] | None
+    ) -> AsyncIterator[Employee]:
+        """Walk both directories once, applying a public cursor to the combined order."""
+        params = dict(params)
+        if any(params.get(k) for k in ("pageBefore", "pageWith", "sortBy")):
+            raise ValueError("include_dismissed supports page_after in directory order")
+        after = params.pop("pageAfter", None)
+        if after is not None and (
+            not isinstance(after, dict)
+            or after.get("contentType") != "Employee"
+            or not isinstance(after.get("id"), int)
+        ):
+            raise ValueError("page_after must identify an Employee")
+        waiting_for = after["id"] if after else None
+        size = min(100, params.get("limit", 100))
+        if size < 1:
+            raise ValueError("limit must be positive")
+        size = 100 if after else size
+        params["limit"] = size
+
+        # Some installations silently ignore an unknown saved filter. Check the
+        # catalogue before yielding even one row of the combined result.
+        path = self._build_path("api", "v3", "employeeFilter")
+        filters: dict[str, Any] = {"limit": 100}
+        available: set[str] = set()
+        filter_cursors: set[str] = set()
+        while not {"all", "not_working"}.issubset(available):
+            entries = self._parse_list_response(await self._http.get(path, params=filters))
+            available.update(str(r["id"]) for r in entries)
+            if len(entries) < 100:
+                break
+            last = str(entries[-1]["id"])
+            if last in filter_cursors:
+                raise MegaplanError("Repeated employeeFilter pagination cursor")
+            filter_cursors.add(last)
+            filters["pageAfter"] = {"contentType": "EmployeeFilter", "id": last}
+        if not {"all", "not_working"}.issubset(available):
+            raise NotImplementedError("Employee directories all and not_working are required")
+
+        seen: set[int] = set()
+        for group in ("all", "not_working"):
+            query = {**params, "filter": {"contentType": "EmployeeFilter", "id": group}}
+            cursors: set[int] = set()
+            while True:
+                rows = await self._get_list(
+                    self._build_path("api", "v3", "employee"), Employee, query
+                )
+                visible = []
+                for employee in rows:
+                    if employee.id in seen:
+                        continue
+                    seen.add(employee.id)
+                    if waiting_for is not None:
+                        if employee.id == waiting_for:
+                            waiting_for = None
+                        continue
+                    visible.append(employee)
+                for employee in await self._expand_references(visible, expand):
+                    yield employee
+                if len(rows) < size:
+                    break
+                last_id = rows[-1].id
+                if last_id in cursors:
+                    raise MegaplanError("Repeated employee directory cursor")
+                cursors.add(last_id)
+                query["pageAfter"] = {"contentType": "Employee", "id": last_id}
+        if waiting_for is not None:
+            raise ValueError("page_after employee is absent from both directories")
 
     async def get(self, employee_id: int) -> Employee:
         """Get employee by ID.
@@ -218,12 +295,15 @@ class EmployeesResource(BaseResource):
     async def iterate(
         self,
         limit: int = 100,
+        *,
+        include_dismissed: bool = False,
         **kwargs: Any,
     ) -> AsyncIterator[Employee]:
         """Iterate over all employees with automatic pagination.
 
         Args:
             limit: Number of items per page.
+            include_dismissed: Walk both current and former employees.
             **kwargs: Additional parameters to pass to list().
 
         Yields:
@@ -233,6 +313,27 @@ class EmployeesResource(BaseResource):
             >>> async for employee in client.employees.iterate(limit=100):
             ...     print(f"{employee.first_name} {employee.last_name}")
         """
+        if include_dismissed:
+            expand = kwargs.pop("expand", None)
+            allowed = {
+                "fields_strict",
+                "fields",
+                "page",
+                "page_after",
+                "page_before",
+                "page_with",
+                "sort_by",
+                "only_requested_fields",
+            }
+            unknown = kwargs.keys() - allowed
+            if unknown:
+                raise NotImplementedError(
+                    f"Unsupported employee filters: {', '.join(sorted(unknown))}"
+                )
+            params = self._build_list_params(list_route="employee", limit=limit, **kwargs)
+            async for employee in self._iterate_staff(params or {}, expand):
+                yield employee
+            return
         employee: Employee
         async for employee in self._iterate_generic(  # type: ignore[valid-type]
             ContentType.EMPLOYEE,

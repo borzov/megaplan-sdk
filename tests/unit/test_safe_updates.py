@@ -2,13 +2,14 @@
 
 import asyncio
 import json
+from typing import Any
 
 import httpx
 import pytest
 from httpx import Response
 
 
-def card(**fields):
+def card(**fields: Any) -> dict[str, Any]:
     return {"id": 1, "contentType": "ContractorCompany", "name": "Before", **fields}
 
 
@@ -150,7 +151,8 @@ async def test_audit_failure_after_post_reports_changed_server(
 async def test_legacy_update_remains_direct_and_permissive(contractors, megaplan_api):
     route = megaplan_api.post("contractor/1", data=card(inn="old"))
     result = await contractors.update(1, {"inn": "old"})
-    assert result.inn == "old"
+    with pytest.warns(DeprecationWarning, match="payers"):
+        assert result.inn == "old"
     assert json.loads(route.calls[0].request.content) == {"inn": "old"}
 
 
@@ -211,3 +213,39 @@ async def test_cancelled_post_records_unknown_outcome(contractors, megaplan_api,
     assert len(records) == 2
     assert records[1]["error_type"] == "CancelledError"
     assert records[1]["outcome"] == "unknown"
+
+
+async def test_apply_same_preview_twice_posts_once(contractors, megaplan_api, tmp_path):
+    from megaplan_sdk.exceptions import UpdateConflictError
+
+    megaplan_api.router.get(f"{megaplan_api.base_url}/api/v3/contractor/1").mock(
+        side_effect=[
+            Response(200, json={"data": state}) for state in (card(), card(), card(name="After"))
+        ]
+    )
+    post = megaplan_api.post("contractorCompany/1", data=card(name="After"))
+    preview = await contractors.update(1, {"name": "After"}, dry_run=True)
+    await contractors.apply_update(preview, audit_path=tmp_path / "audit", actor="tester")
+    with pytest.raises(UpdateConflictError):
+        await contractors.apply_update(preview, audit_path=tmp_path / "audit", actor="tester")
+    assert post.call_count == 1
+
+
+async def test_payer_apply_rechecks_the_concrete_owner(megaplan_api, tmp_path):
+    from megaplan_sdk import MegaplanClient, UpdateConflictError
+
+    before = {
+        "contentType": "Payer",
+        "id": 7,
+        "contractor": {"contentType": "ContractorCompany", "id": 8},
+    }
+    after = {**before, "contractor": {"contentType": "ContractorHuman", "id": 8}}
+    megaplan_api.get("payer/7").mock(
+        side_effect=[Response(200, json={"data": row}) for row in (before, after)]
+    )
+    post = megaplan_api.post("payer/7", data=after)
+    async with MegaplanClient(megaplan_api.base_url, access_token="test") as client:
+        preview = await client.payers.update(7, {"bank": "New"}, dry_run=True)
+        with pytest.raises(UpdateConflictError):
+            await client.payers.apply_update(preview, audit_path=tmp_path / "audit", actor="tester")
+    assert not post.called

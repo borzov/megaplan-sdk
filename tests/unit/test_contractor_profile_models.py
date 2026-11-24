@@ -276,12 +276,23 @@ def test_company_keeps_deprecated_requisite_declarations():
         }
     )
 
-    assert company.inn == "7700000000"
-    assert company.kpp == "770001001"
-    assert company.ogrn == "1027700000000"
-    assert company.legal_name == "Acme LLC"
-    assert company.legal_address == "Legal"
-    assert company.actual_address == "Actual"
+    wire = company.model_dump(by_alias=True, exclude_unset=True)
+    for attr, alias, expected in [
+        ("inn", "inn", "7700000000"),
+        ("kpp", "kpp", "770001001"),
+        ("ogrn", "ogrn", "1027700000000"),
+        ("legal_name", "legalName", "Acme LLC"),
+        ("legal_address", "legalAddress", "Legal"),
+        ("actual_address", "actualAddress", "Actual"),
+    ]:
+        with pytest.warns(DeprecationWarning, match="payers"):
+            assert getattr(company, attr) == expected
+        with pytest.warns(DeprecationWarning, match="payers"):
+            assert company[alias] == expected
+        assert wire[alias] == expected
+    assert (
+        ContractorCompany.model_validate(wire).model_dump(by_alias=True, exclude_unset=True) == wire
+    )
 
 
 def test_missing_payers_stay_missing_rather_than_an_empty_list():
@@ -294,3 +305,23 @@ def test_missing_payers_stay_missing_rather_than_an_empty_list():
     assert omitted.payers is None
     assert empty.payers == []
     assert omitted.merge_in_progress is None
+
+
+@pytest.mark.parametrize(
+    "payers",
+    [
+        {},
+        {"payers": []},
+        {
+            "payers": [
+                {"contentType": "Payer", "id": 2, "inn": "0123456789"},
+                {"contentType": "Payer", "id": 3, "inn": "9876543210"},
+            ]
+        },
+    ],
+)
+def test_legacy_company_inn_never_selects_a_payer(payers):
+    company = ContractorCompany.model_validate({"id": 1, **payers})
+    with pytest.warns(DeprecationWarning, match="payers"):
+        assert company.inn is None
+    assert company.model_dump(by_alias=True, exclude_unset=True) == {"id": 1, **payers}

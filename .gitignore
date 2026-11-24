@@ -74,8 +74,9 @@ megaplan-sdk-issues.md
 examples/real_tests/collect_api_responses.py
 examples/real_tests/temp_api_responses/
 
-# Documentation (local only)
-docs/
+# Local documentation, except the public API limitations reference
+docs/*
+!docs/server-limitations.md
 
 # Local worktrees
 .worktrees/

@@ -6,6 +6,7 @@ with list() methods for text search and filtering.
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 
@@ -573,6 +574,18 @@ class FilterBuilder:
         """
         if self._current_field is None:
             raise ValueError("field() or field_*() must be called before adding a condition")
+
+        if (
+            self._content_type == "TaskFilter"
+            and term_type == "string"
+            and self._current_field in {"description", "textStatement", "subject"}
+        ):
+            warnings.warn(
+                f"Megaplan can ignore task text filters on {self._current_field!r}; "
+                "use name or statement.",
+                UserWarning,
+                stacklevel=3,
+            )
 
         term_content_type_map = {
             "string": "FilterTermString",

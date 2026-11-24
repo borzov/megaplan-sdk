@@ -72,3 +72,25 @@ async def test_raw_without_query_sends_no_query_string(megaplan_api, client):
     await client.raw("GET", "/api/v3/notification/counter")
 
     assert route.calls[0].request.url.query == b""
+
+
+async def test_raw_payer_write_invalidates_cached_scan_on_ambiguous_failure(megaplan_api, client):
+    cache = client._cache
+    cache.set("Payer", None, {"old": []})
+    client._http.max_retries = 0
+    megaplan_api.post("payer/1", status=500)
+    from megaplan_sdk import ServerError
+
+    with pytest.raises(ServerError):
+        await client.raw("POST", "/api/v3/payer/1", json={"name": "new"})
+    assert cache.get("Payer", None) is None
+
+
+async def test_bulk_write_invalidates_payer_index_but_reads_reuse_it(megaplan_api, client):
+    cache = client._cache
+    cache.set("Payer", None, {"old": []})
+    megaplan_api.post("bulk", data=[])
+    await client.bulk([{"method": "GET", "url": "/api/v3/payer/1"}])
+    assert cache.get("Payer", None) is not None
+    await client.bulk([{"method": "DELETE", "url": "/api/v3/contractorHuman/5"}])
+    assert cache.get("Payer", None) is None
